@@ -1,0 +1,245 @@
+@use 'tokens' as *;
+
+// =============================================================================
+// Global styles + CSS custom properties (design tokens exposed to all comps)
+//
+// Layout model
+// ------------
+// The app is *not* framed as a phone. It is one responsive product:
+//   · < 1024px  → mobile/tablet: full-bleed, floating bottom tab bar (Figma UI)
+//   · >= 1024px → desktop: centered app surface capped at --app-max-width,
+//                 left side nav, content capped at --content-max, and the whole
+//                 thing is viewport-height with internal scrolling so screens
+//                 never grow into one very long page.
+// The desktop breakpoint is 1024px everywhere — search for it when tuning.
+// =============================================================================
+
+:root {
+  // Brand
+  --ink: #{$ink};
+  --paper: #{$paper};
+  --paper-raised: #{$paper-raised};
+  --white: #{$white};
+  --black: #{$black};
+
+  // Accents
+  --rose: #{$rose};
+  --rose-25: #{$rose-25};
+  --orange: #{$orange};
+  --orange-16: #{$orange-16};
+  --violet-28: #{$violet-28};
+  --violet-45: #{$violet-45};
+
+  // Flame
+  --flame-ember: #{$flame-ember};
+  --flame-core: #{$flame-core};
+  --flame-gradient: linear-gradient(90deg, #{$flame-ember}, #{$orange}, #{$flame-core});
+
+  // Greys
+  --grey-18: #{$grey-18};
+  --grey-50: #{$grey-50};
+
+  // Radii
+  --radius-sm: #{$radius-sm};
+  --radius-md: #{$radius-md};
+  --radius-card: #{$radius-card};
+  --radius-lg: #{$radius-lg};
+  --radius-pill: #{$radius-pill};
+
+  // Spacing
+  --space-2: #{$space-2};
+  --space-4: #{$space-4};
+  --space-8: #{$space-8};
+  --space-12: #{$space-12};
+  --space-16: #{$space-16};
+  --space-20: #{$space-20};
+  --space-24: #{$space-24};
+  --space-32: #{$space-32};
+
+  // Type
+  --font-display: #{$font-display};
+  --font-eyebrow: #{$font-eyebrow};
+  --font-body: #{$font-body};
+  --font-data: #{$font-data};
+
+  // Elevation
+  --shadow-card: #{$shadow-card};
+  --shadow-raised: #{$shadow-raised};
+  --shadow-glow: #{$shadow-glow};
+  --shadow-hero: #{$shadow-hero};
+
+  // --- App chrome sizing ----------------------------------------------------
+  // Widest the whole app surface ever gets on a big monitor.
+  --app-max-width: 1280px;
+  // Widest the *reading column* inside a screen gets, so lines stay readable
+  // even when the surface is at full width.
+  --content-max: 1040px;
+  // Narrow single-column flows (auth, onboarding, setup steps) on desktop.
+  --flow-max: 600px;
+  // Focused full-screen flows (an active workout) on desktop.
+  --focus-max: 880px;
+
+  // Space above the first thing on a screen. Larger than the Figma's 14px
+  // because there is no OS status bar occupying that strip any more, plus the
+  // notch inset on an installed PWA.
+  --screen-pad-top: calc(24px + env(safe-area-inset-top, 0px));
+
+  --sidenav-width: 252px;
+  --tabbar-height: 84px;
+  // Space the composer / docked footers reserve for the mobile tab bar.
+  --tabbar-gutter: var(--tabbar-height);
+
+  // The area beside the app surface on wide monitors. Deliberately identical to
+  // the screen background so the capped content column never reads as a seam.
+  --app-backdrop: var(--paper);
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --tabbar-gutter: 16px;
+    // The desktop layout supplies its own gutter.
+    --screen-pad-top: 0px;
+  }
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body,
+#__nuxt {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--ink);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+input,
+textarea,
+select {
+  font-family: inherit;
+}
+
+// --- Reusable text helpers used across screens -----------------------------
+.eyebrow {
+  font-family: var(--font-eyebrow);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--rose);
+}
+
+.display-xl {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 34px;
+  line-height: 1.05;
+  letter-spacing: -0.5px;
+  color: var(--ink);
+}
+
+.display-lg {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 26px;
+  line-height: 1.08;
+  letter-spacing: -0.4px;
+  color: var(--ink);
+}
+
+.display-md {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 19px;
+  line-height: 1.15;
+  color: var(--ink);
+}
+
+.data {
+  font-family: var(--font-data);
+}
+
+.muted {
+  color: var(--violet-45);
+}
+
+// Headings get a little more presence on a desktop screen.
+@media (min-width: 1024px) {
+  .display-xl {
+    font-size: 42px;
+  }
+  .display-lg {
+    font-size: 32px;
+  }
+  .display-md {
+    font-size: 21px;
+  }
+}
+
+// A subtle rose glow used behind hero elements
+.glow-rose {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(200, 30, 92, 0.35), transparent 70%);
+  pointer-events: none;
+  filter: blur(4px);
+}
+
+// Nice, momentum-friendly scrolling inside screens. Scrollbars are hidden on
+// touch (they overlay content) but shown, slimmed down, on desktop where a
+// pointer needs the affordance.
+.scroll-y {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@media (min-width: 1024px) {
+  .scroll-y {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(36, 27, 46, 0.2) transparent;
+
+    &::-webkit-scrollbar {
+      display: block;
+      width: 10px;
+    }
+    &::-webkit-scrollbar-thumb {
+      background: rgba(36, 27, 46, 0.18);
+      border-radius: 999px;
+      border: 3px solid transparent;
+      background-clip: content-box;
+    }
+    &::-webkit-scrollbar-thumb:hover {
+      background: rgba(36, 27, 46, 0.32);
+      background-clip: content-box;
+    }
+    &::-webkit-scrollbar-track {
+      background: transparent;
+    }
+  }
+}
