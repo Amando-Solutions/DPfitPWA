@@ -1,13 +1,5 @@
 <script setup lang="ts">
-// Icon set.
-//
-// Anything in `assets/icons/` is the SVG exported straight from Figma — the
-// path data is verbatim, only the baked stroke/fill colour is swapped for
-// `currentColor` so a single glyph can be tinted per context. Two-tone brand
-// icons (the flame) keep their own colours.
-//
-// The handful of glyphs the design never exported fall back to the inline set
-// at the bottom; they are marked so it is obvious which are not from Figma.
+
 const props = withDefaults(
   defineProps<{
     name: string
@@ -74,6 +66,10 @@ const fallbacks: Record<string, string> = {
     '<rect x="4" y="5" width="16" height="16" rx="2"/><path d="M4 9h16M8 3v4M16 3v4"/>',
   image:
     '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m4 18 5-5 4 4 3-3 4 4"/>',
+  paperclip:
+    '<path d="M20.4 11.6 12.5 19.5a5 5 0 0 1-7.1-7.1l8.3-8.3a3.3 3.3 0 0 1 4.7 4.7l-8.2 8.3a1.7 1.7 0 0 1-2.4-2.4l7.5-7.5"/>',
+  file:
+    '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z"/><path d="M14 3v5h5"/>',
   target:
     '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4"/>',
   send: '<path d="M4 12 20 4l-6 16-3-7-7-1Z"/>',

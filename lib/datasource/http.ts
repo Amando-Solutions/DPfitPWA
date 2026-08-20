@@ -2,6 +2,7 @@ import { DataSourceError, type DataSource } from './types'
 import type {
   ActiveSession,
   AppNotification,
+  ChatAttachment,
   ChatMessage,
   CheckInRecord,
   MemberAccount,
@@ -131,10 +132,10 @@ export class HttpDataSource implements DataSource {
     return this.request<ChatMessage[]>(`/threads/${threadId}/messages`)
   }
 
-  sendMessage(threadId: 'cohort' | 'coach', text: string) {
+  sendMessage(threadId: 'cohort' | 'coach', text: string, attachments: ChatAttachment[] = []) {
     return this.request<ChatMessage>(`/threads/${threadId}/messages`, {
       method: 'POST',
-      body: { text },
+      body: { text, attachments },
     })
   }
 

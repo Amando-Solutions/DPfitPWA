@@ -1,6 +1,7 @@
 import type {
   ActiveSession,
   AppNotification,
+  ChatAttachment,
   ChatMessage,
   CheckInRecord,
   MemberAccount,
@@ -56,7 +57,12 @@ export interface DataSource {
 
   // --- Chat ------------------------------- GET/POST /threads/:id/messages --
   listMessages(threadId: 'cohort' | 'coach'): Promise<ChatMessage[]>
-  sendMessage(threadId: 'cohort' | 'coach', text: string): Promise<ChatMessage>
+  /** `text` may be empty when the member is only sharing photos or files. */
+  sendMessage(
+    threadId: 'cohort' | 'coach',
+    text: string,
+    attachments?: ChatAttachment[],
+  ): Promise<ChatMessage>
 
   // --- Rewards ------------------------------------------- GET /me/rewards --
   /** Badge ids the member has already been awarded, with the award timestamp. */

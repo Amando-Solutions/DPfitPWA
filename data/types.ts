@@ -144,6 +144,19 @@ export interface ProgressPhoto {
 }
 
 // --- Community / chat ------------------------------------------------------
+/** A photo or file shared into a thread. */
+export interface ChatAttachment {
+  id: string
+  /** Images render inline; everything else renders as a downloadable chip. */
+  kind: 'image' | 'file'
+  name: string
+  /** Original file size in bytes, before any downscaling. */
+  size: number
+  mimeType: string
+  /** A data URL on device; a served URL once a backend stores the upload. */
+  url: string
+}
+
 export interface ChatMessage {
   id: string
   authorId: string
@@ -153,6 +166,7 @@ export interface ChatMessage {
   isSelf: boolean
   text: string
   sentAt: string
+  attachments?: ChatAttachment[]
   reactions?: { emoji: string; count: number }[]
 }
 
