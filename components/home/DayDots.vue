@@ -5,118 +5,43 @@ defineProps<{ days: WorkoutDay[] }>()
 </script>
 
 <template>
-  <div class="day-dots">
+  <div class="flex gap-2">
     <NuxtLink
       v-for="day in days"
       :key="day.id"
       :to="`/train/${day.id}`"
-      class="day-dots__item"
+      class="flex min-w-0 flex-1 flex-col items-center gap-2"
     >
       <span
-        class="day-dots__dot"
+        class="relative grid aspect-square size-13.5 max-w-full place-items-center rounded-pill"
         :class="{
-          'day-dots__dot--done': day.status === 'completed',
-          'day-dots__dot--today': day.status === 'today',
+          'bg-rose-fill text-on-rose': day.status === 'completed',
+          'bg-rose-softer text-rose shadow-[0_0_0_1.5px_var(--rose-ring)]':
+            day.status === 'today',
+          'bg-sunken text-muted':
+            day.status !== 'completed' && day.status !== 'today',
         }"
       >
-        <span v-if="day.status === 'today'" class="day-dots__ping" aria-hidden="true" />
+        <!-- The design rings today's dot; the pulse is what makes it read as "now". -->
+        <span
+          v-if="day.status === 'today'"
+          class="pointer-events-none absolute inset-0 rounded-[inherit] border-[1.5px] border-rose animate-day-ping motion-reduce:animate-none motion-reduce:opacity-50"
+          aria-hidden="true"
+        />
+
         <AppIcon v-if="day.status === 'completed'" name="check" :size="17" />
         <AppIcon v-else-if="day.status === 'today'" name="train" :size="22" />
-        <span v-else class="day-dots__n data">{{ day.dayNumber }}</span>
+        <span v-else class="data text-[13px] tracking-[-0.13px]">
+          {{ day.dayNumber }}
+        </span>
       </span>
+
       <span
-        class="day-dots__label"
-        :class="{ 'day-dots__label--today': day.status === 'today' }"
+        class="font-data text-[9px] uppercase"
+        :class="day.status === 'today' ? 'text-rose' : 'text-muted'"
       >
         {{ day.status === 'today' ? 'Today' : `Day ${day.dayNumber}` }}
       </span>
     </NuxtLink>
   </div>
 </template>
-
-<style scoped lang="scss">
-.day-dots {
-  display: flex;
-  gap: 8px;
-
-  &__item {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-  }
-
-  &__dot {
-    position: relative;
-    width: 54px;
-    height: 54px;
-    max-width: 100%;
-    aspect-ratio: 1;
-    border-radius: var(--radius-pill);
-    background: var(--paper);
-    color: var(--violet-45);
-    display: grid;
-    place-items: center;
-
-    &--done {
-      background: var(--rose);
-      color: var(--paper-raised);
-    }
-
-    &--today {
-      background: rgba(200, 30, 92, 0.09);
-      color: var(--rose);
-      box-shadow: 0 0 0 1.5px rgba(200, 30, 92, 0.25);
-    }
-  }
-
-  // The design rings today's dot; the pulse is what makes it read as "now".
-  &__ping {
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    border: 1.5px solid var(--rose);
-    animation: day-dot-ping 1.9s cubic-bezier(0, 0, 0.2, 1) infinite;
-    pointer-events: none;
-  }
-
-  &__n {
-    font-size: 13px;
-    letter-spacing: -0.13px;
-    color: var(--violet-45);
-  }
-
-  &__label {
-    font-family: var(--font-data);
-    text-transform: uppercase;
-    font-size: 9px;
-    color: var(--violet-45);
-
-    &--today {
-      color: var(--rose);
-    }
-  }
-}
-
-@keyframes day-dot-ping {
-  0% {
-    transform: scale(1);
-    opacity: 0.75;
-  }
-  70%,
-  100% {
-    // 54px dot out to the ~73px ring the design draws around it.
-    transform: scale(1.35);
-    opacity: 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .day-dots__ping {
-    animation: none;
-    opacity: 0.5;
-  }
-}
-</style>

@@ -96,8 +96,8 @@ const allergies = computed(() => store.profile.value?.allergies?.trim() ?? '')
     flex-direction: column;
     padding: 20px;
     border-radius: var(--radius-card);
-    background: var(--ink);
-    filter: drop-shadow(0 14px 16px rgba(36, 27, 46, 0.22));
+    background: var(--surface-inverse);
+    filter: var(--drop-lg);
   }
 
   &__cal-label {
@@ -106,7 +106,7 @@ const allergies = computed(() => store.profile.value?.allergies?.trim() ?? '')
     letter-spacing: 0.95px;
     font-size: 9.5px;
     font-weight: 700;
-    color: rgba(243, 234, 228, 0.55);
+    color: var(--on-inverse-muted);
   }
 
   &__cal-value {
@@ -116,13 +116,13 @@ const allergies = computed(() => store.profile.value?.allergies?.trim() ?? '')
     font-size: 44px;
     line-height: 1;
     letter-spacing: -1.32px;
-    color: var(--paper-raised);
+    color: var(--on-inverse);
   }
 
   &__cal-meta {
     margin-top: 6px;
     font-size: 11px;
-    color: rgba(243, 234, 228, 0.5);
+    color: var(--on-inverse-muted);
   }
 }
 
@@ -150,8 +150,8 @@ const allergies = computed(() => store.profile.value?.allergies?.trim() ?? '')
   }
 
   &--protein {
-    background: rgba(200, 30, 92, 0.1);
-    border-color: rgba(200, 30, 92, 0.24);
+    background: var(--rose-soft);
+    border-color: var(--rose-ring);
 
     .macro__value {
       color: var(--rose);
@@ -160,10 +160,10 @@ const allergies = computed(() => store.profile.value?.allergies?.trim() ?? '')
 
   &--fat {
     background: var(--orange-16);
-    border-color: rgba(232, 163, 61, 0.32);
+    border-color: var(--orange-ring);
 
     .macro__value {
-      color: #b07520;
+      color: var(--macro-fat);
     }
   }
 
@@ -173,11 +173,11 @@ const allergies = computed(() => store.profile.value?.allergies?.trim() ?? '')
     flex-direction: row;
     align-items: baseline;
     gap: 8px;
-    background: rgba(86, 100, 58, 0.14);
-    border-color: rgba(86, 100, 58, 0.28);
+    background: var(--macro-carbs-soft);
+    border-color: var(--macro-carbs-ring);
 
     .macro__value {
-      color: #56643a;
+      color: var(--macro-carbs);
     }
 
     .macro__label {
@@ -191,7 +191,7 @@ const allergies = computed(() => store.profile.value?.allergies?.trim() ?? '')
   margin-top: 11px;
   padding: 18px;
   border-radius: var(--radius-card);
-  border: 1px dashed rgba(36, 27, 46, 0.22);
+  border: 1px dashed var(--hairline-strong);
 
   &__title {
     margin: 0;
@@ -220,7 +220,7 @@ const allergies = computed(() => store.profile.value?.allergies?.trim() ?? '')
     &--total {
       margin-top: 1px;
       padding-top: 10px;
-      border-top: 1px dashed rgba(36, 27, 46, 0.2);
+      border-top: 1px dashed var(--hairline-strong);
     }
   }
 
@@ -247,8 +247,8 @@ const allergies = computed(() => store.profile.value?.allergies?.trim() ?? '')
   padding: 18px;
   border-radius: var(--radius-card);
   background: var(--paper-raised);
-  border: 1px solid rgba(36, 27, 46, 0.09);
-  filter: drop-shadow(0 4px 7px rgba(36, 27, 46, 0.04));
+  border: 1px solid var(--hairline);
+  filter: var(--drop-md);
 
   &__title {
     margin: 0;

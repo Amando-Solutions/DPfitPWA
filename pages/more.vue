@@ -102,7 +102,7 @@ const initials = computed(() =>
 
     <section class="more__rewards">
       <AppCard variant="ink" class="more__rewards-card">
-        <EyebrowLabel color="var(--rose)">Reward points</EyebrowLabel>
+        <EyebrowLabel tone="rose-on-inverse">Reward points</EyebrowLabel>
         <div class="more__points data">{{ store.rewards.value.points }}</div>
         <p class="more__tier">
           {{ store.rewards.value.rank.emoji }} {{ store.rewards.value.rank.name }}
@@ -158,8 +158,8 @@ const initials = computed(() =>
     &--initials {
       display: grid;
       place-items: center;
-      background: var(--rose);
-      color: var(--paper-raised);
+      background: var(--rose-fill);
+      color: var(--on-rose);
       font-family: var(--font-display);
       font-weight: 900;
       font-size: 18px;
@@ -201,13 +201,13 @@ const initials = computed(() =>
     font-size: 40px;
     font-weight: 700;
     line-height: 1;
-    color: var(--paper-raised);
+    color: var(--on-inverse);
   }
 
   &__tier {
     margin: 0 0 4px;
     font-size: 13px;
-    color: rgba(251, 246, 242, 0.7);
+    color: var(--on-inverse-soft);
   }
 
   &__links {
@@ -233,7 +233,7 @@ const initials = computed(() =>
     width: 34px;
     height: 34px;
     border-radius: 50%;
-    background: var(--rose-25);
+    background: var(--rose-soft);
     color: var(--rose);
     flex-shrink: 0;
   }

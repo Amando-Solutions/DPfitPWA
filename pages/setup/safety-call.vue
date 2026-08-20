@@ -96,7 +96,7 @@ const finish = async () => {
   width: 100%;
   padding: 14px 16px;
   background: var(--paper);
-  border: 1px solid rgba(36, 27, 46, 0.11);
+  border: 1px solid var(--hairline);
   border-radius: var(--space-16);
   font-size: 15px;
   color: var(--ink);
@@ -105,7 +105,7 @@ const finish = async () => {
   font-family: var(--font-body);
 
   &::placeholder {
-    color: rgba(36, 27, 46, 0.35);
+    color: var(--text-placeholder);
   }
 }
 .slots {
@@ -117,13 +117,13 @@ const finish = async () => {
   height: 52px;
   border-radius: var(--space-16);
   background: var(--paper);
-  box-shadow: inset 0 0 0 1px rgba(36, 27, 46, 0.11);
+  box-shadow: inset 0 0 0 1px var(--hairline);
   font-weight: 700;
   font-size: 14px;
   color: var(--ink);
 
   &--active {
-    background: rgba(200, 30, 92, 0.06);
+    background: var(--rose-softer);
     box-shadow: inset 0 0 0 1.5px var(--rose);
     color: var(--rose);
   }

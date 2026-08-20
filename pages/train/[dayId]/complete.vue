@@ -2,11 +2,16 @@
 // 17 · Completion · Proof Required / 18 · Photo Attached / 20 · Discard Confirm
 definePageMeta({ layout: false })
 
+import type { Units } from '~/data/types'
 import { readImageAsDataUrl } from '~/lib/image'
 
 const route = useRoute()
 const router = useRouter()
 const store = useAppStore()
+
+// Same preference the profile screen sets; weights stay stored in kilograms.
+const units = computed(() => store.settings.value.units)
+const setUnits = (value: Units) => store.saveSettings({ units: value })
 
 const dayId = computed(() => String(route.params.dayId))
 const day = computed(() => store.getDay(dayId.value))
@@ -108,8 +113,10 @@ const discard = async () => {
       :volume="totals.volume"
       :sets-done="totals.setsDone"
       :sets-total="totals.setsTotal"
+      :unit="units"
       action="Save"
       @action="save"
+      @unit="setUnits"
     />
 
     <div class="complete__body scroll-y">
@@ -156,7 +163,7 @@ const discard = async () => {
       <p v-if="photoError" class="complete__error">• {{ photoError }}</p>
 
       <div class="complete__notes">
-        <EyebrowLabel color="var(--violet-45)">Notes (optional)</EyebrowLabel>
+        <EyebrowLabel tone="muted">Notes (optional)</EyebrowLabel>
         <textarea
           class="complete__area"
           rows="3"
@@ -258,7 +265,7 @@ const discard = async () => {
     padding: 14px 16px;
     background: var(--paper-raised);
     border-radius: var(--radius-md);
-    box-shadow: inset 0 0 0 1.5px rgba(36, 27, 46, 0.1);
+    box-shadow: inset 0 0 0 1.5px var(--hairline);
     font-size: 14px;
     color: var(--ink);
     border: none;
@@ -266,7 +273,7 @@ const discard = async () => {
     resize: none;
     font-family: var(--font-body);
     &::placeholder {
-      color: rgba(36, 27, 46, 0.35);
+      color: var(--text-placeholder);
     }
   }
 
@@ -320,7 +327,7 @@ const discard = async () => {
   width: 100%;
   min-height: 130px;
   border-radius: var(--radius-card);
-  border: 2px dashed rgba(36, 27, 46, 0.22);
+  border: 2px dashed var(--hairline-strong);
   background: var(--paper-raised);
   display: flex;
   flex-direction: column;

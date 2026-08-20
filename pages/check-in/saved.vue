@@ -95,7 +95,7 @@ onMounted(() => {
     width: 96px;
     height: 96px;
     border-radius: 50%;
-    background: var(--rose-25);
+    background: var(--rose-soft);
     color: var(--rose);
     display: grid;
     place-items: center;
@@ -140,7 +140,7 @@ onMounted(() => {
     color: var(--violet-45);
 
     & + & {
-      border-top: 1px solid rgba(36, 27, 46, 0.07);
+      border-top: 1px solid var(--hairline);
     }
 
     .data {

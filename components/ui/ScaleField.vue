@@ -15,82 +15,38 @@ defineEmits<{ (e: 'update:modelValue', value: number): void }>()
 </script>
 
 <template>
-  <div class="scale">
-    <span class="scale__label">{{ label }}</span>
-    <div class="scale__row" role="radiogroup" :aria-label="label">
+  <div class="flex flex-col">
+    <span
+      class="pb-1.5 font-data text-[9px] uppercase tracking-[0.81px] text-soft"
+    >
+      {{ label }}
+    </span>
+
+    <div class="flex gap-1.75" role="radiogroup" :aria-label="label">
       <button
         v-for="step in steps"
         :key="step"
         type="button"
         role="radio"
         :aria-checked="modelValue === step"
-        class="scale__cell"
-        :class="{ 'scale__cell--on': modelValue === step }"
+        class="min-w-0 flex-1 rounded-[14px] border-[1.5px] px-0.5 py-[13.5px] text-center font-data text-[13px] font-bold transition-colors duration-150"
+        :class="
+          modelValue === step
+            ? 'border-rose bg-rose-soft text-rose'
+            : 'border-hairline bg-sunken text-soft'
+        "
         @click="$emit('update:modelValue', step)"
       >
         {{ step }}
       </button>
     </div>
-    <div v-if="lowLabel || highLabel" class="scale__ends">
+
+    <div
+      v-if="lowLabel || highLabel"
+      class="flex items-center justify-between pt-1.5 font-data text-[8.5px] uppercase tracking-[0.425px] text-muted"
+    >
       <span>{{ lowLabel }}</span>
       <span>{{ highLabel }}</span>
     </div>
   </div>
 </template>
-
-<style scoped lang="scss">
-.scale {
-  display: flex;
-  flex-direction: column;
-
-  &__label {
-    font-family: var(--font-data);
-    text-transform: uppercase;
-    letter-spacing: 0.81px;
-    font-size: 9px;
-    color: var(--violet-28);
-    padding-bottom: 6px;
-  }
-
-  &__row {
-    display: flex;
-    gap: 7px;
-  }
-
-  &__cell {
-    flex: 1;
-    min-width: 0;
-    padding: 13.5px 1.5px;
-    border-radius: 14px;
-    background: var(--paper);
-    border: 1.5px solid rgba(36, 27, 46, 0.11);
-    font-family: var(--font-data);
-    font-weight: 700;
-    font-size: 13px;
-    text-align: center;
-    color: var(--violet-28);
-    transition:
-      background 0.15s ease,
-      border-color 0.15s ease,
-      color 0.15s ease;
-
-    &--on {
-      background: rgba(200, 30, 92, 0.12);
-      border-color: var(--rose);
-      color: var(--rose);
-    }
-  }
-
-  &__ends {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding-top: 6px;
-    font-family: var(--font-data);
-    font-size: 8.5px;
-    letter-spacing: 0.425px;
-    text-transform: uppercase;
-    color: #736781;
-  }
-}
-</style>

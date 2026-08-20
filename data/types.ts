@@ -290,7 +290,18 @@ export interface LoggedSet {
   reps: number
   weightKg: number
   done: boolean
-  /** What they lifted last time, for reference while logging. */
+  /**
+   * What they lifted last time, for reference while logging. Kept as numbers
+   * so the column can be re-rendered in whichever unit is selected.
+   */
+  previousWeightKg?: number
+  previousReps?: number
+  /**
+   * The same reference, pre-formatted. Only written by builds that predate
+   * switchable units — still read so a session logged back then keeps showing
+   * its previous column.
+   * @deprecated use `previousWeightKg` / `previousReps`
+   */
   previous?: string
 }
 

@@ -46,7 +46,7 @@ const initials = computed(() =>
       </NuxtLink>
     </nav>
 
-    <NuxtLink :to="`/train/${store.today.value?.id ?? ''}`" class="sidenav__cta">
+    <NuxtLink :to="`/train/${store.today.value?.id ?? ''}`" class="sidenav__cta btn-raised btn-glow">
       <AppIcon name="play" :size="16" fill />
       <span>Start today's session</span>
     </NuxtLink>
@@ -114,7 +114,7 @@ const initials = computed(() =>
     flex-shrink: 0;
     padding: 26px 18px 22px;
     background: var(--paper-raised);
-    border-right: 1px solid rgba(36, 27, 46, 0.07);
+    border-right: 1px solid var(--hairline);
     overflow-y: auto;
   }
 
@@ -143,7 +143,7 @@ const initials = computed(() =>
       color 0.15s ease;
 
     &:hover {
-      background: rgba(36, 27, 46, 0.05);
+      background: var(--fill-subtle);
       color: var(--ink);
     }
 
@@ -153,12 +153,12 @@ const initials = computed(() =>
     }
 
     &--active {
-      background: var(--ink);
-      color: var(--paper-raised);
+      background: var(--surface-inverse);
+      color: var(--on-inverse);
 
       &:hover {
-        background: var(--ink);
-        color: var(--paper-raised);
+        background: var(--surface-inverse);
+        color: var(--on-inverse);
       }
 
       .sidenav__icon {
@@ -177,7 +177,7 @@ const initials = computed(() =>
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    background: var(--rose);
+    background: var(--rose-fill);
     margin-left: auto;
   }
 
@@ -189,22 +189,19 @@ const initials = computed(() =>
     gap: 8px;
     padding: 13px 14px;
     border-radius: var(--radius-md);
-    background: var(--rose);
-    color: var(--paper-raised);
+    background: var(--rose-fill);
+    /* The stroke, the rose cast, the hover lift and the press are all the
+       `btn-raised` recipe; this only names the face they come from. */
+    --btn-face: var(--rose-fill);
+    color: var(--on-rose);
     font-size: 13.5px;
     font-weight: 700;
-    box-shadow: var(--shadow-glow);
-    transition: transform 0.15s ease;
-
-    &:hover {
-      transform: translateY(-1px);
-    }
   }
 
   .sidenav__divider {
     height: 1px;
     margin: 18px 12px 12px;
-    background: rgba(36, 27, 46, 0.09);
+    background: var(--fill-subtle);
   }
 
   .sidenav__spacer {
@@ -224,7 +221,7 @@ const initials = computed(() =>
     font-weight: 600;
 
     &:hover {
-      background: rgba(36, 27, 46, 0.05);
+      background: var(--fill-subtle);
       color: var(--ink);
     }
   }
@@ -234,8 +231,8 @@ const initials = computed(() =>
     min-width: 20px;
     padding: 2px 6px;
     border-radius: var(--radius-pill);
-    background: var(--rose);
-    color: var(--paper-raised);
+    background: var(--rose-fill);
+    color: var(--on-rose);
     font-size: 10px;
     font-weight: 700;
     text-align: center;
@@ -251,7 +248,7 @@ const initials = computed(() =>
     transition: background 0.15s ease;
 
     &:hover {
-      background: rgba(36, 27, 46, 0.06);
+      background: var(--fill-subtle);
     }
   }
 
@@ -265,8 +262,8 @@ const initials = computed(() =>
     &--initials {
       display: grid;
       place-items: center;
-      background: var(--rose);
-      color: var(--paper-raised);
+      background: var(--rose-fill);
+      color: var(--on-rose);
       font-family: var(--font-display);
       font-weight: 900;
       font-size: 13px;

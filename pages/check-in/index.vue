@@ -146,7 +146,7 @@ const submit = async () => {
     display: inline-block;
     margin: 12px 0 14px;
     padding: 8px 13px;
-    border: 1px dashed rgba(36, 27, 46, 0.22);
+    border: 1px dashed var(--hairline-strong);
     border-radius: var(--radius-pill);
     background: var(--paper);
     text-transform: uppercase;
@@ -162,9 +162,9 @@ const submit = async () => {
     gap: 12px;
     padding: 18px;
     background: var(--paper-raised);
-    border: 1px solid rgba(36, 27, 46, 0.09);
+    border: 1px solid var(--hairline);
     border-radius: var(--radius-card);
-    filter: drop-shadow(0 4px 7px rgba(36, 27, 46, 0.04));
+    filter: var(--drop-md);
   }
 
   &__row {
@@ -191,7 +191,7 @@ const submit = async () => {
     width: 100%;
     padding: 14px 15px;
     background: var(--paper);
-    border: 1px solid rgba(36, 27, 46, 0.11);
+    border: 1px solid var(--hairline);
     border-radius: var(--space-16);
     font-family: var(--font-body);
     font-size: 13.5px;
@@ -201,7 +201,7 @@ const submit = async () => {
     resize: none;
 
     &::placeholder {
-      color: #757575;
+      color: var(--text-placeholder);
     }
 
     &:focus {
@@ -218,7 +218,7 @@ const submit = async () => {
     justify-content: space-between;
     gap: 10px;
     background: var(--paper);
-    border: 1px solid rgba(36, 27, 46, 0.11);
+    border: 1px solid var(--hairline);
     border-radius: var(--space-16);
     font-family: var(--font-body);
     font-size: 15px;
@@ -226,7 +226,7 @@ const submit = async () => {
     text-align: left;
 
     &--empty {
-      color: #757575;
+      color: var(--text-placeholder);
     }
   }
 

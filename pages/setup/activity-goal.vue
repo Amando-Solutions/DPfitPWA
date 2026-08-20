@@ -115,14 +115,14 @@ const next = async () => {
   align-items: center;
   justify-content: space-between;
   background: var(--paper);
-  border: 1px solid rgba(36, 27, 46, 0.11);
+  border: 1px solid var(--hairline);
   border-radius: var(--space-16);
   font-size: 15px;
   font-weight: 600;
   color: var(--ink);
 
   &--empty {
-    color: rgba(36, 27, 46, 0.4);
+    color: var(--text-placeholder);
   }
 }
 .goals {

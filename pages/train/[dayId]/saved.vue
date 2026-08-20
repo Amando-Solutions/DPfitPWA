@@ -3,9 +3,12 @@
 definePageMeta({ layout: 'app' })
 
 import type { BadgeDef } from '~/data/types'
+import { formatVolume, unitLabel } from '~/lib/domain/nutrition'
 
 const router = useRouter()
 const store = useAppStore()
+
+const units = computed(() => store.settings.value.units)
 
 // The log that was just written is the newest one.
 const log = computed(() => store.sessions.value[0] ?? null)
@@ -59,8 +62,10 @@ const back = () => router.push('/train')
           <span class="saved__stat-label">Sets logged</span>
         </div>
         <div class="saved__stat">
-          <span class="saved__stat-value data">{{ log?.volumeKg ?? 0 }}</span>
-          <span class="saved__stat-label">Volume kg</span>
+          <span class="saved__stat-value data">
+            {{ formatVolume(log?.volumeKg ?? 0, units) }}
+          </span>
+          <span class="saved__stat-label">Volume {{ unitLabel(units) }}</span>
         </div>
         <div class="saved__stat">
           <span class="saved__stat-value data">{{ store.rewards.value.points }}</span>
@@ -103,7 +108,7 @@ const back = () => router.push('/train')
     width: 96px;
     height: 96px;
     border-radius: 50%;
-    background: var(--rose-25);
+    background: var(--rose-soft);
     color: var(--rose);
     display: grid;
     place-items: center;

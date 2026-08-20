@@ -53,7 +53,7 @@ const trainTo = computed(() => `/train/${store.today.value?.id ?? ''}`)
   bottom: 0;
   padding: 0 14px calc(14px + env(safe-area-inset-bottom));
   // Content fades out behind the bar instead of colliding with it.
-  background: linear-gradient(to top, var(--paper) 58%, rgba(243, 234, 228, 0));
+  background: linear-gradient(to top, var(--paper) 58%, var(--surface-fade));
   z-index: 50;
   pointer-events: none;
 }
@@ -64,9 +64,9 @@ const trainTo = computed(() => `/train/${store.today.value?.id ?? ''}`)
   align-items: center;
   gap: 2px;
   padding: 9px 8px;
-  background: rgba(36, 27, 46, 0.96);
+  background: var(--surface-inverse);
   border-radius: 26px;
-  box-shadow: 0 14px 34px rgba(36, 27, 46, 0.3);
+  box-shadow: var(--shadow-tabbar);
 }
 
 .tabbar__item {
@@ -77,17 +77,17 @@ const trainTo = computed(() => `/train/${store.today.value?.id ?? ''}`)
   flex: 1;
   min-width: 0;
   padding: 7px 0 5px;
-  color: rgba(243, 234, 228, 0.5);
+  color: var(--on-inverse-muted);
   transition: color 0.15s ease;
 
   &--active {
-    color: var(--white);
+    color: var(--on-inverse);
   }
 
   &--center {
     flex: 0 0 60px;
     padding: 0;
-    color: var(--white);
+    color: var(--on-rose);
   }
 }
 
@@ -112,8 +112,8 @@ const trainTo = computed(() => `/train/${store.today.value?.id ?? ''}`)
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--rose);
-  border: 1.5px solid var(--ink);
+  background: var(--rose-fill);
+  border: 1.5px solid var(--surface-inverse);
 }
 
 .tabbar__label {
@@ -131,12 +131,12 @@ const trainTo = computed(() => `/train/${store.today.value?.id ?? ''}`)
   width: 50px;
   height: 50px;
   border-radius: var(--radius-pill);
-  background: var(--rose);
-  color: var(--white);
+  background: var(--rose-fill);
+  color: var(--on-rose);
   display: grid;
   place-items: center;
-  border: 4px solid var(--ink);
-  filter: drop-shadow(0 8px 10px rgba(200, 30, 92, 0.5));
+  border: 4px solid var(--surface-inverse);
+  filter: drop-shadow(0 8px 10px var(--rose-strong));
 }
 
 // Tablets get a centred bar rather than an over-wide one.

@@ -81,6 +81,8 @@ const fallbacks: Record<string, string> = {
     '<path d="M12 20s-7-4.5-7-9.5A3.5 3.5 0 0 1 12 8a3.5 3.5 0 0 1 7 2.5c0 5-7 9.5-7 9.5Z"/>',
   star: '<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9L3.5 9.7l5.9-.9L12 3.5Z"/>',
   scale: '<path d="M12 4v4M6 8h12M6 8 3 16a4 4 0 0 0 6 0L6 8ZM18 8l-3 8a4 4 0 0 0 6 0l-3-8ZM9 20h6"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  moon: '<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/>',
 }
 
 const glyph = computed(() => glyphs[props.name])
@@ -90,7 +92,7 @@ const fallback = computed(() => fallbacks[props.name] ?? fallbacks.info)
 <template>
   <svg
     v-if="glyph"
-    class="app-icon"
+    class="block shrink-0"
     :width="size"
     :height="size"
     :viewBox="glyph.viewBox"
@@ -100,7 +102,7 @@ const fallback = computed(() => fallbacks[props.name] ?? fallbacks.info)
   />
   <svg
     v-else
-    class="app-icon"
+    class="block shrink-0"
     :width="size"
     :height="size"
     viewBox="0 0 24 24"
@@ -113,10 +115,3 @@ const fallback = computed(() => fallbacks[props.name] ?? fallbacks.info)
     v-html="fallback"
   />
 </template>
-
-<style scoped>
-.app-icon {
-  display: block;
-  flex-shrink: 0;
-}
-</style>

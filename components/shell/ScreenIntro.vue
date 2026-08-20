@@ -101,8 +101,8 @@ const store = useAppStore()
     height: 42px;
     border-radius: var(--radius-pill);
     background: var(--paper-raised);
-    border: 1px solid rgba(36, 27, 46, 0.1);
-    filter: drop-shadow(0 2px 4px rgba(36, 27, 46, 0.05));
+    border: 1px solid var(--hairline);
+    filter: var(--drop-sm);
     display: grid;
     place-items: center;
     color: var(--ink);
@@ -116,7 +116,7 @@ const store = useAppStore()
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: var(--rose);
+    background: var(--rose-fill);
     border: 1.5px solid var(--paper-raised);
   }
 
@@ -142,8 +142,8 @@ const store = useAppStore()
   }
   border-radius: var(--radius-pill);
   background: var(--paper-raised);
-  border: 1px solid rgba(36, 27, 46, 0.1);
-  filter: drop-shadow(0 2px 4px rgba(36, 27, 46, 0.05));
+  border: 1px solid var(--hairline);
+  filter: var(--drop-sm);
 
   &__chip {
     width: 28px;
@@ -154,10 +154,10 @@ const store = useAppStore()
     flex-shrink: 0;
 
     &--flame {
-      background: rgba(232, 163, 61, 0.18);
+      background: var(--orange-soft);
     }
     &--rose {
-      background: rgba(200, 30, 92, 0.12);
+      background: var(--rose-soft);
       color: var(--rose);
     }
   }
@@ -172,7 +172,7 @@ const store = useAppStore()
   &__divider {
     width: 1px;
     height: 18px;
-    background: rgba(36, 27, 46, 0.1);
+    background: var(--fill-muted);
     margin: 0 3px;
   }
 }

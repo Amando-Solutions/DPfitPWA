@@ -1,42 +1,27 @@
 <script setup lang="ts">
-withDefaults(
+const props = withDefaults(
   defineProps<{
     variant?: 'raised' | 'flat' | 'ink' | 'outline'
     pad?: boolean
   }>(),
   { variant: 'raised', pad: true },
 )
+
+const VARIANTS: Record<NonNullable<typeof props.variant>, string> = {
+  raised: 'bg-raised shadow-card',
+  flat: 'bg-raised',
+  // Deliberately the opposite of the page — see `--surface-inverse`, which
+  // lifts rather than sinks once the page itself is dark.
+  ink: 'bg-inverse text-on-inverse',
+  outline: 'bg-transparent shadow-[inset_0_0_0_1.5px_var(--hairline)]',
+}
 </script>
 
 <template>
-  <div class="card" :class="[`card--${variant}`, { 'card--pad': pad }]">
+  <div
+    class="relative rounded-card"
+    :class="[VARIANTS[variant], pad && 'p-4']"
+  >
     <slot />
   </div>
 </template>
-
-<style scoped lang="scss">
-.card {
-  border-radius: var(--radius-card);
-  position: relative;
-
-  &--pad {
-    padding: var(--space-16);
-  }
-
-  &--raised {
-    background: var(--paper-raised);
-    box-shadow: var(--shadow-card);
-  }
-  &--flat {
-    background: var(--paper-raised);
-  }
-  &--ink {
-    background: var(--ink);
-    color: var(--paper-raised);
-  }
-  &--outline {
-    background: transparent;
-    box-shadow: inset 0 0 0 1.5px rgba(36, 27, 46, 0.1);
-  }
-}
-</style>

@@ -56,7 +56,7 @@ const skip = () => router.push('/access-code')
         />
       </div>
 
-      <button class="onb__cta" @click="next">{{ current.cta }}</button>
+      <button class="onb__cta btn-raised btn-glow" @click="next">{{ current.cta }}</button>
 
       <div class="onb__skip-tour-slot">
         <button v-if="!isLast" class="onb__skip-tour" @click="skip">Skip tour</button>
@@ -85,7 +85,7 @@ const skip = () => router.push('/access-code')
     font-family: var(--font-data);
     font-size: 10px;
     letter-spacing: 1.2px;
-    color: #5b555d;
+    color: var(--text-muted);
   }
 
   // The art and headline share the space between the header and the footer,
@@ -104,8 +104,8 @@ const skip = () => router.push('/access-code')
     max-height: 42vh;
     border-radius: 30px;
     overflow: hidden;
-    background: #f6ccd5;
-    box-shadow: 0 18px 35px rgba(164, 18, 73, 0.1);
+    background: var(--onboard-art);
+    box-shadow: var(--shadow-art);
   }
 
   &__art-img {
@@ -141,7 +141,7 @@ const skip = () => router.push('/access-code')
     font-size: 44px;
     line-height: 1.08;
     letter-spacing: -1.98px;
-    color: #711337;
+    color: var(--onboard-title);
   }
 
   &__footer {
@@ -162,14 +162,14 @@ const skip = () => router.push('/access-code')
     width: 9px;
     height: 5px;
     border-radius: 99px;
-    background: #d7d0d2;
+    background: var(--onboard-dot);
     transition:
       width 0.25s ease,
       background 0.25s ease;
 
     &--active {
       width: 24px;
-      background: var(--rose);
+      background: var(--rose-fill);
     }
   }
 
@@ -177,17 +177,14 @@ const skip = () => router.push('/access-code')
     width: 100%;
     height: 58px;
     border-radius: var(--radius-pill);
-    background: var(--rose);
-    color: var(--white);
+    background: var(--rose-fill);
+    /* `btn-raised` supplies the stroke, the rose cast and the inner edges;
+       `btn-glow` adds the halo the splash used to get from `--drop-art`. */
+    --btn-face: var(--rose-fill);
+    color: var(--on-rose);
     font-family: var(--font-body);
     font-weight: 700;
     font-size: 17px;
-    filter: drop-shadow(0 12px 12px rgba(212, 20, 90, 0.22));
-    transition: transform 0.15s ease;
-
-    &:active {
-      transform: translateY(1px);
-    }
   }
 
   // Reserve the row so the CTA doesn't jump on the last slide.

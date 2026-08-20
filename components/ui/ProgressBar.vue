@@ -4,54 +4,37 @@ const props = withDefaults(
     value: number
     max?: number
     height?: number
-    color?: string
-    track?: string
+    /** Solid accent, or the flame gradient used for rank progress. */
+    tone?: 'rose' | 'orange'
     flame?: boolean
   }>(),
-  {
-    max: 100,
-    height: 6,
-    color: 'var(--rose)',
-    track: 'rgba(36,27,46,0.1)',
-    flame: false,
-  },
+  { max: 100, height: 6, tone: 'rose', flame: false },
 )
 
 const pct = computed(() =>
   Math.max(0, Math.min(100, (props.value / props.max) * 100)),
 )
+
+// Height and fill width are data, not design, so they arrive as custom
+// properties and the Tailwind classes below consume them. That keeps every
+// styling decision in a class while the numbers stay dynamic.
+const vars = computed(() => ({
+  '--bar-h': `${props.height}px`,
+  '--bar-fill': `${pct.value}%`,
+}))
 </script>
 
 <template>
   <div
-    class="pbar"
-    :style="{ height: `${height}px`, background: track }"
+    class="h-(--bar-h) w-full overflow-hidden rounded-pill bg-fill-muted"
+    :style="vars"
     role="progressbar"
     :aria-valuenow="value"
     :aria-valuemax="max"
   >
     <div
-      class="pbar__fill"
-      :class="{ 'pbar__fill--flame': flame }"
-      :style="{ width: `${pct}%`, background: flame ? undefined : color }"
+      class="h-full w-(--bar-fill) rounded-pill transition-[width] duration-400 ease-out"
+      :class="flame ? 'flame-gradient' : tone === 'orange' ? 'bg-orange' : 'bg-rose-fill'"
     />
   </div>
 </template>
-
-<style scoped lang="scss">
-.pbar {
-  width: 100%;
-  border-radius: var(--radius-pill);
-  overflow: hidden;
-
-  &__fill {
-    height: 100%;
-    border-radius: var(--radius-pill);
-    transition: width 0.4s ease;
-
-    &--flame {
-      background: var(--flame-gradient);
-    }
-  }
-}
-</style>

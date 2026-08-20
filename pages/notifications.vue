@@ -109,7 +109,7 @@ const accentFor = (type: string) => (type === 'coach' ? 'orange' : 'rose')
     margin-top: 14px;
     padding: 14px 16px;
     border-radius: var(--radius-card);
-    box-shadow: inset 0 0 0 1.5px rgba(36, 27, 46, 0.09);
+    box-shadow: inset 0 0 0 1.5px var(--hairline);
     font-size: 13.5px;
     font-weight: 600;
     color: var(--ink);
@@ -125,12 +125,12 @@ const accentFor = (type: string) => (type === 'coach' ? 'orange' : 'rose')
   gap: 12px;
   padding: 16px;
   background: var(--paper-raised);
-  border: 1px solid rgba(36, 27, 46, 0.09);
+  border: 1px solid var(--hairline);
   border-radius: var(--radius-card);
-  filter: drop-shadow(0 4px 7px rgba(36, 27, 46, 0.04));
+  filter: var(--drop-md);
 
   &--unread {
-    border-color: rgba(232, 163, 61, 0.3);
+    border-color: var(--orange-ring);
   }
 
   &__icon {
@@ -142,11 +142,11 @@ const accentFor = (type: string) => (type === 'coach' ? 'orange' : 'rose')
     flex-shrink: 0;
 
     &--orange {
-      background: rgba(232, 163, 61, 0.2);
-      color: var(--orange);
+      background: var(--orange-soft);
+      color: var(--orange-text);
     }
     &--rose {
-      background: rgba(200, 30, 92, 0.1);
+      background: var(--rose-soft);
       color: var(--rose);
     }
   }
@@ -170,7 +170,7 @@ const accentFor = (type: string) => (type === 'coach' ? 'orange' : 'rose')
     font-weight: 700;
 
     &--orange {
-      color: var(--orange);
+      color: var(--orange-text);
     }
     &--rose {
       color: var(--rose);
@@ -181,7 +181,7 @@ const accentFor = (type: string) => (type === 'coach' ? 'orange' : 'rose')
     width: 6px;
     height: 6px;
     border-radius: var(--radius-pill);
-    background: var(--rose);
+    background: var(--rose-fill);
     flex-shrink: 0;
   }
 

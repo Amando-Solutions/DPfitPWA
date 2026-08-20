@@ -119,80 +119,133 @@ watch(() => props.messages.length, scrollToEnd)
 
 const timeOf = (iso: string) =>
   new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+
+// A bubble's skin depends on who sent it. Resolving that here keeps the
+// template from carrying three nested ternaries per element.
+const bubbleClass = (m: ChatMessage) => [
+  m.isSelf
+    ? 'bg-rose-fill text-on-rose rounded-tl-2xl rounded-tr-[4px]'
+    : 'rounded-tl-[4px]',
+  !m.isSelf && m.isCoach && 'bg-bubble-coach text-ink',
+  !m.isSelf && !m.isCoach && 'bg-raised text-ink',
+]
+
+const TOOL =
+  'grid size-9 shrink-0 place-items-center rounded-full text-muted transition-colors duration-150 not-disabled:hover:bg-rose-soft not-disabled:hover:text-rose disabled:cursor-default disabled:opacity-40'
 </script>
 
 <template>
-  <div class="chat">
-    <header class="chat__header">
+  <div class="flex h-full flex-col">
+    <header
+      class="flex items-start justify-between gap-3 px-5 pt-1 pb-3 lg:px-0"
+    >
       <div>
         <EyebrowLabel>{{ eyebrow }}</EyebrowLabel>
-        <h1 class="chat__title display-md">{{ title }}</h1>
-        <p class="chat__sub muted">{{ subtitle }}</p>
+        <h1 class="display-md mt-1.5 mb-1">{{ title }}</h1>
+        <p class="muted m-0 text-[13px]">{{ subtitle }}</p>
       </div>
       <NuxtLink
         v-if="dmLink"
         to="/chat/coach"
-        class="chat__dm"
+        class="grid size-10.5 shrink-0 place-items-center rounded-full bg-raised text-ink shadow-card"
         aria-label="Message coach"
       >
         <AppIcon name="user" :size="18" />
       </NuxtLink>
     </header>
 
-    <div ref="scroller" class="chat__messages scroll-y">
+    <div
+      ref="scroller"
+      data-scroll-keep
+      class="scroll-y flex min-h-0 flex-1 flex-col justify-end gap-3.5 px-5 pt-2 pb-4 lg:px-0"
+    >
       <div
         v-for="m in messages"
         :key="m.id"
-        class="chat__msg"
-        :class="{
-          'chat__msg--self': m.isSelf,
-          'chat__msg--coach': m.isCoach,
-        }"
+        class="flex max-w-[82%] gap-2 lg:max-w-[68%]"
+        :class="m.isSelf && 'flex-row-reverse self-end'"
       >
         <img
           v-if="!m.isSelf"
           :src="m.authorAvatar"
-          class="chat__avatar"
+          class="mt-4 size-7.5 shrink-0 rounded-full object-cover"
           :alt="m.authorName"
         />
-        <div class="chat__bubble-wrap">
-          <span v-if="!m.isSelf" class="chat__author" :class="{ 'chat__author--coach': m.isCoach }">
+
+        <div class="flex min-w-0 flex-col gap-1">
+          <span
+            v-if="!m.isSelf"
+            class="font-eyebrow text-[8.5px] font-bold uppercase tracking-[0.5px]"
+            :class="m.isCoach ? 'text-orange-text' : 'text-muted'"
+          >
             {{ m.authorName }}
           </span>
-          <div class="chat__bubble" :class="{ 'chat__bubble--media': !m.text }">
+
+          <!-- Photos and files bring their own edges, so the bubble hugs them. -->
+          <div
+            class="flex flex-col gap-1.5 rounded-2xl text-sm leading-[1.45] shadow-card"
+            :class="[bubbleClass(m), m.text ? 'px-3.5 py-3' : 'p-1.25']"
+          >
             <div
               v-if="imagesOf(m).length"
-              class="chat__shots"
-              :class="{ 'chat__shots--multi': imagesOf(m).length > 1 }"
+              class="max-w-58"
+              :class="
+                imagesOf(m).length > 1 ? 'grid grid-cols-2 gap-1' : 'flex'
+              "
             >
               <button
                 v-for="shot in imagesOf(m)"
                 :key="shot.id"
-                class="chat__shot"
+                class="block overflow-hidden rounded-xl bg-fill-subtle leading-none"
                 :aria-label="'Open ' + shot.name"
                 @click="viewing = shot"
               >
-                <img :src="shot.url" :alt="shot.name" />
+                <img
+                  :src="shot.url"
+                  :alt="shot.name"
+                  class="block w-full object-cover"
+                  :class="
+                    imagesOf(m).length > 1 ? 'h-26' : 'max-h-70'
+                  "
+                />
               </button>
             </div>
 
             <a
               v-for="doc in filesOf(m)"
               :key="doc.id"
-              class="chat__doc"
+              class="flex max-w-58 items-center gap-2 rounded-xl px-3 py-2.5"
+              :class="m.isSelf ? 'bg-white/18' : 'bg-fill-subtle'"
               :href="doc.url"
               :download="doc.name"
             >
               <AppIcon name="file" :size="18" :stroke="1.8" />
-              <span class="chat__doc-name">{{ doc.name }}</span>
-              <span class="chat__doc-size data">{{ formatBytes(doc.size) }}</span>
+              <span class="min-w-0 flex-1 truncate text-[13px] font-semibold">
+                {{ doc.name }}
+              </span>
+              <span class="data shrink-0 text-[10px] opacity-65">
+                {{ formatBytes(doc.size) }}
+              </span>
             </a>
 
-            <p v-if="m.text" class="chat__text">{{ m.text }}</p>
+            <p v-if="m.text" class="m-0 wrap-break-word whitespace-pre-wrap">
+              {{ m.text }}
+            </p>
           </div>
-          <span class="chat__time data">{{ timeOf(m.sentAt) }}</span>
-          <div v-if="m.reactions?.length" class="chat__reactions">
-            <span v-for="r in m.reactions" :key="r.emoji" class="chat__reaction">
+
+          <span
+            class="data text-[9px] text-muted"
+            :class="m.isSelf ? 'self-start' : 'self-end'"
+          >
+            {{ timeOf(m.sentAt) }}
+          </span>
+
+          <div v-if="m.reactions?.length" class="flex gap-1.5">
+            <span
+              v-for="r in m.reactions"
+              :key="r.emoji"
+              class="rounded-pill bg-raised px-2 py-0.5 text-[11px] font-bold text-ink shadow-card"
+            >
               {{ r.emoji }} {{ r.count }}
             </span>
           </div>
@@ -200,24 +253,36 @@ const timeOf = (iso: string) =>
       </div>
     </div>
 
-    <div class="chat__composer">
-      <p v-if="attachError" class="chat__attach-error">{{ attachError }}</p>
+    <div
+      class="flex flex-col gap-2 px-5 pt-3 pb-[calc(16px+var(--tabbar-gutter))] lg:px-0"
+    >
+      <p v-if="attachError" class="m-0 text-xs text-rose">{{ attachError }}</p>
 
-      <div v-if="pending.length" class="chat__tray">
-        <div v-for="item in pending" :key="item.id" class="tray-item">
+      <div
+        v-if="pending.length"
+        class="flex gap-2.5 overflow-x-auto px-1 pt-1.5 pb-0.5 scrollbar-none [&::-webkit-scrollbar]:hidden"
+      >
+        <div v-for="item in pending" :key="item.id" class="relative shrink-0">
           <img
             v-if="item.kind === 'image'"
             :src="item.url"
             :alt="item.name"
-            class="tray-item__img"
+            class="block size-16 rounded-xl object-cover shadow-card"
           />
-          <div v-else class="tray-item__doc">
+          <div
+            v-else
+            class="flex h-16 w-37 flex-col justify-center gap-0.5 rounded-xl bg-raised p-2.5 text-ink shadow-card"
+          >
             <AppIcon name="file" :size="16" :stroke="1.8" />
-            <span class="tray-item__name">{{ item.name }}</span>
-            <span class="tray-item__size data">{{ formatBytes(item.size) }}</span>
+            <span class="truncate text-[11px] font-semibold">
+              {{ item.name }}
+            </span>
+            <span class="data text-[9px] text-muted">
+              {{ formatBytes(item.size) }}
+            </span>
           </div>
           <button
-            class="tray-item__remove"
+            class="absolute -top-1.25 -right-1.25 grid size-5 place-items-center rounded-full bg-inverse text-on-inverse"
             :aria-label="'Remove ' + item.name"
             @click="removePending(item.id)"
           >
@@ -226,16 +291,18 @@ const timeOf = (iso: string) =>
         </div>
       </div>
 
-      <div class="chat__row">
-        <div class="chat__field">
+      <div class="flex items-center gap-2.5">
+        <div
+          class="flex h-12 min-w-0 flex-1 items-center gap-0.5 rounded-pill bg-raised pr-1.5 pl-4.5 shadow-[inset_0_0_0_1.5px_var(--hairline)]"
+        >
           <input
             v-model="draft"
-            class="chat__input"
+            class="h-full min-w-0 flex-1 border-none bg-transparent text-sm text-ink outline-none"
             :placeholder="placeholder"
             @keyup.enter="send"
           />
           <button
-            class="chat__tool"
+            :class="TOOL"
             aria-label="Attach a file"
             :disabled="reading || roomLeft <= 0"
             @click="openPicker(attachInput)"
@@ -243,7 +310,7 @@ const timeOf = (iso: string) =>
             <AppIcon name="paperclip" :size="19" :stroke="1.9" />
           </button>
           <button
-            class="chat__tool"
+            :class="TOOL"
             aria-label="Take a photo"
             :disabled="reading || roomLeft <= 0"
             @click="openPicker(cameraInput)"
@@ -251,9 +318,10 @@ const timeOf = (iso: string) =>
             <AppIcon name="camera" :size="19" />
           </button>
         </div>
+
         <button
-          class="chat__send"
-          :class="{ 'chat__send--idle': !canSend }"
+          class="btn-raised btn-glow grid size-12 shrink-0 place-items-center rounded-full bg-rose-fill text-on-rose [--btn-face:var(--rose-fill)]"
+          :class="!canSend && 'opacity-45'"
           aria-label="Send"
           @click="send"
         >
@@ -263,7 +331,7 @@ const timeOf = (iso: string) =>
 
       <input
         ref="attachInput"
-        class="chat__file"
+        class="hidden"
         type="file"
         :accept="FILE_ACCEPT"
         multiple
@@ -271,7 +339,7 @@ const timeOf = (iso: string) =>
       />
       <input
         ref="cameraInput"
-        class="chat__file"
+        class="hidden"
         type="file"
         :accept="IMAGE_ACCEPT"
         capture="environment"
@@ -281,429 +349,24 @@ const timeOf = (iso: string) =>
 
     <!-- Full-screen view of a shared photo -->
     <Teleport to="body">
-      <div v-if="viewing" class="shot-view" @click.self="viewing = null">
-        <img :src="viewing.url" :alt="viewing.name" class="shot-view__img" />
-        <button class="shot-view__close" aria-label="Close" @click="viewing = null">
+      <div
+        v-if="viewing"
+        class="fixed inset-0 z-60 grid place-items-center bg-scrim-photo p-6"
+        @click.self="viewing = null"
+      >
+        <img
+          :src="viewing.url"
+          :alt="viewing.name"
+          class="max-h-[82vh] max-w-full rounded-md object-contain"
+        />
+        <button
+          class="absolute top-[calc(16px+env(safe-area-inset-top,0px))] right-4 grid size-10 place-items-center rounded-full bg-white/16 text-white"
+          aria-label="Close"
+          @click="viewing = null"
+        >
           <AppIcon name="close" :size="20" :stroke="2.4" />
         </button>
       </div>
     </Teleport>
   </div>
 </template>
-
-<style scoped lang="scss">
-.chat {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-
-  &__header {
-    padding: 4px 20px 12px;
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 12px;
-  }
-
-  &__title {
-    margin: 6px 0 4px;
-  }
-
-  &__sub {
-    margin: 0;
-    font-size: 13px;
-  }
-
-  &__dm {
-    width: 42px;
-    height: 42px;
-    border-radius: 50%;
-    background: var(--paper-raised);
-    box-shadow: var(--shadow-card);
-    display: grid;
-    place-items: center;
-    color: var(--ink);
-    flex-shrink: 0;
-  }
-
-  &__messages {
-    flex: 1;
-    min-height: 0;
-    padding: 8px 20px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    justify-content: flex-end;
-  }
-
-  &__msg {
-    display: flex;
-    gap: 8px;
-    max-width: 82%;
-
-    &--self {
-      align-self: flex-end;
-      flex-direction: row-reverse;
-    }
-  }
-
-  &__avatar {
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    object-fit: cover;
-    flex-shrink: 0;
-    margin-top: 16px;
-  }
-
-  &__bubble-wrap {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-width: 0;
-  }
-
-  &__author {
-    font-family: var(--font-eyebrow);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    font-size: 8.5px;
-    font-weight: 700;
-    color: var(--violet-45);
-
-    &--coach {
-      color: var(--orange);
-    }
-  }
-
-  &__bubble {
-    padding: 12px 14px;
-    border-radius: 16px;
-    font-size: 14px;
-    line-height: 1.45;
-    background: var(--paper-raised);
-    box-shadow: var(--shadow-card);
-    color: var(--ink);
-    border-top-left-radius: 4px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-
-    // Photos and files bring their own edges, so the bubble hugs them.
-    &--media {
-      padding: 5px;
-    }
-
-    .chat__msg--coach & {
-      background: #f2e4c9;
-    }
-    .chat__msg--self & {
-      background: var(--rose);
-      color: var(--paper-raised);
-      border-top-left-radius: 16px;
-      border-top-right-radius: 4px;
-    }
-  }
-
-  &__text {
-    margin: 0;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-
-  &__shots {
-    display: flex;
-    max-width: 232px;
-
-    &--multi {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 4px;
-    }
-  }
-
-  &__shot {
-    display: block;
-    border-radius: 12px;
-    overflow: hidden;
-    background: rgba(36, 27, 46, 0.06);
-    line-height: 0;
-
-    img {
-      display: block;
-      width: 100%;
-      max-height: 280px;
-      object-fit: cover;
-    }
-
-    .chat__shots--multi & img {
-      height: 104px;
-      max-height: none;
-    }
-  }
-
-  &__doc {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    max-width: 232px;
-    padding: 10px 12px;
-    border-radius: 12px;
-    background: rgba(36, 27, 46, 0.05);
-
-    .chat__msg--self & {
-      background: rgba(255, 255, 255, 0.18);
-    }
-  }
-
-  &__doc-name {
-    flex: 1;
-    min-width: 0;
-    font-size: 13px;
-    font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  &__doc-size {
-    font-size: 10px;
-    opacity: 0.65;
-    flex-shrink: 0;
-  }
-
-  &__time {
-    align-self: flex-end;
-    font-size: 9px;
-    color: var(--violet-45);
-
-    .chat__msg--self & {
-      align-self: flex-start;
-    }
-  }
-
-  &__reactions {
-    display: flex;
-    gap: 6px;
-  }
-
-  &__reaction {
-    font-size: 11px;
-    font-weight: 700;
-    padding: 2px 8px;
-    border-radius: var(--radius-pill);
-    background: var(--paper-raised);
-    box-shadow: var(--shadow-card);
-  }
-
-  &__composer {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 12px 20px calc(16px + var(--tabbar-gutter));
-  }
-
-  &__attach-error {
-    margin: 0;
-    font-size: 12px;
-    color: var(--rose);
-  }
-
-  &__tray {
-    display: flex;
-    gap: 10px;
-    overflow-x: auto;
-    padding: 6px 4px 2px;
-    scrollbar-width: none;
-
-    &::-webkit-scrollbar {
-      display: none;
-    }
-  }
-
-  &__row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  &__field {
-    flex: 1;
-    min-width: 0;
-    height: 48px;
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    padding: 0 6px 0 18px;
-    border-radius: var(--radius-pill);
-    background: var(--paper-raised);
-    box-shadow: inset 0 0 0 1.5px rgba(36, 27, 46, 0.1);
-  }
-
-  &__input {
-    flex: 1;
-    min-width: 0;
-    height: 100%;
-    background: none;
-    border: none;
-    outline: none;
-    font-size: 14px;
-    color: var(--ink);
-
-    &::placeholder {
-      color: rgba(36, 27, 46, 0.4);
-    }
-  }
-
-  &__tool {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    color: var(--violet-45);
-    flex-shrink: 0;
-    transition:
-      color 0.15s ease,
-      background 0.15s ease;
-
-    &:hover:not(:disabled) {
-      color: var(--rose);
-      background: var(--rose-25);
-    }
-
-    &:disabled {
-      opacity: 0.4;
-      cursor: default;
-    }
-  }
-
-  &__file {
-    display: none;
-  }
-
-  @media (min-width: 1024px) {
-    &__msg {
-      max-width: 68%;
-    }
-
-    &__composer {
-      padding-left: 0;
-      padding-right: 0;
-    }
-
-    &__messages {
-      padding-left: 0;
-      padding-right: 0;
-    }
-
-    &__header {
-      padding-left: 0;
-      padding-right: 0;
-    }
-  }
-
-  &__send {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    background: var(--rose);
-    color: var(--paper-raised);
-    display: grid;
-    place-items: center;
-    flex-shrink: 0;
-    box-shadow: var(--shadow-glow);
-    transition: opacity 0.15s ease;
-
-    &--idle {
-      opacity: 0.45;
-    }
-  }
-}
-
-// --- Composer tray ---------------------------------------------------------
-.tray-item {
-  position: relative;
-  flex-shrink: 0;
-
-  &__img {
-    display: block;
-    width: 64px;
-    height: 64px;
-    border-radius: 12px;
-    object-fit: cover;
-    box-shadow: var(--shadow-card);
-  }
-
-  &__doc {
-    width: 148px;
-    height: 64px;
-    padding: 10px;
-    border-radius: 12px;
-    background: var(--paper-raised);
-    box-shadow: var(--shadow-card);
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 2px;
-    color: var(--ink);
-  }
-
-  &__name {
-    font-size: 11px;
-    font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  &__size {
-    font-size: 9px;
-    color: var(--violet-45);
-  }
-
-  &__remove {
-    position: absolute;
-    top: -5px;
-    right: -5px;
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    background: var(--ink);
-    color: var(--paper-raised);
-    display: grid;
-    place-items: center;
-  }
-}
-
-// --- Photo viewer ----------------------------------------------------------
-.shot-view {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  background: rgba(20, 14, 26, 0.86);
-  display: grid;
-  place-items: center;
-  padding: 24px;
-
-  &__img {
-    max-width: 100%;
-    max-height: 82vh;
-    border-radius: var(--radius-md);
-    object-fit: contain;
-  }
-
-  &__close {
-    position: absolute;
-    top: calc(16px + env(safe-area-inset-top, 0px));
-    right: 16px;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.16);
-    color: var(--white);
-    display: grid;
-    place-items: center;
-  }
-}
-</style>

@@ -2,11 +2,10 @@
 // Full-bleed layout for flows without navigation (onboarding, auth, setup).
 // On desktop the flow is centred in a narrow column so the copy and inputs keep
 // a comfortable measure instead of stretching across the whole surface.
-withDefaults(defineProps<{ bg?: string }>(), { bg: '' })
 </script>
 
 <template>
-  <div class="layout-default" :style="bg ? { background: bg } : undefined">
+  <div class="layout-default">
     <div class="layout-default__body scroll-y">
       <div class="layout-default__flow">
         <slot />

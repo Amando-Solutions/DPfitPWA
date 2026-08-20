@@ -41,7 +41,7 @@ watch(code, () => {
 
     <div class="access__intro">
       <BrandWordmark size="lg" stacked />
-      <EyebrowLabel color="var(--violet-45)"
+      <EyebrowLabel tone="muted"
         >6-week recomp challenge · Cohort 01</EyebrowLabel
       >
       <h1 class="access__title">
@@ -90,7 +90,7 @@ watch(code, () => {
     top: -80px;
     right: -80px;
     border-radius: 50%;
-    background: radial-gradient(circle, rgba(200, 30, 92, 0.25), transparent 70%);
+    background: radial-gradient(circle, var(--rose-ring), transparent 70%);
     filter: blur(8px);
   }
 
@@ -147,7 +147,7 @@ watch(code, () => {
     text-align: center;
     font-family: var(--font-data);
     font-size: 11px;
-    color: rgba(36, 27, 46, 0.35);
+    color: var(--text-muted);
   }
 }
 

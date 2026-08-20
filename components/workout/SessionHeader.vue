@@ -1,223 +1,130 @@
 <script setup lang="ts">
-defineProps<{
-  eyebrow: string
-  title: string
-  duration: string
-  volume: number
-  setsDone: number
-  setsTotal: number
-  action?: string // right button label
-  unit?: 'kg' | 'lbs'
-}>()
+import type { Units } from '~/data/types'
+import { formatVolume, unitLabel } from '~/lib/domain/nutrition'
+
+const props = withDefaults(
+  defineProps<{
+    eyebrow: string
+    title: string
+    duration: string
+    /** Always kilograms — the display unit is `unit`. */
+    volume: number
+    setsDone: number
+    setsTotal: number
+    action?: string // right button label
+    unit?: Units
+  }>(),
+  { unit: 'kg' },
+)
 
 const emit = defineEmits<{
   (e: 'action'): void
-  (e: 'unit', v: 'kg' | 'lbs'): void
+  (e: 'unit', v: Units): void
 }>()
+
+const volumeLabel = computed(
+  () => `${formatVolume(props.volume, props.unit)} ${unitLabel(props.unit)}`,
+)
+
+const STAT = 'flex flex-col gap-1 rounded-[14px] bg-on-photo/8 px-3 py-2.5'
+const STAT_LABEL =
+  'font-eyebrow text-[8px] uppercase tracking-[0.5px] text-on-photo/55'
+const TOGGLE_BTN =
+  'min-h-6.5 rounded-pill px-3 py-1.5 text-[10px] font-bold tracking-[0.5px]'
+// The selected unit is the raised thumb of the segmented control; its other
+// half stays flat so the pair reads as one switch rather than two buttons.
+const TOGGLE_ON = 'btn-raised bg-on-photo text-photo [--btn-face:var(--on-photo)]'
+const TOGGLE_OFF = 'text-on-photo/60 transition-colors'
 </script>
 
 <template>
-  <header class="shead">
-    <div class="shead__overlay" />
-    <div class="shead__content">
-      <div class="shead__top">
+  <!-- A photographic banner: dark in both themes on purpose (`--surface-photo`). -->
+  <header
+    class="relative overflow-hidden rounded-b-lg bg-photo text-on-photo lg:rounded-b-4xl"
+  >
+    <div
+      class="absolute inset-0 bg-[var(--photo-wash),url('https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=500&q=60')] bg-cover bg-center opacity-25 mix-blend-luminosity"
+    />
+
+    <!-- Desktop: the banner stays full-bleed, its content follows the focus column. -->
+    <div
+      class="relative px-5 pt-2 pb-4.5 lg:mx-auto lg:max-w-(--focus-max) lg:px-10 lg:pt-5 lg:pb-6.5"
+    >
+      <div class="mb-4 flex items-start justify-between gap-3">
         <div>
-          <span class="shead__eyebrow">{{ eyebrow }}</span>
-          <h1 class="shead__title">{{ title }}</h1>
+          <span
+            class="font-eyebrow text-[9.5px] font-bold uppercase tracking-[1px] text-on-photo/60"
+          >
+            {{ eyebrow }}
+          </span>
+          <h1
+            class="mt-1.5 mb-0 font-display text-[18px] font-black lg:text-[22px]"
+          >
+            {{ title }}
+          </h1>
         </div>
-        <button class="shead__action" @click="emit('action')">
+        <button
+          class="btn-raised shrink-0 rounded-pill bg-on-photo/14 px-4 py-2 text-[13px] font-bold text-on-photo [--btn-face:var(--face-on-photo)]"
+          @click="emit('action')"
+        >
           {{ action ?? 'Cancel' }}
         </button>
       </div>
 
-      <div class="shead__stats">
-        <div class="shead__stat">
-          <span class="shead__stat-label">Duration</span>
-          <span class="shead__stat-value data">{{ duration }}</span>
+      <div class="mb-4 grid grid-cols-3 gap-2.5 lg:gap-3.5">
+        <div :class="STAT">
+          <span :class="STAT_LABEL">Duration</span>
+          <span class="data text-base font-bold">{{ duration }}</span>
         </div>
-        <div class="shead__stat">
-          <span class="shead__stat-label">Volume</span>
-          <span class="shead__stat-value data">{{ volume }} kg</span>
+        <div :class="STAT">
+          <span :class="STAT_LABEL">Volume</span>
+          <span class="data text-base font-bold">{{ volumeLabel }}</span>
         </div>
-        <div class="shead__stat">
-          <span class="shead__stat-label">Sets</span>
-          <span class="shead__stat-value shead__stat-value--accent data"
-            >{{ setsDone }}/{{ setsTotal }}</span
-          >
+        <div :class="STAT">
+          <span :class="STAT_LABEL">Sets</span>
+          <span class="data text-base font-bold text-orange">
+            {{ setsDone }}/{{ setsTotal }}
+          </span>
         </div>
       </div>
 
-      <div class="shead__unit-row">
-        <span class="shead__unit-label">Weight unit</span>
-        <div class="shead__toggle">
+      <div class="flex items-center justify-between">
+        <span
+          class="font-eyebrow text-[8.5px] uppercase tracking-[0.5px] text-on-photo/55"
+        >
+          Weight unit
+        </span>
+        <div
+          class="flex gap-0.5 rounded-pill bg-on-photo/10 p-0.75"
+          role="radiogroup"
+          aria-label="Weight unit"
+        >
           <button
-            class="shead__toggle-btn"
-            :class="{ 'shead__toggle-btn--on': (unit ?? 'kg') === 'kg' }"
+            type="button"
+            role="radio"
+            :aria-checked="unit === 'kg'"
+            :class="[
+              TOGGLE_BTN,
+              unit === 'kg' ? TOGGLE_ON : TOGGLE_OFF,
+            ]"
             @click="emit('unit', 'kg')"
           >
             KG
           </button>
           <button
-            class="shead__toggle-btn"
-            :class="{ 'shead__toggle-btn--on': unit === 'lbs' }"
-            @click="emit('unit', 'lbs')"
+            type="button"
+            role="radio"
+            :aria-checked="unit === 'lb'"
+            :class="[
+              TOGGLE_BTN,
+              unit === 'lb' ? 'bg-on-photo text-photo' : 'text-on-photo/60',
+            ]"
+            @click="emit('unit', 'lb')"
           >
-            LBS
+            LB
           </button>
         </div>
       </div>
     </div>
   </header>
 </template>
-
-<style scoped lang="scss">
-.shead {
-  position: relative;
-  background: var(--ink);
-  color: var(--paper-raised);
-  border-radius: 0 0 26px 26px;
-  overflow: hidden;
-
-  &__overlay {
-    position: absolute;
-    inset: 0;
-    background:
-      radial-gradient(90% 60% at 100% 0%, rgba(200, 30, 92, 0.28), transparent 60%),
-      url('https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=500&q=60')
-        center/cover;
-    opacity: 0.25;
-    mix-blend-mode: luminosity;
-  }
-
-  &__content {
-    position: relative;
-    padding: 8px 20px 18px;
-  }
-
-  &__top {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 16px;
-  }
-
-  &__eyebrow {
-    font-family: var(--font-eyebrow);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    font-size: 9.5px;
-    font-weight: 700;
-    color: rgba(251, 246, 242, 0.6);
-  }
-
-  &__title {
-    margin: 6px 0 0;
-    font-family: var(--font-display);
-    font-weight: 900;
-    font-size: 18px;
-  }
-
-  &__action {
-    padding: 8px 16px;
-    border-radius: var(--radius-pill);
-    background: rgba(255, 255, 255, 0.14);
-    color: var(--paper-raised);
-    font-weight: 700;
-    font-size: 13px;
-    flex-shrink: 0;
-  }
-
-  &__stats {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
-    margin-bottom: 16px;
-  }
-
-  &__stat {
-    background: rgba(255, 255, 255, 0.08);
-    border-radius: 14px;
-    padding: 10px 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  &__stat-label {
-    font-family: var(--font-eyebrow);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    font-size: 8px;
-    color: rgba(251, 246, 242, 0.55);
-  }
-
-  &__stat-value {
-    font-size: 16px;
-    font-weight: 700;
-
-    &--accent {
-      color: var(--orange);
-    }
-  }
-
-  &__unit-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  &__unit-label {
-    font-family: var(--font-eyebrow);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    font-size: 8.5px;
-    color: rgba(251, 246, 242, 0.55);
-  }
-
-  &__toggle {
-    display: flex;
-    gap: 2px;
-    padding: 3px;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: var(--radius-pill);
-  }
-
-  &__toggle-btn {
-    min-height: 26px;
-    padding: 6px 12px;
-    border-radius: var(--radius-pill);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-    color: rgba(251, 246, 242, 0.6);
-
-    &--on {
-      background: var(--paper-raised);
-      color: var(--ink);
-    }
-  }
-}
-
-// Desktop: the banner stays full-bleed, its content follows the focus column.
-@media (min-width: 1024px) {
-  .shead {
-    border-radius: 0 0 32px 32px;
-
-    &__content {
-      max-width: var(--focus-max);
-      margin: 0 auto;
-      padding: 20px 40px 26px;
-    }
-
-    &__title {
-      font-size: 22px;
-    }
-
-    &__stats {
-      gap: 14px;
-    }
-  }
-}
-
-</style>

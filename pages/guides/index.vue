@@ -39,7 +39,7 @@ const rows = computed(() =>
       <button
         v-for="category in guideCategories"
         :key="category"
-        class="chip"
+        class="chip btn-raised"
         :class="{ 'chip--on': filter === category }"
         @click="filter = category"
       >
@@ -121,7 +121,9 @@ const rows = computed(() =>
   padding: 8px 14px;
   border-radius: var(--radius-pill);
   background: var(--paper-raised);
-  box-shadow: inset 0 0 0 1.5px rgba(36, 27, 46, 0.09);
+  /* The stroke, the cast and the inner edges all come from `btn-raised`; the
+     only thing this rule owes it is the face colour they are derived from. */
+  --btn-face: var(--surface-raised);
   font-family: var(--font-eyebrow);
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -129,14 +131,11 @@ const rows = computed(() =>
   font-weight: 700;
   color: var(--violet-45);
   white-space: nowrap;
-  transition:
-    background 0.15s ease,
-    color 0.15s ease;
 
   &--on {
-    background: var(--ink);
-    box-shadow: none;
-    color: var(--paper-raised);
+    background: var(--surface-inverse);
+    --btn-face: var(--surface-inverse);
+    color: var(--on-inverse);
   }
 }
 
@@ -151,7 +150,7 @@ const rows = computed(() =>
 
   &--locked {
     opacity: 0.6;
-    box-shadow: inset 0 0 0 1.5px rgba(36, 27, 46, 0.09);
+    box-shadow: inset 0 0 0 1.5px var(--hairline);
     background: transparent;
     cursor: default;
   }
@@ -208,7 +207,7 @@ const rows = computed(() =>
     font-size: 8.5px;
     font-weight: 700;
     color: var(--rose);
-    background: var(--rose-25);
+    background: var(--rose-soft);
     padding: 4px 8px;
     border-radius: var(--radius-pill);
   }

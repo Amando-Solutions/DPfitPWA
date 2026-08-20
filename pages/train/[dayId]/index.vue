@@ -2,6 +2,8 @@
 // 13 · Ready to Start / 14 · Active Session / 15 · Rest Timer / 16 · Exercise Menu
 definePageMeta({ layout: false })
 
+import type { Units } from '~/data/types'
+
 const route = useRoute()
 const router = useRouter()
 const store = useAppStore()
@@ -116,11 +118,12 @@ const addSet = async (exerciseIndex: number) => {
   if (!active) return
   const exercise = active.exercises[exerciseIndex]
   const last = exercise.sets.at(-1)
+  // A set added mid-session has no counterpart in a previous week, so it
+  // carries no "previous" reference — the column renders a dash.
   exercise.sets.push({
     reps: last?.reps ?? 10,
     weightKg: last?.weightKg ?? 0,
     done: false,
-    previous: '—',
   })
   await store.persistActiveSession()
 }
@@ -138,6 +141,13 @@ const updateNote = async (exerciseIndex: number, value: string) => {
   active.exercises[exerciseIndex].note = value
   await store.persistActiveSession()
 }
+
+// --- Units -----------------------------------------------------------------
+// The header's KG/LB switch is the same preference the profile screen sets, so
+// the two can never disagree. Only the *display* changes: every weight is
+// stored in kilograms.
+const units = computed(() => store.settings.value.units)
+const setUnits = (value: Units) => store.saveSettings({ units: value })
 
 // --- Leaving ---------------------------------------------------------------
 const showDiscard = ref(false)
@@ -159,7 +169,9 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
         :volume="totals.volume"
         :sets-done="totals.setsDone"
         :sets-total="totals.setsTotal"
+        :unit="units"
         @action="showDiscard = true"
+        @unit="setUnits"
       />
 
       <div class="session__body">
@@ -171,6 +183,7 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
           :rest-seconds="exercise.restSeconds"
           :note="exercise.note"
           :sets="exercise.sets"
+          :unit="units"
           @toggle-set="(setIndex) => toggleSet(i, setIndex)"
           @update-set="(payload) => updateSet(i, payload)"
           @add-set="() => addSet(i)"

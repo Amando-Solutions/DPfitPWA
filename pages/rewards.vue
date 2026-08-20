@@ -112,7 +112,7 @@ const initials = (name: string) =>
 
       <template v-if="tab === 'badges'">
         <div class="rewards__panel-head">
-          <EyebrowLabel color="var(--violet-45)">Badges</EyebrowLabel>
+          <EyebrowLabel tone="muted">Badges</EyebrowLabel>
           <span class="rewards__count data">
             {{ snapshot.badgeCount }} of {{ snapshot.badgeTotal }}
           </span>
@@ -137,7 +137,7 @@ const initials = (name: string) =>
 
       <template v-else>
         <div class="rewards__panel-head">
-          <EyebrowLabel color="var(--violet-45)">This cohort</EyebrowLabel>
+          <EyebrowLabel tone="muted">This cohort</EyebrowLabel>
           <span class="rewards__count data">{{ cohort.memberCount }} members</span>
         </div>
         <ol class="board">
@@ -228,27 +228,27 @@ const initials = (name: string) =>
     font-family: var(--font-display);
     font-weight: 900;
     font-size: 18px;
-    color: var(--paper-raised);
+    color: var(--on-inverse);
   }
 
   &__points {
     font-size: 26px;
     font-weight: 700;
     line-height: 1.1;
-    color: var(--paper-raised);
+    color: var(--on-inverse);
   }
 
   &__next {
     margin: -4px 0 0;
     font-size: 12.5px;
-    color: rgba(251, 246, 242, 0.7);
+    color: var(--on-inverse-soft);
   }
 
   &__ladder {
     list-style: none;
     margin: 6px 0 0;
     padding: 12px 0 0;
-    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    border-top: 1px solid var(--hairline-inverse);
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -274,12 +274,12 @@ const initials = (name: string) =>
     flex: 1;
     font-size: 13px;
     font-weight: 600;
-    color: var(--paper-raised);
+    color: var(--on-inverse);
   }
 
   &__step-rp {
     font-size: 11px;
-    color: rgba(251, 246, 242, 0.7);
+    color: var(--on-inverse-soft);
   }
 }
 
@@ -293,7 +293,7 @@ const initials = (name: string) =>
     height: 44px;
     border-radius: var(--radius-pill);
     background: var(--orange-16);
-    color: var(--orange);
+    color: var(--orange-text);
     display: grid;
     place-items: center;
     flex-shrink: 0;
@@ -328,12 +328,12 @@ const initials = (name: string) =>
   padding: 14px 16px;
   border-radius: var(--radius-card);
   background: var(--paper-raised);
-  border: 1px solid rgba(36, 27, 46, 0.09);
+  border: 1px solid var(--hairline);
   opacity: 0.65;
 
   &--earned {
     opacity: 1;
-    border-color: rgba(200, 30, 92, 0.3);
+    border-color: var(--rose-ring);
   }
 
   &__emoji {
@@ -370,7 +370,7 @@ const initials = (name: string) =>
     font-size: 8.5px;
     font-weight: 700;
     color: var(--rose);
-    background: var(--rose-25);
+    background: var(--rose-soft);
     padding: 4px 8px;
     border-radius: var(--radius-pill);
   }
@@ -398,12 +398,12 @@ const initials = (name: string) =>
     background: var(--paper-raised);
 
     &--self {
-      background: var(--ink);
-      color: var(--paper-raised);
+      background: var(--surface-inverse);
+      color: var(--on-inverse);
 
       .board__rank,
       .board__points {
-        color: var(--paper-raised);
+        color: var(--on-inverse);
       }
     }
   }
@@ -425,8 +425,8 @@ const initials = (name: string) =>
     &--initials {
       display: grid;
       place-items: center;
-      background: var(--rose);
-      color: var(--paper-raised);
+      background: var(--rose-fill);
+      color: var(--on-rose);
       font-family: var(--font-eyebrow);
       font-size: 11px;
       font-weight: 700;

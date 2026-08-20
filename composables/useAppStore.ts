@@ -157,14 +157,17 @@ export const useAppStore = () => {
   /**
    * What they hit last time on this exercise, shown in the "previous" column.
    * Sessions are stored newest-first, so the first match is the latest.
+   *
+   * Returns the raw numbers rather than a label: the column has to be able to
+   * re-render in kilograms or pounds, which a baked-in string cannot do.
    */
-  const previousFor = (exerciseId: string): string | undefined => {
+  const previousFor = (
+    exerciseId: string,
+  ): { weightKg: number; reps: number } | undefined => {
     for (const session of state.value.sessions) {
       const logged = session.exercises?.find((e) => e.id === exerciseId)
       const last = logged?.sets.filter((s) => s.done).at(-1)
-      if (last) {
-        return last.weightKg ? `${last.weightKg}kg × ${last.reps}` : `× ${last.reps}`
-      }
+      if (last) return { weightKg: last.weightKg, reps: last.reps }
     }
     return undefined
   }
@@ -198,19 +201,24 @@ export const useAppStore = () => {
       running: false,
       note: '',
       proofPhoto: null,
-      exercises: day.exercises.map((exercise) => ({
-        id: exercise.id,
-        name: exercise.name,
-        muscleGroup: exercise.muscleGroup,
-        restSeconds: exercise.restSeconds,
-        note: '',
-        sets: exercise.sets.map((set) => ({
-          reps: set.reps,
-          weightKg: set.weightKg ?? 0,
-          done: false,
-          previous: previousFor(exercise.id) ?? '—',
-        })),
-      })),
+      exercises: day.exercises.map((exercise) => {
+        // The same for every set of the exercise, so look it up once.
+        const last = previousFor(exercise.id)
+        return {
+          id: exercise.id,
+          name: exercise.name,
+          muscleGroup: exercise.muscleGroup,
+          restSeconds: exercise.restSeconds,
+          note: '',
+          sets: exercise.sets.map((set) => ({
+            reps: set.reps,
+            weightKg: set.weightKg ?? 0,
+            done: false,
+            previousWeightKg: last?.weightKg,
+            previousReps: last?.reps,
+          })),
+        }
+      }),
     }
     state.value.activeSession = session
     await data.setActiveSession(session)
