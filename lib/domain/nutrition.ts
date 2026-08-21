@@ -1,4 +1,10 @@
-import type { ActivityLevel, Goal, MemberProfile, NutritionTargets } from '~/data/types'
+import type {
+  ActivityLevel,
+  Goal,
+  MemberProfile,
+  NutritionTargets,
+  Units,
+} from '~/data/types'
 
 /**
  * Daily targets, computed from the member's own numbers rather than hard-coded.
@@ -80,12 +86,35 @@ export const targetsBreakdown = (t: NutritionTargets) => [
 ]
 
 // --- Units -----------------------------------------------------------------
+// Weight is *stored* in kilograms everywhere, always. `units` only ever decides
+// how it is shown and how a typed-in number is read back, so switching units
+// can never change what is on record.
 export const kgToLb = (kg: number) => kg * 2.2046226218
 export const lbToKg = (lb: number) => lb / 2.2046226218
 
-export const formatWeight = (kg: number | null | undefined, units: 'kg' | 'lb'): string => {
+export const unitLabel = (units: Units): string => (units === 'kg' ? 'kg' : 'lb')
+
+export const formatWeight = (kg: number | null | undefined, units: Units): string => {
   if (kg === null || kg === undefined) return '—'
-  return units === 'kg' ? `${round1(kg)}kg` : `${round1(kgToLb(kg))}lb`
+  return `${round1(units === 'kg' ? kg : kgToLb(kg))}${unitLabel(units)}`
 }
+
+/** Kilograms as the member sees them, rounded for display in a field. */
+export const toDisplayWeight = (kg: number, units: Units): number =>
+  round1(units === 'kg' ? kg : kgToLb(kg))
+
+/** A number the member typed, back to the kilograms the app stores. */
+export const fromDisplayWeight = (value: number, units: Units): number =>
+  units === 'kg' ? value : lbToKg(value)
+
+/**
+ * Session volume (weight × reps, summed). It is a mass, so it converts like
+ * one — but it is shown as a whole number because the figure is already large.
+ */
+export const formatVolume = (kg: number, units: Units): string =>
+  `${Math.round(units === 'kg' ? kg : kgToLb(kg))}`
+
+/** The increment a weight field should step by in each unit. */
+export const weightStep = (units: Units): number => (units === 'kg' ? 0.5 : 1)
 
 export const round1 = (n: number) => Math.round(n * 10) / 10

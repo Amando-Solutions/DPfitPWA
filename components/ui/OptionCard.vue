@@ -13,91 +13,33 @@ withDefaults(
 
 <template>
   <button
-    class="opt"
-    :class="{ 'opt--selected': selected, 'opt--compact': compact }"
     type="button"
+    class="flex w-full items-center gap-3 rounded-md bg-sunken text-left transition-all duration-150"
+    :class="[
+      compact ? 'px-3.5 py-3' : 'px-4 py-3.5',
+      selected
+        ? 'bg-rose-softer shadow-[inset_0_0_0_1.5px_var(--rose)]'
+        : 'shadow-[inset_0_0_0_1.5px_var(--hairline)]',
+    ]"
   >
-    <div v-if="icon" class="opt__icon">
+    <div
+      v-if="icon"
+      class="grid size-9 shrink-0 place-items-center rounded-[10px] transition-colors"
+      :class="selected ? 'bg-rose-fill text-on-rose' : 'bg-fill-subtle text-ink'"
+    >
       <AppIcon :name="icon" :size="18" :stroke="2.2" />
     </div>
-    <div class="opt__text">
-      <span class="opt__label">{{ label }}</span>
-      <span v-if="desc" class="opt__desc">{{ desc }}</span>
+
+    <div class="flex flex-1 flex-col gap-0.5">
+      <span class="text-[15px] font-bold text-ink">{{ label }}</span>
+      <span v-if="desc" class="text-[12.5px] text-muted">{{ desc }}</span>
     </div>
-    <div class="opt__check">
+
+    <div
+      class="grid size-5.5 shrink-0 place-items-center rounded-full text-on-rose"
+      :class="selected && 'bg-rose-fill'"
+    >
       <AppIcon v-if="selected" name="check" :size="14" :stroke="3" />
     </div>
   </button>
 </template>
-
-<style scoped lang="scss">
-.opt {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  border-radius: var(--radius-md);
-  background: var(--paper);
-  box-shadow: inset 0 0 0 1.5px rgba(36, 27, 46, 0.1);
-  text-align: left;
-  transition: all 0.15s ease;
-
-  &--compact {
-    padding: 12px 14px;
-  }
-
-  &--selected {
-    background: rgba(200, 30, 92, 0.06);
-    box-shadow: inset 0 0 0 1.5px var(--rose);
-  }
-
-  &__icon {
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
-    display: grid;
-    place-items: center;
-    background: rgba(36, 27, 46, 0.06);
-    color: var(--ink);
-    flex-shrink: 0;
-
-    .opt--selected & {
-      background: var(--rose);
-      color: var(--paper-raised);
-    }
-  }
-
-  &__text {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  &__label {
-    font-weight: 700;
-    font-size: 15px;
-    color: var(--ink);
-  }
-
-  &__desc {
-    font-size: 12.5px;
-    color: var(--violet-45);
-  }
-
-  &__check {
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    flex-shrink: 0;
-    color: var(--paper-raised);
-
-    .opt--selected & {
-      background: var(--rose);
-    }
-  }
-}
-</style>

@@ -1,3 +1,4 @@
+import tailwindcss from '@tailwindcss/vite'
 import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { basename, dirname } from 'node:path'
@@ -43,7 +44,18 @@ export default defineNuxtConfig({
   // components/shell/AppShell.vue is <AppShell/>, etc.
   components: [{ path: '~/components', pathPrefix: false }],
 
-  css: ['~/assets/styles/main.scss'],
+  // Nuxt only auto-detects `~/app/spa-loading-template.html`; this project keeps
+  // it at the root, so without an explicit path the boot splash is compiled in
+  // empty and the first paint is a blank page.
+  spaLoadingTemplate: 'spa-loading-template.html',
+
+  css: ['~/assets/styles/main.css'],
+
+  // Tailwind v4 is a Vite plugin — no PostCSS config, no tailwind.config.js.
+  // The theme itself lives in `assets/styles/main.css` under `@theme inline`.
+  vite: {
+    plugins: [tailwindcss()],
+  },
 
   // Env-driven configuration. Values are overridden at runtime by the matching
   // NUXT_PUBLIC_* variables (see .env.example) — Nuxt parses them against the
@@ -77,6 +89,19 @@ export default defineNuxtConfig({
             'DP Fitness Recomp Challenge — train with purpose, transform with proof.',
         },
       ],
+      // Resolves the theme before the first frame, so neither the SPA loading
+      // template nor the app can flash the wrong palette. Reads the same
+      // `dpfit:theme` key that `useTheme` writes (a JSON string), falling back
+      // to the OS preference. Kept inline and dependency-free on purpose — it
+      // has to run ahead of every bundle.
+      script: [
+        {
+          key: 'theme-boot',
+          tagPosition: 'head',
+          innerHTML: `(function(){try{var s=localStorage.getItem('dpfit:theme');var p=s?JSON.parse(s):'system';var d=p==='dark'||(p!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=d?'dark':'light';var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',d?'#14101a':'#f3eae4');}catch(e){document.documentElement.dataset.theme='light';}})();`,
+        },
+      ],
+
       link: [
         // Files in `public/` are served at the web root as-is, so this
         // resolves to `/favicon.svg`. SVG covers every current browser; add

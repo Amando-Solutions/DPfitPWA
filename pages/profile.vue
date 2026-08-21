@@ -100,7 +100,7 @@ const signOut = async () => {
     <!-- Your details -->
     <section class="profile__section">
       <div class="profile__section-head">
-        <EyebrowLabel color="var(--violet-45)">Your details</EyebrowLabel>
+        <EyebrowLabel tone="muted">Your details</EyebrowLabel>
         <Transition name="fade">
           <span v-if="saved" class="profile__saved">Saved</span>
         </Transition>
@@ -159,7 +159,7 @@ const signOut = async () => {
     <div class="profile__right">
       <!-- Coach only -->
       <section class="profile__section">
-      <EyebrowLabel color="var(--violet-45)">Coach only</EyebrowLabel>
+      <EyebrowLabel tone="muted">Coach only</EyebrowLabel>
       <AppCard variant="raised" class="profile__card">
         <div>
           <span class="profile__label">Allergies / restrictions</span>
@@ -193,21 +193,26 @@ const signOut = async () => {
 
     <!-- Preferences -->
     <section class="profile__section">
-      <EyebrowLabel color="var(--violet-45)">Preferences</EyebrowLabel>
+      <EyebrowLabel tone="muted">Preferences</EyebrowLabel>
       <AppCard variant="raised" class="profile__card">
+        <div class="profile__row">
+          <span class="profile__row-label">Appearance</span>
+          <ThemeToggle />
+        </div>
+
         <div class="profile__row">
           <span class="profile__row-label">Weight unit</span>
           <div class="profile__units">
             <button
               class="profile__unit"
-              :class="{ 'profile__unit--on': units === 'kg' }"
+              :class="{ 'profile__unit--on btn-raised': units === 'kg' }"
               @click="setUnits('kg')"
             >
               KG
             </button>
             <button
               class="profile__unit"
-              :class="{ 'profile__unit--on': units === 'lb' }"
+              :class="{ 'profile__unit--on btn-raised': units === 'lb' }"
               @click="setUnits('lb')"
             >
               LB
@@ -326,7 +331,7 @@ const signOut = async () => {
     padding: 12px 14px;
     background: var(--paper);
     border-radius: var(--radius-md);
-    box-shadow: inset 0 0 0 1.5px rgba(36, 27, 46, 0.1);
+    box-shadow: inset 0 0 0 1.5px var(--hairline);
     font-family: var(--font-body);
     font-size: 14px;
     color: var(--ink);
@@ -345,13 +350,13 @@ const signOut = async () => {
     height: 48px;
     border-radius: var(--radius-md);
     background: var(--paper);
-    box-shadow: inset 0 0 0 1.5px rgba(36, 27, 46, 0.1);
+    box-shadow: inset 0 0 0 1.5px var(--hairline);
     font-weight: 700;
     font-size: 14px;
     color: var(--ink);
 
     &--on {
-      background: rgba(200, 30, 92, 0.06);
+      background: var(--rose-softer);
       box-shadow: inset 0 0 0 1.5px var(--rose);
       color: var(--rose);
     }
@@ -374,7 +379,7 @@ const signOut = async () => {
     display: flex;
     gap: 2px;
     padding: 3px;
-    background: rgba(36, 27, 46, 0.06);
+    background: var(--fill-subtle);
     border-radius: var(--radius-pill);
   }
 
@@ -388,8 +393,9 @@ const signOut = async () => {
     color: var(--violet-45);
 
     &--on {
-      background: var(--ink);
-      color: var(--paper-raised);
+      background: var(--surface-inverse);
+      --btn-face: var(--surface-inverse);
+      color: var(--on-inverse);
     }
   }
 
@@ -406,13 +412,13 @@ const signOut = async () => {
   width: 46px;
   height: 27px;
   border-radius: var(--radius-pill);
-  background: rgba(36, 27, 46, 0.15);
+  background: var(--hairline-strong);
   padding: 3px;
   display: flex;
   transition: background 0.18s ease;
 
   &--on {
-    background: var(--rose);
+    background: var(--rose-fill);
     justify-content: flex-end;
   }
 
@@ -421,7 +427,7 @@ const signOut = async () => {
     height: 21px;
     border-radius: 50%;
     background: var(--paper-raised);
-    box-shadow: 0 1px 3px rgba(36, 27, 46, 0.25);
+    box-shadow: var(--shadow-knob);
   }
 }
 
@@ -442,13 +448,13 @@ const signOut = async () => {
     letter-spacing: 0.5px;
     font-size: 8.5px;
     font-weight: 700;
-    color: rgba(251, 246, 242, 0.55);
+    color: var(--on-inverse-muted);
   }
 
   &__value {
     font-size: 17px;
     font-weight: 700;
-    color: var(--paper-raised);
+    color: var(--on-inverse);
 
     &--accent {
       color: var(--orange);

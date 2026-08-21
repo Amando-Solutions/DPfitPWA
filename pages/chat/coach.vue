@@ -4,7 +4,7 @@ definePageMeta({ layout: false })
 
 import { coach } from '~/data/program'
 import { useDataSourceClient } from '~/lib/datasource'
-import type { ChatMessage } from '~/data/types'
+import type { ChatAttachment, ChatMessage } from '~/data/types'
 
 const data = useDataSourceClient()
 const messages = ref<ChatMessage[]>([])
@@ -13,8 +13,11 @@ onMounted(async () => {
   messages.value = await data.listMessages('coach')
 })
 
-const send = async (text: string) => {
-  messages.value = [...messages.value, await data.sendMessage('coach', text)]
+const send = async (payload: { text: string; attachments: ChatAttachment[] }) => {
+  messages.value = [
+    ...messages.value,
+    await data.sendMessage('coach', payload.text, payload.attachments),
+  ]
 }
 </script>
 

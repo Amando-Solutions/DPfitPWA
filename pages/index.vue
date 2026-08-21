@@ -64,14 +64,14 @@ onMounted(() => {
       height: 300px;
       top: -120px;
       right: -90px;
-      background: radial-gradient(circle, rgba(200, 30, 92, 0.55), transparent 68%);
+      background: radial-gradient(circle, var(--rose-strong), transparent 68%);
     }
     &--violet {
       width: 360px;
       height: 360px;
       bottom: -120px;
       left: -140px;
-      background: radial-gradient(circle, rgba(74, 63, 82, 0.5), transparent 70%);
+      background: radial-gradient(circle, var(--glow-neutral), transparent 70%);
     }
   }
 
@@ -89,7 +89,7 @@ onMounted(() => {
     width: 52px;
     height: 4px;
     border-radius: 999px;
-    background: var(--rose);
+    background: var(--rose-fill);
   }
 
   &__tagline {
@@ -112,13 +112,13 @@ onMounted(() => {
     width: 68px;
     height: 4px;
     border-radius: 999px;
-    background: rgba(36, 27, 46, 0.12);
+    background: var(--fill-muted);
     overflow: hidden;
   }
 
   &__loading-fill {
     height: 100%;
-    background: var(--rose);
+    background: var(--rose-fill);
     border-radius: 999px;
     transition: width 0.1s linear;
   }

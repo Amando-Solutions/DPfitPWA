@@ -97,7 +97,7 @@ watchEffect(() => {
     height: 26px;
     flex-shrink: 0;
     border-radius: var(--radius-pill);
-    background: var(--rose-25);
+    background: var(--rose-soft);
     color: var(--rose);
     display: grid;
     place-items: center;

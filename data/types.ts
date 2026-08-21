@@ -144,6 +144,19 @@ export interface ProgressPhoto {
 }
 
 // --- Community / chat ------------------------------------------------------
+/** A photo or file shared into a thread. */
+export interface ChatAttachment {
+  id: string
+  /** Images render inline; everything else renders as a downloadable chip. */
+  kind: 'image' | 'file'
+  name: string
+  /** Original file size in bytes, before any downscaling. */
+  size: number
+  mimeType: string
+  /** A data URL on device; a served URL once a backend stores the upload. */
+  url: string
+}
+
 export interface ChatMessage {
   id: string
   authorId: string
@@ -153,6 +166,7 @@ export interface ChatMessage {
   isSelf: boolean
   text: string
   sentAt: string
+  attachments?: ChatAttachment[]
   reactions?: { emoji: string; count: number }[]
 }
 
@@ -276,7 +290,18 @@ export interface LoggedSet {
   reps: number
   weightKg: number
   done: boolean
-  /** What they lifted last time, for reference while logging. */
+  /**
+   * What they lifted last time, for reference while logging. Kept as numbers
+   * so the column can be re-rendered in whichever unit is selected.
+   */
+  previousWeightKg?: number
+  previousReps?: number
+  /**
+   * The same reference, pre-formatted. Only written by builds that predate
+   * switchable units — still read so a session logged back then keeps showing
+   * its previous column.
+   * @deprecated use `previousWeightKg` / `previousReps`
+   */
   previous?: string
 }
 

@@ -91,7 +91,7 @@ const takenLabel = (iso: string) =>
     <div class="progress__weeks">
       <section v-for="group in byWeek" :key="group.weekNumber" class="progress__week">
       <div class="progress__week-head">
-        <EyebrowLabel color="var(--violet-45)">Week {{ group.weekNumber }}</EyebrowLabel>
+        <EyebrowLabel tone="muted">Week {{ group.weekNumber }}</EyebrowLabel>
         <span class="progress__week-count data">{{ group.photos.length }}/3</span>
       </div>
         <div class="progress__grid">
@@ -207,7 +207,7 @@ const takenLabel = (iso: string) =>
     gap: 10px;
     padding: 32px 24px;
     border-radius: var(--radius-card);
-    box-shadow: inset 0 0 0 1.5px rgba(36, 27, 46, 0.09);
+    box-shadow: inset 0 0 0 1.5px var(--hairline);
     color: var(--violet-45);
     text-align: center;
 
@@ -242,8 +242,8 @@ const takenLabel = (iso: string) =>
     bottom: 6px;
     padding: 3px 7px;
     border-radius: var(--radius-pill);
-    background: rgba(36, 27, 46, 0.7);
-    color: var(--paper-raised);
+    background: var(--overlay-strong);
+    color: var(--on-photo);
     font-family: var(--font-eyebrow);
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -259,7 +259,7 @@ const takenLabel = (iso: string) =>
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(20, 16, 26, 0.82);
+  background: var(--scrim-photo);
   backdrop-filter: blur(3px);
 
   &__panel {
@@ -276,7 +276,7 @@ const takenLabel = (iso: string) =>
     max-height: 70vh;
     object-fit: contain;
     display: block;
-    background: var(--ink);
+    background: var(--surface-inverse);
   }
 
   &__meta {
@@ -319,8 +319,8 @@ const takenLabel = (iso: string) =>
     width: 36px;
     height: 36px;
     border-radius: 50%;
-    background: rgba(36, 27, 46, 0.6);
-    color: var(--paper-raised);
+    background: var(--overlay-medium);
+    color: var(--on-photo);
     display: grid;
     place-items: center;
   }

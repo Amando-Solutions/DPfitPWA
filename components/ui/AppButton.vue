@@ -1,5 +1,5 @@
 <script setup lang="ts">
-withDefaults(
+const props = withDefaults(
   defineProps<{
     variant?: 'primary' | 'secondary' | 'ghost' | 'dark' | 'danger'
     size?: 'md' | 'lg'
@@ -17,90 +17,49 @@ defineEmits<{ (e: 'click', ev: MouseEvent): void }>()
 
 // Resolved in setup — `resolveComponent` can't run from the render function.
 const NuxtLink = resolveComponent('NuxtLink')
+
+/* Every filled variant gets the raised treatment from `btn-raised`, which
+   needs one thing: `--btn-face`, the button's opaque fill. It derives the
+   darkened stroke, the in-hue cast shadow, the top highlight and the bottom
+   shade from that, so each variant is lit in its own colour rather than in a
+   shared grey. Ghost is the exception — there is no face to raise. */
+const VARIANTS: Record<NonNullable<typeof props.variant>, string> = {
+  primary: 'btn-raised bg-rose-fill text-on-rose [--btn-face:var(--rose-fill)]',
+  // Same treatment as primary — the difference is intent, not colour.
+  danger: 'btn-raised bg-rose-fill text-on-rose [--btn-face:var(--rose-fill)]',
+  dark: 'btn-raised bg-inverse text-on-inverse [--btn-face:var(--surface-inverse)]',
+  secondary:
+    'btn-raised bg-raised text-ink [--btn-face:var(--surface-raised)]',
+  ghost:
+    'bg-transparent text-rose transition-[transform,opacity] duration-100 ease-out active:scale-[0.98]',
+}
+
+const SIZES: Record<NonNullable<typeof props.size>, string> = {
+  md: 'h-11 px-[18px] text-sm',
+  lg: 'h-13.5 px-6 text-[15px]',
+}
+
+const classes = computed(() => [
+  VARIANTS[props.variant],
+  SIZES[props.size],
+  props.block && 'w-full',
+  // The halo rides inside the raised shadow stack rather than replacing it.
+  props.glow && 'btn-glow',
+  props.disabled && 'opacity-45 pointer-events-none',
+])
 </script>
 
 <template>
   <component
     :is="to ? NuxtLink : 'button'"
     :to="to"
-    class="btn"
-    :class="[
-      `btn--${variant}`,
-      `btn--${size}`,
-      { 'btn--block': block, 'btn--glow': glow, 'btn--disabled': disabled },
-    ]"
+    class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-pill font-body font-bold"
+    :class="classes"
     :disabled="disabled"
     @click="(e: MouseEvent) => $emit('click', e)"
   >
     <AppIcon v-if="icon" :name="icon" :size="18" :stroke="2.2" />
-    <span class="btn__label"><slot /></span>
+    <span><slot /></span>
     <AppIcon v-if="iconRight" :name="iconRight" :size="18" :stroke="2.2" />
   </component>
 </template>
-
-<style scoped lang="scss">
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  border-radius: var(--radius-pill);
-  font-family: var(--font-body);
-  font-weight: 700;
-  transition:
-    transform 0.12s ease,
-    opacity 0.12s ease,
-    background 0.12s ease;
-  white-space: nowrap;
-
-  &:active {
-    transform: scale(0.98);
-  }
-
-  &--block {
-    width: 100%;
-  }
-
-  &--md {
-    height: 44px;
-    padding: 0 18px;
-    font-size: 14px;
-  }
-  &--lg {
-    height: 54px;
-    padding: 0 24px;
-    font-size: 15px;
-  }
-
-  &--primary {
-    background: var(--rose);
-    color: var(--paper-raised);
-  }
-  &--danger {
-    background: var(--rose);
-    color: var(--paper-raised);
-  }
-  &--dark {
-    background: var(--ink);
-    color: var(--paper-raised);
-  }
-  &--secondary {
-    background: var(--paper-raised);
-    color: var(--ink);
-    box-shadow: inset 0 0 0 1.5px rgba(36, 27, 46, 0.12);
-  }
-  &--ghost {
-    background: transparent;
-    color: var(--rose);
-  }
-
-  &--glow {
-    box-shadow: var(--shadow-glow);
-  }
-
-  &--disabled {
-    opacity: 0.45;
-    pointer-events: none;
-  }
-}
-</style>

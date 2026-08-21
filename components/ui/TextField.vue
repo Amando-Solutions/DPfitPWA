@@ -22,13 +22,29 @@ defineEmits<{
 </script>
 
 <template>
-  <label class="field" :class="{ 'field--error': error }">
-    <span v-if="label" class="field__label">{{ label }}</span>
-    <div class="field__control">
-      <AppIcon v-if="icon" :name="icon" :size="18" class="field__icon" />
+  <!-- min-w-0: grid/flex items default to min-width:auto, and a number input's
+       intrinsic width is wide enough to burst a two-column row. -->
+  <label class="block min-w-0">
+    <!-- Form labels across the design are Space Mono, not the Chivo Mono eyebrow. -->
+    <span
+      v-if="label"
+      class="mb-1.5 block font-data text-[9.5px] uppercase tracking-[0.9px] text-soft"
+    >
+      {{ label }}
+    </span>
+
+    <div
+      class="flex h-13.5 min-w-0 items-center gap-2.5 rounded-2xl border bg-sunken px-4.25 transition-colors duration-150"
+      :class="
+        error
+          ? 'border-rose'
+          : 'border-hairline focus-within:border-rose'
+      "
+    >
+      <AppIcon v-if="icon" :name="icon" :size="18" class="text-muted" />
       <input
-        class="field__input"
-        :class="{ 'field__input--mono': mono }"
+        class="w-full min-w-0 flex-1 appearance-none border-none bg-transparent text-[15px] text-ink outline-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none"
+        :class="mono && 'font-data tracking-[1px]'"
         :type="type"
         :value="modelValue"
         :placeholder="placeholder"
@@ -37,95 +53,13 @@ defineEmits<{
         "
         @blur="$emit('blur', $event as FocusEvent)"
       />
-      <span v-if="suffix" class="field__suffix">{{ suffix }}</span>
+      <span v-if="suffix" class="text-[13px] font-semibold text-muted">
+        {{ suffix }}
+      </span>
     </div>
-    <span v-if="error" class="field__error">{{ error }}</span>
+
+    <span v-if="error" class="mt-1.5 block text-xs font-semibold text-rose">
+      {{ error }}
+    </span>
   </label>
 </template>
-
-<style scoped lang="scss">
-.field {
-  display: block;
-  // Grid/flex items default to min-width:auto, and a number input's intrinsic
-  // width is wide enough to burst a two-column row. This keeps it in its track.
-  min-width: 0;
-
-  // Form labels across the design are Space Mono, not the Chivo Mono eyebrow.
-  &__label {
-    display: block;
-    font-family: var(--font-data);
-    text-transform: uppercase;
-    letter-spacing: 0.9px;
-    font-size: 9.5px;
-    color: var(--violet-28);
-    margin-bottom: 6px;
-  }
-
-  &__control {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 0;
-    height: 54px;
-    padding: 0 17px;
-    background: var(--paper);
-    border: 1px solid rgba(36, 27, 46, 0.11);
-    border-radius: var(--space-16);
-    transition: border-color 0.15s ease;
-
-    &:focus-within {
-      border-color: var(--rose);
-    }
-  }
-
-  &__icon {
-    color: var(--violet-45);
-  }
-
-  &__input {
-    flex: 1;
-    width: 100%;
-    min-width: 0;
-    border: none;
-    outline: none;
-    background: transparent;
-    font-size: 15px;
-    color: var(--ink);
-
-    // The native number spinner overlaps the suffix and eats the field width.
-    appearance: textfield;
-    &::-webkit-outer-spin-button,
-    &::-webkit-inner-spin-button {
-      appearance: none;
-      margin: 0;
-    }
-
-    &::placeholder {
-      color: #757575;
-    }
-
-    &--mono {
-      font-family: var(--font-data);
-      letter-spacing: 1px;
-    }
-  }
-
-  &__suffix {
-    font-size: 13px;
-    color: var(--violet-45);
-    font-weight: 600;
-  }
-
-  &__error {
-    display: block;
-    margin-top: 6px;
-    font-size: 12px;
-    color: var(--rose);
-    font-weight: 600;
-  }
-
-  &--error .field__control {
-    border-color: var(--rose);
-  }
-}
-</style>

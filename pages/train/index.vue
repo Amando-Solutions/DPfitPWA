@@ -66,8 +66,8 @@ const resumable = computed(() => store.activeSession.value)
     margin-top: 20px;
     padding: 14px 18px;
     border-radius: var(--radius-card);
-    background: var(--ink);
-    color: var(--paper-raised);
+    background: var(--surface-inverse);
+    color: var(--on-inverse);
     box-shadow: var(--shadow-hero);
   }
 
@@ -75,7 +75,7 @@ const resumable = computed(() => store.activeSession.value)
     width: 38px;
     height: 38px;
     border-radius: 14px;
-    background: var(--rose);
+    background: var(--rose-fill);
     display: grid;
     place-items: center;
     flex-shrink: 0;
@@ -95,7 +95,7 @@ const resumable = computed(() => store.activeSession.value)
     }
     small {
       font-size: 12.5px;
-      color: rgba(251, 246, 242, 0.65);
+      color: var(--on-inverse-soft);
     }
   }
 
@@ -114,19 +114,19 @@ const resumable = computed(() => store.activeSession.value)
   padding: 18px;
   border-radius: var(--radius-card);
   background: var(--paper-raised);
-  border: 1px solid rgba(36, 27, 46, 0.09);
-  filter: drop-shadow(0 4px 7px rgba(36, 27, 46, 0.04));
+  border: 1px solid var(--hairline);
+  filter: var(--drop-md);
   color: var(--ink);
 
   &--done {
-    border-color: rgba(200, 30, 92, 0.28);
+    border-color: var(--rose-ring);
   }
 
   &__badge {
     width: 42px;
     height: 42px;
     border-radius: 14px;
-    background: rgba(200, 30, 92, 0.1);
+    background: var(--rose-soft);
     color: var(--rose);
     display: grid;
     place-items: center;
@@ -149,7 +149,7 @@ const resumable = computed(() => store.activeSession.value)
     font-weight: 900;
     font-size: 15.5px;
     letter-spacing: -0.2325px;
-    color: var(--black);
+    color: var(--ink);
   }
 
   &__meta {
@@ -165,8 +165,8 @@ const resumable = computed(() => store.activeSession.value)
     flex-shrink: 0;
     padding: 2px 6px;
     border-radius: 12px;
-    background: rgba(232, 163, 61, 0.2);
-    color: var(--orange);
+    background: var(--orange-soft);
+    color: var(--orange-text);
     font-size: 8px;
     font-weight: 500;
   }

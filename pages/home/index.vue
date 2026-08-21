@@ -323,7 +323,7 @@ const initial = (name: string) => name.trim().charAt(0).toUpperCase() || 'C'
       background: var(--orange-16);
     }
     &--rose {
-      background: rgba(200, 30, 92, 0.11);
+      background: var(--rose-soft);
       color: var(--rose);
     }
   }
@@ -409,7 +409,7 @@ const initial = (name: string) => name.trim().charAt(0).toUpperCase() || 'C'
     width: 36px;
     height: 36px;
     border-radius: var(--radius-pill);
-    background: rgba(200, 30, 92, 0.11);
+    background: var(--rose-soft);
     color: var(--rose);
     display: grid;
     place-items: center;
@@ -441,7 +441,7 @@ const initial = (name: string) => name.trim().charAt(0).toUpperCase() || 'C'
     padding: 3px 8px;
     border-radius: var(--radius-pill);
     background: var(--orange-16);
-    color: var(--orange);
+    color: var(--orange-text);
     font-size: 9.5px;
     letter-spacing: 0.475px;
   }
@@ -470,8 +470,8 @@ const initial = (name: string) => name.trim().charAt(0).toUpperCase() || 'C'
     width: 44px;
     height: 44px;
     border-radius: var(--radius-pill);
-    background: var(--rose);
-    color: var(--paper-raised);
+    background: var(--rose-fill);
+    color: var(--on-rose);
     display: grid;
     place-items: center;
     font-family: var(--font-display);
@@ -500,7 +500,7 @@ const initial = (name: string) => name.trim().charAt(0).toUpperCase() || 'C'
   &__chip {
     padding: 2px 7px;
     border-radius: var(--radius-pill);
-    background: rgba(200, 30, 92, 0.1);
+    background: var(--rose-soft);
     color: var(--rose);
     font-family: var(--font-data);
     text-transform: uppercase;

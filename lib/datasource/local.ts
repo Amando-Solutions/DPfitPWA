@@ -5,6 +5,7 @@ import { coachSeed, cohortSeed } from '~/data/community'
 import type {
   ActiveSession,
   AppNotification,
+  ChatAttachment,
   ChatMessage,
   CheckInRecord,
   MemberAccount,
@@ -205,7 +206,11 @@ export class LocalDataSource implements DataSource {
     return [...seed, ...(mine[threadId] ?? [])]
   }
 
-  async sendMessage(threadId: 'cohort' | 'coach', text: string): Promise<ChatMessage> {
+  async sendMessage(
+    threadId: 'cohort' | 'coach',
+    text: string,
+    attachments: ChatAttachment[] = [],
+  ): Promise<ChatMessage> {
     const member = await this.getMember()
     const message: ChatMessage = {
       id: uid('msg'),
@@ -216,6 +221,7 @@ export class LocalDataSource implements DataSource {
       isSelf: true,
       text,
       sentAt: new Date().toISOString(),
+      ...(attachments.length ? { attachments } : {}),
     }
     const mine = storage.read<Record<string, ChatMessage[]>>(KEY.messages, {})
     storage.write(KEY.messages, {

@@ -10,53 +10,30 @@ const label = computed(() => {
   const s = props.seconds % 60
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 })
+
+const ADJ =
+  'btn-raised rounded-pill bg-on-inverse/12 px-3 py-1.5 text-[13px] font-bold text-on-inverse [--btn-face:var(--face-on-inverse)]'
 </script>
 
 <template>
-  <div class="rest-bar">
-    <button class="rest-bar__adj" @click="emit('adjust', -15)">-15</button>
-    <span class="rest-bar__time data">{{ label }}</span>
-    <button class="rest-bar__adj" @click="emit('adjust', 15)">+15</button>
-    <button class="rest-bar__skip" @click="emit('skip')">Skip</button>
+  <div
+    class="flex items-center gap-2.5 rounded-lg bg-inverse px-3.5 py-2.5 text-on-inverse shadow-hero"
+  >
+    <button :class="ADJ" @click="emit('adjust', -15)">-15</button>
+
+    <span
+      class="data flex-1 text-center text-[22px] font-bold tracking-[1px] text-orange"
+    >
+      {{ label }}
+    </span>
+
+    <button :class="ADJ" @click="emit('adjust', 15)">+15</button>
+
+    <button
+      class="btn-raised rounded-pill bg-rose-fill px-4 py-2 text-[13px] font-bold text-on-rose [--btn-face:var(--rose-fill)]"
+      @click="emit('skip')"
+    >
+      Skip
+    </button>
   </div>
 </template>
-
-<style scoped lang="scss">
-.rest-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: var(--ink);
-  color: var(--paper-raised);
-  border-radius: var(--radius-lg);
-  padding: 10px 14px;
-  box-shadow: var(--shadow-hero);
-
-  &__adj {
-    padding: 6px 12px;
-    border-radius: var(--radius-pill);
-    background: rgba(255, 255, 255, 0.12);
-    color: var(--paper-raised);
-    font-weight: 700;
-    font-size: 13px;
-  }
-
-  &__time {
-    flex: 1;
-    text-align: center;
-    font-size: 22px;
-    font-weight: 700;
-    color: var(--orange);
-    letter-spacing: 1px;
-  }
-
-  &__skip {
-    padding: 8px 16px;
-    border-radius: var(--radius-pill);
-    background: var(--rose);
-    color: var(--paper-raised);
-    font-weight: 700;
-    font-size: 13px;
-  }
-}
-</style>

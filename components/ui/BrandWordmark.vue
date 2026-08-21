@@ -1,66 +1,38 @@
 <script setup lang="ts">
-withDefaults(
+const props = withDefaults(
   defineProps<{ size?: 'sm' | 'md' | 'lg'; stacked?: boolean }>(),
   { size: 'md', stacked: false },
 )
+
+const DP: Record<NonNullable<typeof props.size>, string> = {
+  sm: 'text-[21px] tracking-[-1.05px]',
+  md: 'text-[28px]',
+  lg: 'text-[44px]',
+}
+
+const FITNESS: Record<NonNullable<typeof props.size>, string> = {
+  sm: 'text-[10px]',
+  md: 'text-sm',
+  lg: 'text-[20px]',
+}
 </script>
 
 <template>
-  <div class="wordmark" :class="[`wordmark--${size}`, { 'wordmark--stacked': stacked }]">
-    <span class="wordmark__dp">DP</span>
-    <span class="wordmark__fitness">FITNESS</span>
+  <div
+    class="inline-flex"
+    :class="stacked ? 'flex-col items-start gap-0.5' : 'items-baseline gap-2'"
+  >
+    <span
+      class="font-display font-black tracking-[-1px] text-rose-fill"
+      :class="DP[size]"
+    >
+      DP
+    </span>
+    <span
+      class="font-data font-bold tracking-[1.8px] text-ink"
+      :class="FITNESS[size]"
+    >
+      FITNESS
+    </span>
   </div>
 </template>
-
-<style scoped lang="scss">
-.wordmark {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 8px;
-
-  &__dp {
-    font-family: var(--font-display);
-    font-weight: 900;
-    color: var(--rose);
-    letter-spacing: -1px;
-  }
-  &__fitness {
-    font-family: var(--font-data);
-    font-weight: 700;
-    letter-spacing: 1.8px;
-    color: #28242a;
-  }
-
-  &--sm {
-    .wordmark__dp {
-      font-size: 21px;
-      letter-spacing: -1.05px;
-    }
-    .wordmark__fitness {
-      font-size: 10px;
-    }
-  }
-  &--md {
-    .wordmark__dp {
-      font-size: 28px;
-    }
-    .wordmark__fitness {
-      font-size: 14px;
-    }
-  }
-  &--lg {
-    .wordmark__dp {
-      font-size: 44px;
-    }
-    .wordmark__fitness {
-      font-size: 20px;
-    }
-  }
-
-  &--stacked {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
-  }
-}
-</style>

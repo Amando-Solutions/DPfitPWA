@@ -1,13 +1,5 @@
 <script setup lang="ts">
-// Icon set.
-//
-// Anything in `assets/icons/` is the SVG exported straight from Figma — the
-// path data is verbatim, only the baked stroke/fill colour is swapped for
-// `currentColor` so a single glyph can be tinted per context. Two-tone brand
-// icons (the flame) keep their own colours.
-//
-// The handful of glyphs the design never exported fall back to the inline set
-// at the bottom; they are marked so it is obvious which are not from Figma.
+
 const props = withDefaults(
   defineProps<{
     name: string
@@ -74,6 +66,10 @@ const fallbacks: Record<string, string> = {
     '<rect x="4" y="5" width="16" height="16" rx="2"/><path d="M4 9h16M8 3v4M16 3v4"/>',
   image:
     '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m4 18 5-5 4 4 3-3 4 4"/>',
+  paperclip:
+    '<path d="M20.4 11.6 12.5 19.5a5 5 0 0 1-7.1-7.1l8.3-8.3a3.3 3.3 0 0 1 4.7 4.7l-8.2 8.3a1.7 1.7 0 0 1-2.4-2.4l7.5-7.5"/>',
+  file:
+    '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z"/><path d="M14 3v5h5"/>',
   target:
     '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4"/>',
   send: '<path d="M4 12 20 4l-6 16-3-7-7-1Z"/>',
@@ -85,6 +81,8 @@ const fallbacks: Record<string, string> = {
     '<path d="M12 20s-7-4.5-7-9.5A3.5 3.5 0 0 1 12 8a3.5 3.5 0 0 1 7 2.5c0 5-7 9.5-7 9.5Z"/>',
   star: '<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9L3.5 9.7l5.9-.9L12 3.5Z"/>',
   scale: '<path d="M12 4v4M6 8h12M6 8 3 16a4 4 0 0 0 6 0L6 8ZM18 8l-3 8a4 4 0 0 0 6 0l-3-8ZM9 20h6"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  moon: '<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/>',
 }
 
 const glyph = computed(() => glyphs[props.name])
@@ -94,7 +92,7 @@ const fallback = computed(() => fallbacks[props.name] ?? fallbacks.info)
 <template>
   <svg
     v-if="glyph"
-    class="app-icon"
+    class="block shrink-0"
     :width="size"
     :height="size"
     :viewBox="glyph.viewBox"
@@ -104,7 +102,7 @@ const fallback = computed(() => fallbacks[props.name] ?? fallbacks.info)
   />
   <svg
     v-else
-    class="app-icon"
+    class="block shrink-0"
     :width="size"
     :height="size"
     viewBox="0 0 24 24"
@@ -117,10 +115,3 @@ const fallback = computed(() => fallbacks[props.name] ?? fallbacks.info)
     v-html="fallback"
   />
 </template>
-
-<style scoped>
-.app-icon {
-  display: block;
-  flex-shrink: 0;
-}
-</style>

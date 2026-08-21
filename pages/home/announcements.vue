@@ -23,7 +23,7 @@ import { announcements } from '~/data/program'
         :class="`deck__card--${a.accent}`"
       >
         <div class="deck__accent-bar" :class="`deck__accent-bar--${a.accent}`" />
-        <EyebrowLabel :color="a.accent === 'ink' ? 'var(--rose)' : undefined">
+        <EyebrowLabel :tone="a.accent === 'ink' ? 'rose-on-inverse' : 'rose'">
           {{ a.eyebrow }}
         </EyebrowLabel>
         <h2 class="deck__card-title">{{ a.title }}</h2>
@@ -72,13 +72,13 @@ import { announcements } from '~/data/program'
     width: 5px;
 
     &--rose {
-      background: var(--rose);
+      background: var(--rose-fill);
     }
     &--orange {
       background: var(--orange);
     }
     &--ink {
-      background: var(--rose);
+      background: var(--rose-fill);
     }
   }
   &__card-title {
@@ -95,7 +95,7 @@ import { announcements } from '~/data/program'
     color: var(--violet-45);
 
     .deck__card--ink & {
-      color: rgba(251, 246, 242, 0.7);
+      color: var(--on-inverse-soft);
     }
   }
 }
