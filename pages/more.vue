@@ -84,6 +84,7 @@ const initials = computed(() =>
           :src="store.profile.value.avatar"
           :alt="store.displayName.value"
           class="more__avatar"
+          decoding="async"
         />
         <span v-else class="more__avatar more__avatar--initials">{{ initials }}</span>
         <div class="more__profile-text">

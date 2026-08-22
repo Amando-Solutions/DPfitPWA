@@ -68,7 +68,7 @@ const send = async (payload: { text: string; attachments: ChatAttachment[] }) =>
     width: 100%;
     max-width: var(--focus-max);
     margin: 0 auto;
-    padding: 24px 40px 8px;
+    padding: 32px 40px 8px;
   }
 }
 </style>

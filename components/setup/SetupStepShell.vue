@@ -19,7 +19,7 @@ const router = useRouter()
 </script>
 
 <template>
-  <div class="flex flex-1 flex-col px-6 pt-2 pb-6 lg:px-11 lg:pt-8 lg:pb-9">
+  <div class="flex flex-1 flex-col px-6 pt-(--screen-pad-top) pb-6 lg:px-11 lg:pt-8 lg:pb-9">
     <header class="mb-4 flex items-center justify-between">
       <button
         class="grid size-9.5 place-items-center rounded-full bg-raised text-ink shadow-card"

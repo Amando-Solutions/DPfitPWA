@@ -99,9 +99,6 @@ const removePending = (id: string) => {
 /** Tapping a shared photo opens it full-screen. */
 const viewing = ref<ChatAttachment | null>(null)
 
-const imagesOf = (m: ChatMessage) => (m.attachments ?? []).filter((a) => a.kind === 'image')
-const filesOf = (m: ChatMessage) => (m.attachments ?? []).filter((a) => a.kind !== 'image')
-
 // --- Sending ---------------------------------------------------------------
 const canSend = computed(() => Boolean(draft.value.trim() || pending.value.length))
 
@@ -130,6 +127,29 @@ const bubbleClass = (m: ChatMessage) => [
   !m.isSelf && !m.isCoach && 'bg-raised text-ink',
 ]
 
+/**
+ * The log, with each message's attachments split once.
+ *
+ * The template needs the image list three times per message (to decide the
+ * grid, to size the thumbnails, to render them) and the file list once. As
+ * plain helpers those were four `filter` passes and four throwaway arrays per
+ * message on *every* render — and this list re-renders on each keystroke in the
+ * composer, because the draft ref lives in the same component. Splitting once
+ * per message, memoised on the messages themselves, makes a re-render free.
+ */
+const rows = computed(() =>
+  props.messages.map((m) => {
+    const attachments = m.attachments ?? []
+    return {
+      message: m,
+      images: attachments.filter((a) => a.kind === 'image'),
+      files: attachments.filter((a) => a.kind !== 'image'),
+      bubble: bubbleClass(m),
+      time: timeOf(m.sentAt),
+    }
+  }),
+)
+
 const TOOL =
   'grid size-9 shrink-0 place-items-center rounded-full text-muted transition-colors duration-150 not-disabled:hover:bg-rose-soft not-disabled:hover:text-rose disabled:cursor-default disabled:opacity-40'
 </script>
@@ -137,7 +157,7 @@ const TOOL =
 <template>
   <div class="flex h-full flex-col">
     <header
-      class="flex items-start justify-between gap-3 px-5 pt-1 pb-3 lg:px-0"
+      class="chat__header flex items-start justify-between gap-3 px-5 pt-(--screen-pad-top) pb-3 lg:px-0 lg:pt-1"
     >
       <div>
         <EyebrowLabel>{{ eyebrow }}</EyebrowLabel>
@@ -160,7 +180,7 @@ const TOOL =
       class="scroll-y flex min-h-0 flex-1 flex-col justify-end gap-3.5 px-5 pt-2 pb-4 lg:px-0"
     >
       <div
-        v-for="m in messages"
+        v-for="{ message: m, images, files, bubble, time } in rows"
         :key="m.id"
         class="flex max-w-[82%] gap-2 lg:max-w-[68%]"
         :class="m.isSelf && 'flex-row-reverse self-end'"
@@ -170,6 +190,10 @@ const TOOL =
           :src="m.authorAvatar"
           class="mt-4 size-7.5 shrink-0 rounded-full object-cover"
           :alt="m.authorName"
+          width="30"
+          height="30"
+          loading="lazy"
+          decoding="async"
         />
 
         <div class="flex min-w-0 flex-col gap-1">
@@ -184,17 +208,15 @@ const TOOL =
           <!-- Photos and files bring their own edges, so the bubble hugs them. -->
           <div
             class="flex flex-col gap-1.5 rounded-2xl text-sm leading-[1.45] shadow-card"
-            :class="[bubbleClass(m), m.text ? 'px-3.5 py-3' : 'p-1.25']"
+            :class="[bubble, m.text ? 'px-3.5 py-3' : 'p-1.25']"
           >
             <div
-              v-if="imagesOf(m).length"
+              v-if="images.length"
               class="max-w-58"
-              :class="
-                imagesOf(m).length > 1 ? 'grid grid-cols-2 gap-1' : 'flex'
-              "
+              :class="images.length > 1 ? 'grid grid-cols-2 gap-1' : 'flex'"
             >
               <button
-                v-for="shot in imagesOf(m)"
+                v-for="shot in images"
                 :key="shot.id"
                 class="block overflow-hidden rounded-xl bg-fill-subtle leading-none"
                 :aria-label="'Open ' + shot.name"
@@ -204,15 +226,15 @@ const TOOL =
                   :src="shot.url"
                   :alt="shot.name"
                   class="block w-full object-cover"
-                  :class="
-                    imagesOf(m).length > 1 ? 'h-26' : 'max-h-70'
-                  "
+                  :class="images.length > 1 ? 'h-26' : 'max-h-70'"
+                  loading="lazy"
+                  decoding="async"
                 />
               </button>
             </div>
 
             <a
-              v-for="doc in filesOf(m)"
+              v-for="doc in files"
               :key="doc.id"
               class="flex max-w-58 items-center gap-2 rounded-xl px-3 py-2.5"
               :class="m.isSelf ? 'bg-white/18' : 'bg-fill-subtle'"
@@ -237,7 +259,7 @@ const TOOL =
             class="data text-[9px] text-muted"
             :class="m.isSelf ? 'self-start' : 'self-end'"
           >
-            {{ timeOf(m.sentAt) }}
+            {{ time }}
           </span>
 
           <div v-if="m.reactions?.length" class="flex gap-1.5">
@@ -254,7 +276,7 @@ const TOOL =
     </div>
 
     <div
-      class="flex flex-col gap-2 px-5 pt-3 pb-[calc(16px+var(--tabbar-gutter))] lg:px-0"
+      class="chat__composer flex flex-col gap-2 px-5 pt-3 pb-[calc(16px+var(--tabbar-gutter))] lg:px-0"
     >
       <p v-if="attachError" class="m-0 text-xs text-rose">{{ attachError }}</p>
 
@@ -268,6 +290,7 @@ const TOOL =
             :src="item.url"
             :alt="item.name"
             class="block size-16 rounded-xl object-cover shadow-card"
+            decoding="async"
           />
           <div
             v-else

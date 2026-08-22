@@ -126,8 +126,16 @@
   /* The transparent end of a fade must be the surface at zero alpha, not
      `transparent` — that is rgba(0,0,0,0) and greys the ramp on the way out. */
   --surface-fade: rgba(243, 234, 228, 0);
-  /* Neutral glow behind the splash mark. */
-  --glow-neutral: rgba(74, 63, 82, 0.5);
+  /* --- Splash art ---------------------------------------------------------
+     The two corner glows and the hairline motion ring. The design paints solid
+     discs behind a heavy blur rather than radial gradients, so a glow keeps a
+     body of colour before its edge lets go; the alpha therefore belongs to the
+     colour, not to the shape. The blur radii live with the shapes in
+     `pages/index.vue`. Dark mode flips the violet disc from ink to a lifted
+     mauve — a glow that darkens is invisible on a dark page. */
+  --splash-glow-rose: rgba(200, 30, 92, 0.5);
+  --splash-glow-violet: rgba(36, 27, 46, 0.8);
+  --splash-ring: rgba(200, 30, 92, 0.7);
   /* Scrims laid over photography so white type stays legible. Constant across
      themes — the photo underneath does not change. */
   --photo-scrim: linear-gradient(
@@ -190,6 +198,15 @@
   --btn-stroke-scale: 0.84;
   --btn-glint-rise: 0.3;
   --btn-shade-scale: 0.89;
+  /* A scale alone punishes pale faces: 16% of a near-white button's lightness
+     is a far bigger step down than 16% of a dark one's, so an outline button
+     ends up ringed in a grey heavier than any hairline the app draws. These
+     cap the *absolute* step, which only ever bites on the pale end — for
+     reference, `--hairline` sits 0.07 below the surface it is drawn on and
+     `--hairline-strong` 0.14 below. The cast is deliberately left uncapped:
+     it is a blurred shadow at a quarter alpha, not an edge. */
+  --btn-stroke-cap: 0.08;
+  --btn-shade-cap: 0.05;
   /* The cast shadow: the face taken well down, so it stays in-hue... */
   --btn-cast-scale: 0.72;
   /* ...and how much of it survives, near the button and further out. */
@@ -337,7 +354,9 @@
   --drop-art: drop-shadow(0 12px 12px rgba(214, 41, 95, 0.3));
 
   --surface-fade: rgba(20, 16, 26, 0);
-  --glow-neutral: rgba(150, 132, 172, 0.35);
+  --splash-glow-rose: rgba(255, 134, 168, 0.5);
+  --splash-glow-violet: rgba(150, 132, 172, 0.35);
+  --splash-ring: rgba(255, 134, 168, 0.6);
   --hairline-inverse: rgba(255, 255, 255, 0.14);
   --on-inverse-soft: rgba(245, 240, 234, 0.7);
 
@@ -362,6 +381,10 @@
   --btn-stroke-scale: 0.74;
   --btn-glint-rise: 0.2;
   --btn-shade-scale: 0.82;
+  /* Roomier caps to match the steeper scales — here they exist only to catch
+     the faces that stay pale in dark mode, like the thumb on a photo header. */
+  --btn-stroke-cap: 0.14;
+  --btn-shade-cap: 0.1;
   --btn-cast-scale: 0.5;
   --btn-cast-near: 52%;
   --btn-cast-far: 42%;
@@ -637,11 +660,17 @@
      shade. All four are the face colour with its lightness moved and its
      chroma and hue left alone, so a rose button gets rose edges rather than
      the sooty ones a mix towards #000 would give it. */
-  --btn-stroke: oklch(from var(--btn-face) calc(l * var(--btn-stroke-scale)) c h);
+  --btn-stroke: oklch(
+    from var(--btn-face)
+      calc(l - min(l * (1 - var(--btn-stroke-scale)), var(--btn-stroke-cap))) c h
+  );
   --btn-glint: oklch(
     from var(--btn-face) calc(l + (1 - l) * var(--btn-glint-rise)) c h
   );
-  --btn-shade: oklch(from var(--btn-face) calc(l * var(--btn-shade-scale)) c h);
+  --btn-shade: oklch(
+    from var(--btn-face)
+      calc(l - min(l * (1 - var(--btn-shade-scale)), var(--btn-shade-cap))) c h
+  );
   --btn-cast: oklch(from var(--btn-face) calc(l * var(--btn-cast-scale)) c h);
 
   /* Every layer is its own variable so hover and press can restate the one

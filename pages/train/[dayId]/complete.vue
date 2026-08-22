@@ -139,6 +139,7 @@ const discard = async () => {
           :src="session.proofPhoto"
           class="dropzone__img"
           alt="Proof of workout"
+          decoding="async"
         />
         <template v-else>
           <AppIcon name="camera" :size="26" :stroke="1.8" />
