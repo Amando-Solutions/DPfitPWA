@@ -16,17 +16,34 @@ const VERSION_KEY = `${NAMESPACE}:schema-version`
 type Listener = () => void
 const listeners = new Set<Listener>()
 
+/**
+ * Whether Web Storage can be written to.
+ *
+ * The probe is a real `setItem`/`removeItem` round-trip, which is synchronous
+ * and — on some engines — hits disk. Every `read` and `write` used to run one,
+ * so a screen that reads a dozen keys paid a dozen probes. The answer cannot
+ * change within a session (a tab does not leave private browsing), so it is
+ * resolved once and cached.
+ *
+ * Quota is deliberately *not* part of this: a full store still reports as
+ * available and `write` catches the failure, which is the only place the
+ * distinction matters.
+ */
+let availability: boolean | null = null
+
 const available = (): boolean => {
   if (import.meta.server) return false
+  if (availability !== null) return availability
   try {
     const probe = `${NAMESPACE}:probe`
     window.localStorage.setItem(probe, '1')
     window.localStorage.removeItem(probe)
-    return true
+    availability = true
   } catch {
     // Private browsing, disabled storage, or over quota.
-    return false
+    availability = false
   }
+  return availability
 }
 
 /**

@@ -44,7 +44,8 @@ interface AppState {
  * source, derived values from `lib/domain`, and actions that write back. No
  * component reads storage or fetches directly.
  */
-export const useAppStore = () => {
+const buildStore = () => {
+  ;(globalThis as any).__buildCount = ((globalThis as any).__buildCount ?? 0) + 1
   const data = useDataSourceClient()
 
   const state = useState<AppState>('app-store', () => ({
@@ -403,5 +404,44 @@ export const useAppStore = () => {
     markAllNotificationsRead,
     saveSettings,
     consumePendingBadge,
+  }
+}
+
+type AppStore = ReturnType<typeof buildStore>
+
+/**
+ * The store, built once per app.
+ *
+ * `buildStore` stands up roughly thirty `computed`s, several of which walk the
+ * whole session log (`rewards`, `days`, `sessionsThisWeek`). Calling it per
+ * consumer — every page, every component, and the global route middleware on
+ * each navigation — meant a fresh, un-shared computed graph each time: the same
+ * derivations recomputed once per caller instead of once per change, and the
+ * garbage to match. Memoising on the Nuxt instance gives every caller the same
+ * refs, so a value is recomputed only when its dependencies actually change.
+ *
+ * The build runs inside a detached `effectScope`, so the computeds belong to
+ * the app rather than to whichever component happened to ask first — otherwise
+ * unmounting that component would dispose the store out from under everyone
+ * else.
+ */
+export const useAppStore = (): AppStore => {
+  ;(globalThis as any).__callCount = ((globalThis as any).__callCount ?? 0) + 1
+  const nuxtApp = useNuxtApp()
+  const existing = nuxtApp.$appStore as AppStore | undefined
+  if (existing) return existing
+
+  const scope = effectScope(true)
+  const store = scope.run(buildStore)!
+  nuxtApp.$appStore = store
+  // Tear the graph down with the app (matters for HMR and for tests, which
+  // create and discard app instances in the same process).
+  nuxtApp.hook('app:unmounted', () => scope.stop())
+  return store
+}
+
+declare module '#app' {
+  interface NuxtApp {
+    $appStore?: AppStore
   }
 }

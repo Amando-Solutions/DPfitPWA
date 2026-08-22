@@ -8,9 +8,7 @@
   puts on <html> — so a dark-mode member never gets a white flash.
 -->
 <div class="dp-boot">
-  <div class="dp-boot__mark">
-    <span class="dp-boot__dp">DP</span><span class="dp-boot__fitness">FITNESS</span>
-  </div>
+  <div class="dp-boot__mark" role="img" aria-label="DP Fitness"></div>
   <div class="dp-boot__accent"></div>
   <div class="dp-boot__track"><div class="dp-boot__fill"></div></div>
 </div>
@@ -18,7 +16,6 @@
 <style>
   .dp-boot {
     --boot-bg: #fbf6f2;
-    --boot-fg: #241b2e;
     --boot-accent: #c81e5c;
     --boot-track: rgba(36, 27, 46, 0.12);
     position: fixed;
@@ -33,26 +30,26 @@
   }
   [data-theme="dark"] .dp-boot {
     --boot-bg: #14101a;
-    --boot-fg: #f5f0ea;
     --boot-accent: #ef4b7d;
     --boot-track: rgba(245, 240, 234, 0.14);
   }
+  /*
+    Two exports of the same lockup, picked by theme: the light file sets
+    "FITNESS" in ink for the cream background, the dark file sets it in cream
+    for the near-black one. The pink "DP" is identical in both.
+
+    Driving it from `background-image` rather than an <img> means only the rule
+    that matches `data-theme` ever fetches a file — two <img> tags with one
+    hidden would pull both down. Both share a 2.883:1 canvas, so a single
+    width/height fits either; `contain` keeps them honest if that ever changes.
+  */
   .dp-boot__mark {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
+    width: 190px;
+    height: 66px;
+    background: url("/DP_wordmark_light.png") center / contain no-repeat;
   }
-  .dp-boot__dp {
-    font-size: 30px;
-    font-weight: 900;
-    letter-spacing: -1px;
-    color: var(--boot-accent);
-  }
-  .dp-boot__fitness {
-    font-size: 14px;
-    font-weight: 700;
-    letter-spacing: 3px;
-    color: var(--boot-fg);
+  [data-theme="dark"] .dp-boot__mark {
+    background-image: url("/DP_wordmark_dark.png");
   }
   .dp-boot__accent {
     width: 52px;

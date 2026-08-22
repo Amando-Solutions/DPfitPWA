@@ -44,12 +44,29 @@ const toGlyph = (svg: string): Glyph => {
   return { viewBox, inner }
 }
 
-const glyphs: Record<string, Glyph> = Object.fromEntries(
+/** Raw source keyed by glyph name — parsed on demand, not up front. */
+const sources: Record<string, string> = Object.fromEntries(
   Object.entries(rawFiles).map(([path, svg]) => [
     path.split('/').pop()!.replace('.svg', ''),
-    toGlyph(svg),
+    svg,
   ]),
 )
+
+/**
+ * `toGlyph` runs four regex passes over the file, and it used to run for all of
+ * them at module-evaluation time — on the boot path, for glyphs a given screen
+ * may never render. Parsing lazily and caching the result means each glyph is
+ * processed at most once, the first time something actually asks for it.
+ */
+const glyphCache = new Map<string, Glyph | undefined>()
+
+const glyphFor = (name: string): Glyph | undefined => {
+  if (glyphCache.has(name)) return glyphCache.get(name)
+  const source = sources[name]
+  const parsed = source ? toGlyph(source) : undefined
+  glyphCache.set(name, parsed)
+  return parsed
+}
 
 // --- Fallbacks: glyphs the Figma file never exported -------------------------
 const fallbacks: Record<string, string> = {
@@ -85,7 +102,7 @@ const fallbacks: Record<string, string> = {
   moon: '<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/>',
 }
 
-const glyph = computed(() => glyphs[props.name])
+const glyph = computed(() => glyphFor(props.name))
 const fallback = computed(() => fallbacks[props.name] ?? fallbacks.info)
 </script>
 

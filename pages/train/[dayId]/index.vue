@@ -26,21 +26,86 @@ onMounted(async () => {
 const session = computed(() => store.activeSession.value)
 
 // --- Timer -----------------------------------------------------------------
+/**
+ * The session clock.
+ *
+ * Two things it deliberately does not do. It does not tick while the session is
+ * paused or the screen is hidden — an interval that wakes once a second to
+ * decide it has nothing to do still costs a wakeup, and on a phone that is real
+ * battery over a 45-minute workout. And it does not count ticks: it advances by
+ * the wall-clock delta since the previous tick. Backgrounded tabs get their
+ * timers throttled to about once a minute, so a counter incremented per tick
+ * silently loses time whenever the member takes a call mid-set.
+ */
 let clock: ReturnType<typeof setInterval> | null = null
+let lastTickAt = 0
+/** Fractions carried between ticks, so repeated rounding cannot drift. */
+let carry = 0
+
+const advance = (seconds: number) => {
+  const active = store.activeSession.value
+  if (!active || seconds <= 0) return
+
+  const before = active.elapsedSeconds
+  const total = seconds + carry
+  const whole = Math.floor(total)
+  carry = total - whole
+  if (whole <= 0) return
+
+  active.elapsedSeconds += whole
+
+  if (restRemaining.value > 0) {
+    restRemaining.value = Math.max(0, restRemaining.value - whole)
+    if (restRemaining.value === 0) restActive.value = false
+  }
+
+  // Persist about every 30s rather than every tick — crossing the boundary,
+  // not landing exactly on it, since a jump can step straight over it.
+  if (Math.floor(before / 30) !== Math.floor(active.elapsedSeconds / 30)) {
+    store.persistActiveSession()
+  }
+}
+
+const stopClock = () => {
+  if (clock) clearInterval(clock)
+  clock = null
+}
 
 const startClock = () => {
-  if (clock) return
+  if (clock || document.hidden) return
+  lastTickAt = Date.now()
+  carry = 0
   clock = setInterval(() => {
-    const active = store.activeSession.value
-    if (!active?.running) return
-    active.elapsedSeconds++
-    if (restRemaining.value > 0) {
-      restRemaining.value--
-      if (restRemaining.value === 0) restActive.value = false
-    }
-    // Persist about once a minute rather than every tick.
-    if (active.elapsedSeconds % 30 === 0) store.persistActiveSession()
+    const now = Date.now()
+    const delta = (now - lastTickAt) / 1000
+    lastTickAt = now
+    advance(delta)
   }, 1000)
+}
+
+/** Only run while there is something to count. */
+const syncClock = () => {
+  if (store.activeSession.value?.running && !document.hidden) startClock()
+  else stopClock()
+}
+
+/**
+ * Coming back from the background: settle up the time that passed while the
+ * interval was stopped, then resume.
+ */
+const onVisibility = () => {
+  if (document.hidden) {
+    if (store.activeSession.value?.running && lastTickAt) {
+      advance((Date.now() - lastTickAt) / 1000)
+    }
+    stopClock()
+    store.persistActiveSession()
+    return
+  }
+  if (store.activeSession.value?.running && lastTickAt) {
+    advance((Date.now() - lastTickAt) / 1000)
+  }
+  syncClock()
 }
 
 const startWorkout = async () => {
@@ -48,14 +113,20 @@ const startWorkout = async () => {
   if (!active) return
   active.running = true
   active.startedAt = active.startedAt ?? new Date().toISOString()
-  startClock()
+  syncClock()
   await store.persistActiveSession()
 }
 
-onMounted(startClock)
+watch(() => store.activeSession.value?.running, syncClock)
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', onVisibility)
+  syncClock()
+})
+
 onBeforeUnmount(() => {
-  if (clock) clearInterval(clock)
-  clock = null
+  document.removeEventListener('visibilitychange', onVisibility)
+  stopClock()
   // Leaving the screen shouldn't lose the last few reps.
   store.persistActiveSession()
 })

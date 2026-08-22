@@ -148,7 +148,14 @@ const initials = (name: string) =>
             :class="{ 'board__row--self': entry.isSelf }"
           >
             <span class="board__rank data">{{ entry.rank }}</span>
-            <img v-if="entry.avatar" :src="entry.avatar" :alt="entry.name" class="board__avatar" />
+            <img
+              v-if="entry.avatar"
+              :src="entry.avatar"
+              :alt="entry.name"
+              class="board__avatar"
+              loading="lazy"
+              decoding="async"
+            />
             <span v-else class="board__avatar board__avatar--initials">
               {{ initials(entry.name) }}
             </span>

@@ -367,6 +367,10 @@ const signOut = async () => {
     align-items: center;
     justify-content: space-between;
     gap: 12px;
+    // The appearance control is ~224px wide; on a 320px screen it drops to its
+    // own line rather than pushing out of the card.
+    flex-wrap: wrap;
+    row-gap: 10px;
   }
 
   &__row-label {
