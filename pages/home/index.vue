@@ -54,6 +54,11 @@ const initial = (name: string) => name.trim().charAt(0).toUpperCase() || 'C'
 
 <template>
   <div class="home">
+    <!-- Install nudge. Floats over the top of the screen, so it costs the page
+         no height; renders nothing once the app is installed, snoozed, or on a
+         browser that has no install route. -->
+    <InstallAppCard />
+
     <ScreenIntro
       :eyebrow="`Week ${store.clock.value.week} · ${store.clock.value.title}`"
       :title="`${greeting}, ${store.displayName.value}`"
@@ -65,10 +70,6 @@ const initial = (name: string) => name.trim().charAt(0).toUpperCase() || 'C'
          wrappers dissolve and `order` restores the design's single-column
          sequence. -->
     <div class="home__col home__col--main">
-      <!-- Install nudge. Renders nothing once the app is installed, snoozed, or
-           on a browser that has no install route, so it never leaves a gap. -->
-      <InstallAppCard class="home__section home__section--install" />
-
       <!-- Hero workout -->
       <section class="home__section home__section--hero">
         <WorkoutHeroCard
@@ -222,13 +223,6 @@ const initial = (name: string) => name.trim().charAt(0).toUpperCase() || 'C'
 
   &__section {
     margin-top: 13px;
-
-    // Ties with the intro's order and loses on DOM position, which puts it
-    // directly below the greeting and above the hero.
-    &--install {
-      order: 0;
-      margin-top: 14px;
-    }
 
     &--hero {
       order: 1;
