@@ -1,7 +1,7 @@
 /**
  * Opens every screen at the top.
  *
- * Nothing in this app scrolls the window — `html`, `body` and `#__nuxt` are
+ * Nothing in this app scrolls the window. `html`, `body` and `#__nuxt` are
  * pinned to `height: 100%` and each screen scrolls inside its own `.scroll-y`
  * element. Vue Router's scroll handling only ever moves the window, so it has
  * no effect here, and the layouts' scrollers outlive the page rendered inside

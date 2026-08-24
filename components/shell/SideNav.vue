@@ -46,11 +46,6 @@ const initials = computed(() =>
       </NuxtLink>
     </nav>
 
-    <NuxtLink :to="`/train/${store.today.value?.id ?? ''}`" class="sidenav__cta btn-raised btn-glow">
-      <AppIcon name="play" :size="16" fill />
-      <span>Start today's session</span>
-    </NuxtLink>
-
     <div class="sidenav__divider" />
 
     <nav class="sidenav__nav">
@@ -62,7 +57,7 @@ const initials = computed(() =>
         :class="{ 'sidenav__item--active': isActive(item.to) }"
       >
         <span class="sidenav__icon">
-          <AppIcon :name="item.icon" :size="18" :stroke="2" />
+          <AppIcon :name="item.icon" :size="20" :stroke="2" />
         </span>
         <span class="sidenav__label">{{ item.label }}</span>
         <span
@@ -71,6 +66,16 @@ const initials = computed(() =>
         />
       </NuxtLink>
     </nav>
+
+    <!-- Once today's session is logged, the rail points at the picker, which is
+         the screen that says when the next one opens. -->
+    <NuxtLink
+      :to="store.trainingLocked.value ? '/train' : `/train/${store.today.value?.id ?? ''}`"
+      class="sidenav__cta btn-raised btn-glow"
+    >
+      <AppIcon :name="store.trainingLocked.value ? 'check' : 'play'" :size="16" fill />
+      <span>{{ store.trainingLocked.value ? 'Today is logged' : "Start today's session" }}</span>
+    </NuxtLink>
 
     <div class="sidenav__spacer" />
 
@@ -88,6 +93,8 @@ const initials = computed(() =>
         :src="store.profile.value.avatar"
         :alt="store.displayName.value"
         class="sidenav__avatar"
+        loading="lazy"
+        decoding="async"
       />
       <span v-else class="sidenav__avatar sidenav__avatar--initials">{{ initials }}</span>
       <span class="sidenav__member-text">
@@ -147,11 +154,6 @@ const initials = computed(() =>
       color: var(--ink);
     }
 
-    &--secondary {
-      font-size: 13px;
-      padding: 9px 12px;
-    }
-
     &--active {
       background: var(--surface-inverse);
       color: var(--on-inverse);
@@ -200,7 +202,7 @@ const initials = computed(() =>
 
   .sidenav__divider {
     height: 1px;
-    margin: 18px 12px 12px;
+    margin: 16px 12px 12px;
     background: var(--fill-subtle);
   }
 

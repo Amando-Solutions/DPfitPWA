@@ -22,7 +22,7 @@ const BTN =
 
 <template>
   <header
-    class="flex items-center justify-between gap-3 px-5 pt-1.5 pb-3 lg:px-0"
+    class="flex shrink-0 items-center justify-between gap-3 px-5 pt-(--screen-pad-top) pb-3 lg:px-0 lg:pt-1.5"
   >
     <button v-if="back" :class="BTN" aria-label="Back" @click="goBack">
       <AppIcon name="arrowLeft" :size="22" :stroke="2.2" />

@@ -72,7 +72,7 @@ const signOut = async () => {
     <ScreenIntro
       :eyebrow="cohort.name"
       title="Profile & settings"
-      subtitle="Change these any time — your fuel targets recalculate straight away."
+      subtitle="Change these any time. Your fuel targets recalculate straight away."
       :actions="false"
       class="profile__header"
     />
@@ -91,7 +91,7 @@ const signOut = async () => {
         <div class="snapshot__cell">
           <span class="snapshot__label">Change</span>
           <span class="snapshot__value snapshot__value--accent data">
-            {{ change === null ? '—' : `${change > 0 ? '+' : ''}${change.toFixed(1)}kg` }}
+            {{ change === null ? '-' : `${change > 0 ? '+' : ''}${change.toFixed(1)}kg` }}
           </span>
         </div>
       </AppCard>
@@ -241,7 +241,7 @@ const signOut = async () => {
     <section class="profile__section profile__section--danger">
       <AppButton variant="danger" @click="showSignOut = true">Sign out</AppButton>
       <p class="profile__danger-note">
-        Signing out clears everything stored on this device — logs, photos and
+        Signing out clears everything stored on this device: logs, photos and
         check-ins included.
       </p>
     </section>
@@ -367,6 +367,10 @@ const signOut = async () => {
     align-items: center;
     justify-content: space-between;
     gap: 12px;
+    // The appearance control is ~224px wide; on a 320px screen it drops to its
+    // own line rather than pushing out of the card.
+    flex-wrap: wrap;
+    row-gap: 10px;
   }
 
   &__row-label {

@@ -13,7 +13,7 @@ export interface RewardsSnapshot {
   rank: Rank
   nextRank: Rank | null
   pointsToNextRank: number
-  /** 0–100 progress toward the next rank, for the progress bar. */
+  /** 0 to 100 progress toward the next rank, for the progress bar. */
   rankProgress: number
   /** Consecutive weeks, ending at the current one, with at least one session. */
   streakWeeks: number
@@ -43,7 +43,7 @@ export const nextRankFor = (points: number): Rank | null =>
   ranks.find((r) => r.minPoints > points) ?? null
 
 /**
- * Weeks in a row — counting back from the current week — that contain at least
+ * Weeks in a row, counting back from the current week, that contain at least
  * one logged session. The current week only breaks the streak once it is over,
  * so an untouched Monday doesn't wipe out five good weeks.
  */

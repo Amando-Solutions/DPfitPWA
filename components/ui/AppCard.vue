@@ -10,7 +10,7 @@ const props = withDefaults(
 const VARIANTS: Record<NonNullable<typeof props.variant>, string> = {
   raised: 'bg-raised shadow-card',
   flat: 'bg-raised',
-  // Deliberately the opposite of the page — see `--surface-inverse`, which
+  // Deliberately the opposite of the page. See `--surface-inverse`, which
   // lifts rather than sinks once the page itself is dark.
   ink: 'bg-inverse text-on-inverse',
   outline: 'bg-transparent shadow-[inset_0_0_0_1.5px_var(--hairline)]',

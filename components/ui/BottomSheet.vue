@@ -20,7 +20,7 @@ watch(
       The scrim fades while the panel slides, so the transition classes reach
       into the panel with a descendant variant rather than nesting a second
       <Transition>. They are spelled out in full because Tailwind matches
-      complete class names in the source — a built-up string would never be
+      complete class names in the source, because a built-up string would never be
       seen by the scanner.
     -->
     <Transition

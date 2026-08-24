@@ -15,7 +15,7 @@ let instance: DataSource | null = null
  *   NUXT_PUBLIC_USE_MOCK_DATA=false + apiBase → HttpDataSource
  *
  * Live mode without an API base falls back to local so a half-configured
- * environment still runs — see README.
+ * environment still runs. See README.
  */
 export const createDataSource = (options: {
   useMockData: boolean
@@ -35,7 +35,7 @@ export const useDataSourceClient = (): DataSource => {
   return instance
 }
 
-/** Test seam — drops the memoised instance. */
+/** Test seam: drops the memoised instance. */
 export const resetDataSourceClient = () => {
   instance = null
 }

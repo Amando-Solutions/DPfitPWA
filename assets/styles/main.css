@@ -5,27 +5,27 @@
    -----------------------------------------------------------------------------
    Two layers, in this order:
 
-   1. `:root` / `[data-theme]` — the *semantic* token layer. Every colour the UI
+   1. `:root` / `[data-theme]` is the *semantic* token layer. Every colour the UI
       can see is named for its job (surface, text, hairline) rather than for its
       value, and each one has a light and a dark definition. This is the only
       place a literal colour is allowed to appear.
 
-   2. `@theme inline` — publishes those tokens to Tailwind so they become real
+   2. `@theme inline` publishes those tokens to Tailwind so they become real
       utilities (`bg-surface`, `text-muted`, `rounded-card`, `shadow-card`).
       `inline` matters: it makes each utility emit `var(--surface)` rather than a
       frozen copy of its value, which is what lets one class serve both themes.
 
    Because the tokens are plain custom properties, the handful of screens and
-   shells that keep their own scoped CSS re-theme for free — they already read
+   shells that keep their own scoped CSS re-theme for free, since they already read
    `var(--ink)`, `var(--paper)` and friends, which are kept below as aliases.
    ========================================================================== */
 
 /* Dark mode is driven by a `data-theme="dark"` attribute on <html> (set by
-   `useTheme`), not by the media query alone — members can override the OS. */
+   `useTheme`), not by the media query alone, so members can override the OS. */
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
 
 :root {
-  /* --- Brand primitives — identical in both themes ----------------------- */
+  /* --- Brand primitives, identical in both themes ------------------------ */
   --brand-rose: #c81e5c;
   --brand-orange: #e8a33d;
   --flame-ember: #d94f1e;
@@ -46,7 +46,7 @@
   --surface-inverse: #241b2e;
   --on-inverse: #fbf6f2;
   /* Photographic heroes: a dark plate under an image and a scrim. Unlike
-     `--surface-inverse` this one is NOT re-defined for dark mode — white type
+     `--surface-inverse` this one is NOT re-defined for dark mode, because white type
      over a photo has to stay white whichever theme the page is in. */
   --surface-photo: #241b2e;
   --on-photo: #fbf6f2;
@@ -70,7 +70,7 @@
   /* Secondary type. The alpha is set by contrast, not by taste: at the 0.45 the
      Figma file used, muted labels landed at 2.7:1 on both surfaces. */
   --text-muted: rgba(36, 27, 46, 0.66);
-  /* Decorative / disabled only — never body copy. */
+  /* Decorative / disabled only. Never body copy. */
   --text-faint: rgba(36, 27, 46, 0.42);
   /* Placeholders need more weight than `--text-faint`: they are the only thing
      in an empty field, so they carry the field's meaning until it is filled. */
@@ -124,12 +124,25 @@
   --drop-art: drop-shadow(0 12px 12px rgba(212, 20, 90, 0.22));
 
   /* The transparent end of a fade must be the surface at zero alpha, not
-     `transparent` — that is rgba(0,0,0,0) and greys the ramp on the way out. */
+     `transparent`, which is rgba(0,0,0,0) and greys the ramp on the way out. */
   --surface-fade: rgba(243, 234, 228, 0);
-  /* Neutral glow behind the splash mark. */
-  --glow-neutral: rgba(74, 63, 82, 0.5);
+  /* --- Splash art ---------------------------------------------------------
+     The two corner glows and the hairline motion ring. The design paints solid
+     discs behind a heavy blur rather than radial gradients, so a glow keeps a
+     body of colour before its edge lets go; the alpha therefore belongs to the
+     colour, not to the shape. Dark mode flips the violet disc from ink to a
+     lifted mauve, because a glow that darkens is invisible on a dark page.
+
+     Nothing in the app reads these: the splash is now the boot frame in
+     `spa-loading-template.html`, which paints before this stylesheet is live
+     and therefore inlines its own copies. They stay here because this file is
+     where the palette is defined and reasoned about for both themes; the
+     template's copies are meant to be checked against these. */
+  --splash-glow-rose: rgba(200, 30, 92, 0.5);
+  --splash-glow-violet: rgba(36, 27, 46, 0.8);
+  --splash-ring: rgba(200, 30, 92, 0.7);
   /* Scrims laid over photography so white type stays legible. Constant across
-     themes — the photo underneath does not change. */
+     themes, since the photo underneath does not change. */
   --photo-scrim: linear-gradient(
     180deg,
     rgba(36, 27, 46, 0.15) 0%,
@@ -167,18 +180,18 @@
   --drop-lg: drop-shadow(0 14px 16px rgba(36, 27, 46, 0.22));
 
   /* --- Raised buttons -----------------------------------------------------
-     Filled controls are domed slabs rather than flat rectangles of colour —
+     Filled controls are domed slabs rather than flat rectangles of colour,
      the Stripe / Shopify treatment. Four layers do the work, and every one of
      them is derived from the button's own face colour (`--btn-face`), so a
      rose button casts a rose shadow and a dark button casts a violet one:
 
        1. a darkened outer stroke, so the edge never dissolves into the page
        2. a small cast shadow in that same hue, so the slab floats
-       3. a soft highlight along the top inside edge — the lit top face
+       3. a soft highlight along the top inside edge, the lit top face
        4. a darkened bottom inside edge, which is what reads as thickness
 
      Only the amounts live here: the recipe itself is the `btn-raised` utility
-     below. They are *lightness* moves, not mixes towards black and white —
+     below. They are *lightness* moves, not mixes towards black and white:
      darkening a colour by pulling it towards #000 drains its chroma on the way
      down, which is what turns a rose edge into a black one. Scaling lightness
      while chroma and hue sit still keeps every edge a darker version of the
@@ -190,6 +203,19 @@
   --btn-stroke-scale: 0.84;
   --btn-glint-rise: 0.3;
   --btn-shade-scale: 0.89;
+  /* A scale alone punishes pale faces: 16% of a near-white button's lightness
+     is a far bigger step down than 16% of a dark one's, so an outline button
+     ends up ringed in a grey heavier than any hairline the app draws. The cap
+     bounds the *absolute* step instead, and it tapers: `-cap` is all a white
+     face may spend, and `-cap-slope` hands back a share of whatever headroom
+     to white the face still has, so the line thins as the button pales while a
+     rose one keeps the full edge. For reference, `--hairline` sits 0.072 below
+     the surface it is drawn on and `--hairline-strong` 0.144, while a white button
+     lands at 0.046, finer than either. The cast is deliberately left uncapped:
+     it is a blurred shadow at a quarter alpha, not an edge. */
+  --btn-stroke-cap: 0.043;
+  --btn-stroke-cap-slope: 0.12;
+  --btn-shade-cap: 0.05;
   /* The cast shadow: the face taken well down, so it stays in-hue... */
   --btn-cast-scale: 0.72;
   /* ...and how much of it survives, near the button and further out. */
@@ -248,7 +274,7 @@
        - < 1024px  : full-bleed, floating bottom tab bar
        - >= 1024px : centred surface capped at --app-max-width, left side nav,
                      viewport-height with internal scrolling
-     The desktop breakpoint is 1024px everywhere — search for it when tuning. */
+     The desktop breakpoint is 1024px everywhere; search for it when tuning. */
   --app-max-width: 1280px;
   --content-max: 1040px;
   --flow-max: 600px;
@@ -337,11 +363,13 @@
   --drop-art: drop-shadow(0 12px 12px rgba(214, 41, 95, 0.3));
 
   --surface-fade: rgba(20, 16, 26, 0);
-  --glow-neutral: rgba(150, 132, 172, 0.35);
+  --splash-glow-rose: rgba(255, 134, 168, 0.5);
+  --splash-glow-violet: rgba(150, 132, 172, 0.35);
+  --splash-ring: rgba(255, 134, 168, 0.6);
   --hairline-inverse: rgba(255, 255, 255, 0.14);
   --on-inverse-soft: rgba(245, 240, 234, 0.7);
 
-  /* Violet-tinted shadows vanish on a dark ground — go to true black, deeper. */
+  /* Violet-tinted shadows vanish on a dark ground, so go to true black, deeper. */
   --shadow-card: 0 8px 24px rgba(0, 0, 0, 0.45);
   --shadow-raised: 0 12px 32px rgba(0, 0, 0, 0.55);
   --shadow-glow: 0 12px 28px rgba(214, 41, 95, 0.5);
@@ -358,10 +386,18 @@
      it reads as light, so it comes down; the cast, conversely, has to go far
      darker than the face to register at all against the surface behind it.
      The edges can also go deeper here than in light mode without reading as
-     black — there is no bright page behind them to contrast against. */
+     black, because there is no bright page behind them to contrast against. */
   --btn-stroke-scale: 0.74;
   --btn-glint-rise: 0.2;
   --btn-shade-scale: 0.82;
+  /* A white button should look the same in either theme, so the cap at white
+     does not move; the slope opens up instead, which keeps the steeper scale
+     above untouched for everything darker. What this catches in practice is
+     the handful of faces that stay pale in dark mode: the thumb on a photo
+     header, chips over imagery. */
+  --btn-stroke-cap: 0.043;
+  --btn-stroke-cap-slope: 0.25;
+  --btn-shade-cap: 0.1;
   --btn-cast-scale: 0.5;
   --btn-cast-near: 52%;
   --btn-cast-far: 42%;
@@ -384,7 +420,7 @@
 }
 
 /* =============================================================================
-   Tailwind theme — publishes the tokens above as utilities.
+   Tailwind theme. Publishes the tokens above as utilities.
    ========================================================================== */
 @theme inline {
   --color-surface: var(--surface);
@@ -547,7 +583,7 @@
 }
 
 /* =============================================================================
-   Shared utilities — the vocabulary screens compose with.
+   Shared utilities: the vocabulary screens compose with.
    Declared with `@utility` so they behave like first-class Tailwind classes
    (variant-aware, and correctly ordered inside the utilities layer).
    ========================================================================== */
@@ -626,7 +662,7 @@
 
    `--btn-face` must be the button's *opaque* fill. Controls whose fill is a
    translucent tint (`bg-fill-subtle` and friends) should hand it the surface
-   they end up looking like, not the tint itself — a 6%-alpha colour has almost
+   they end up looking like, not the tint itself, because a 6%-alpha colour has almost
    no lightness of its own to darken, so its edges land far heavier than the
    button they belong to.
    ========================================================================== */
@@ -637,11 +673,24 @@
      shade. All four are the face colour with its lightness moved and its
      chroma and hue left alone, so a rose button gets rose edges rather than
      the sooty ones a mix towards #000 would give it. */
-  --btn-stroke: oklch(from var(--btn-face) calc(l * var(--btn-stroke-scale)) c h);
+  --btn-stroke: oklch(
+    from var(--btn-face)
+      calc(
+        l -
+          min(
+            l * (1 - var(--btn-stroke-scale)),
+            var(--btn-stroke-cap) + (1 - l) * var(--btn-stroke-cap-slope)
+          )
+      )
+      c h
+  );
   --btn-glint: oklch(
     from var(--btn-face) calc(l + (1 - l) * var(--btn-glint-rise)) c h
   );
-  --btn-shade: oklch(from var(--btn-face) calc(l * var(--btn-shade-scale)) c h);
+  --btn-shade: oklch(
+    from var(--btn-face)
+      calc(l - min(l * (1 - var(--btn-shade-scale)), var(--btn-shade-cap))) c h
+  );
   --btn-cast: oklch(from var(--btn-face) calc(l * var(--btn-cast-scale)) c h);
 
   /* Every layer is its own variable so hover and press can restate the one
@@ -665,7 +714,7 @@
     background-color 140ms ease,
     opacity 140ms ease;
 
-  /* Pointer devices only — a touch device would leave the button stuck in its
+  /* Pointer devices only, since a touch device would leave the button stuck in its
      hover state after a tap. */
   @media (hover: hover) {
     &:hover:not(:disabled) {

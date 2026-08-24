@@ -42,7 +42,7 @@ const back = () => router.push('/train')
       </div>
       <h1 class="saved__title">Workout saved</h1>
       <p v-if="log" class="saved__desc">
-        {{ log.dayNumber ? `Day ${log.dayNumber} — ` : '' }}{{ log.label }} — done in
+        {{ log.dayNumber ? `Day ${log.dayNumber}: ` : '' }}{{ log.label }}, done in
         {{ durationLabel }}.
         {{ log.proofPhoto ? 'Proof photo is with your coach.' : '' }}
       </p>

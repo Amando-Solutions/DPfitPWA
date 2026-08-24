@@ -15,17 +15,17 @@ const props = withDefaults(
 
 defineEmits<{ (e: 'click', ev: MouseEvent): void }>()
 
-// Resolved in setup — `resolveComponent` can't run from the render function.
+// Resolved in setup, because `resolveComponent` can't run from the render function.
 const NuxtLink = resolveComponent('NuxtLink')
 
 /* Every filled variant gets the raised treatment from `btn-raised`, which
    needs one thing: `--btn-face`, the button's opaque fill. It derives the
    darkened stroke, the in-hue cast shadow, the top highlight and the bottom
    shade from that, so each variant is lit in its own colour rather than in a
-   shared grey. Ghost is the exception — there is no face to raise. */
+   shared grey. Ghost is the exception, since there is no face to raise. */
 const VARIANTS: Record<NonNullable<typeof props.variant>, string> = {
   primary: 'btn-raised bg-rose-fill text-on-rose [--btn-face:var(--rose-fill)]',
-  // Same treatment as primary — the difference is intent, not colour.
+  // Same treatment as primary; the difference is intent, not colour.
   danger: 'btn-raised bg-rose-fill text-on-rose [--btn-face:var(--rose-fill)]',
   dark: 'btn-raised bg-inverse text-on-inverse [--btn-face:var(--surface-inverse)]',
   secondary:

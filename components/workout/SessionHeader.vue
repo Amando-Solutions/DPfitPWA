@@ -7,7 +7,7 @@ const props = withDefaults(
     eyebrow: string
     title: string
     duration: string
-    /** Always kilograms — the display unit is `unit`. */
+    /** Always kilograms; the display unit is `unit`. */
     volume: number
     setsDone: number
     setsTotal: number
@@ -48,7 +48,7 @@ const TOGGLE_OFF = 'text-on-photo/60 transition-colors'
 
     <!-- Desktop: the banner stays full-bleed, its content follows the focus column. -->
     <div
-      class="relative px-5 pt-2 pb-4.5 lg:mx-auto lg:max-w-(--focus-max) lg:px-10 lg:pt-5 lg:pb-6.5"
+      class="relative px-5 pt-(--screen-pad-top) pb-4.5 lg:mx-auto lg:max-w-(--focus-max) lg:px-10 lg:pt-8 lg:pb-6.5"
     >
       <div class="mb-4 flex items-start justify-between gap-3">
         <div>

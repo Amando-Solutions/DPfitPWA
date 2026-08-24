@@ -101,7 +101,12 @@ const takenLabel = (iso: string) =>
             class="shot"
             @click="active = photo"
           >
-            <img :src="photo.dataUrl" :alt="`${photo.pose} pose, week ${photo.weekNumber}`" />
+            <img
+              :src="photo.dataUrl"
+              :alt="`${photo.pose} pose, week ${photo.weekNumber}`"
+              loading="lazy"
+              decoding="async"
+            />
             <span class="shot__pose">{{ photo.pose }}</span>
           </button>
         </div>
@@ -109,7 +114,7 @@ const takenLabel = (iso: string) =>
 
       <div v-if="!byWeek.length" class="progress__empty">
         <AppIcon name="image" :size="28" :stroke="1.6" />
-        <p>No photos yet. Take your first set today — it becomes your before.</p>
+        <p>No photos yet. Take your first set today. It becomes your before.</p>
       </div>
     </div>
 
@@ -117,7 +122,12 @@ const takenLabel = (iso: string) =>
     <Teleport to="body">
       <div v-if="active" class="lightbox" @click.self="close">
         <div class="lightbox__panel">
-          <img :src="active.dataUrl" :alt="`${active.pose} pose`" class="lightbox__img" />
+          <img
+            :src="active.dataUrl"
+            :alt="`${active.pose} pose`"
+            class="lightbox__img"
+            decoding="async"
+          />
           <div class="lightbox__meta">
             <div>
               <span class="lightbox__pose">{{ active.pose }} · Week {{ active.weekNumber }}</span>

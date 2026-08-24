@@ -2,7 +2,7 @@
   "name": "dp-fitness-pwa",
   "private": true,
   "type": "module",
-  "description": "DP Fitness · Recomp Challenge — member-facing PWA",
+  "description": "DP Fitness · Recomp Challenge, member-facing PWA",
   "scripts": {
     "build": "nuxt build",
     "dev": "nuxt dev",
@@ -17,6 +17,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^22",
     "@vite-pwa/nuxt": "^0.10.5",
     "playwright-core": "1.62.1",
     "sass": "^1.79.0",

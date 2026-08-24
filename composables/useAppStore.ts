@@ -3,6 +3,7 @@ import { defaultSettings } from '~/lib/datasource/local'
 import { challengeClock, weekOf } from '~/lib/domain/challenge'
 import { nutritionTargetsFor } from '~/lib/domain/nutrition'
 import { rewardsSnapshot } from '~/lib/domain/rewards'
+import { dateKey, restoreClock, startOfNextDay, syncClock, trustedNow } from '~/lib/time'
 import {
   badges as badgeDefs,
   challenge,
@@ -25,6 +26,12 @@ import type {
 
 interface AppState {
   hydrated: boolean
+  /**
+   * Trusted "now", as milliseconds. Held in state rather than read fresh so
+   * everything derived from the date recomputes together when the clock is
+   * re-synced or the day rolls over.
+   */
+  nowMs: number
   member: MemberAccount | null
   sessions: SessionLog[]
   activeSession: ActiveSession | null
@@ -44,11 +51,12 @@ interface AppState {
  * source, derived values from `lib/domain`, and actions that write back. No
  * component reads storage or fetches directly.
  */
-export const useAppStore = () => {
+const buildStore = () => {
   const data = useDataSourceClient()
 
   const state = useState<AppState>('app-store', () => ({
     hydrated: false,
+    nowMs: Date.now(),
     member: null,
     sessions: [],
     activeSession: null,
@@ -63,6 +71,9 @@ export const useAppStore = () => {
   // --- Loading -------------------------------------------------------------
   const hydrate = async (force = false) => {
     if (state.value.hydrated && !force) return
+    // Cheap and synchronous: the offset from the last session, so the first
+    // paint already has the right date. The network sync lands later.
+    restoreClock()
     const [member, sessions, activeSession, checkIns, photos, notifications, earnedBadges, settings] =
       await Promise.all([
         data.getMember(),
@@ -77,6 +88,7 @@ export const useAppStore = () => {
 
     state.value = {
       hydrated: true,
+      nowMs: trustedNow().getTime(),
       member,
       sessions,
       activeSession,
@@ -89,6 +101,17 @@ export const useAppStore = () => {
     }
   }
 
+  /** Re-read the trusted clock. Cheap, and what the midnight rollover calls. */
+  const tick = () => {
+    state.value.nowMs = trustedNow().getTime()
+  }
+
+  /** Refresh the offset from the network, then re-read. Never throws. */
+  const refreshClock = async () => {
+    await syncClock()
+    tick()
+  }
+
   // --- Derived -------------------------------------------------------------
   const member = computed(() => state.value.member)
   const profile = computed(() => state.value.member?.profile ?? null)
@@ -97,8 +120,11 @@ export const useAppStore = () => {
 
   const displayName = computed(() => profile.value?.displayName?.trim() || 'there')
 
+  /** Trusted now, as a Date. Everything date-shaped derives from this.  */
+  const now = computed(() => new Date(state.value.nowMs))
+
   const clock = computed(() =>
-    challengeClock(state.value.member?.joinedAt ?? new Date().toISOString()),
+    challengeClock(state.value.member?.joinedAt ?? now.value.toISOString(), now.value),
   )
 
   const targets = computed(() =>
@@ -109,23 +135,47 @@ export const useAppStore = () => {
     state.value.sessions.filter((s) => s.weekNumber === clock.value.week),
   )
 
+  /**
+   * The session already logged on today's date, if there is one.
+   *
+   * The plan is one session a day. Without this the four days of a week can all
+   * be logged back to back in a single sitting, which is not training, and it
+   * makes the previous-session column meaningless from week two onwards.
+   */
+  const sessionToday = computed(() => {
+    const key = dateKey(now.value)
+    return state.value.sessions.find((s) => dateKey(new Date(s.completedAt)) === key) ?? null
+  })
+
+  /** No further sessions until tomorrow. */
+  const trainingLocked = computed(() => sessionToday.value !== null)
+
+  /** Local midnight after today, when the next session opens up. */
+  const nextSessionAt = computed(() => startOfNextDay(now.value))
+
   /** The plan for this week, with each day's status resolved from the log. */
   const days = computed<WorkoutDay[]>(() => {
     const loggedIds = new Set(sessionsThisWeek.value.map((s) => s.dayId))
-    let markedToday = false
+    const locked = trainingLocked.value
+    let markedNext = false
     return planDays.map((day) => {
       if (loggedIds.has(day.id)) return { ...day, status: 'completed' as const }
-      if (!markedToday) {
-        markedToday = true
+      // Every remaining day locks, not just the next one: the rule is one
+      // session a day, so skipping ahead to day 4 is the same spam by another
+      // route. Screens single out the first of them as the one that opens next.
+      if (locked) return { ...day, status: 'locked' as const }
+      if (!markedNext) {
+        markedNext = true
         return { ...day, status: 'today' as const }
       }
       return { ...day, status: 'upcoming' as const }
     })
   })
 
-  /** The next session waiting on them — what Home leads with. */
+  /** The next session waiting on them, which is what Home leads with. */
   const today = computed<WorkoutDay>(
-    () => days.value.find((d) => d.status === 'today') ?? days.value[0],
+    () =>
+      days.value.find((d) => d.status === 'today' || d.status === 'locked') ?? days.value[0],
   )
 
   const weekComplete = computed(() => days.value.every((d) => d.status === 'completed'))
@@ -193,7 +243,16 @@ export const useAppStore = () => {
   }
 
   // --- Actions: workout logging -------------------------------------------
+  /**
+   * Open a session for `day`, or return null if today's is already logged.
+   *
+   * The gate lives here rather than only in the screens, so a deep link into
+   * `/train/<id>` cannot walk around it. Finishing is deliberately *not* gated:
+   * a session opened before midnight has to be able to close after it.
+   */
   const startSession = async (day: WorkoutDay) => {
+    if (trainingLocked.value && state.value.activeSession?.dayId !== day.id) return null
+
     const session: ActiveSession = {
       dayId: day.id,
       startedAt: null,
@@ -250,7 +309,7 @@ export const useAppStore = () => {
       0,
     )
 
-    const completedAt = new Date().toISOString()
+    const completedAt = trustedNow().toISOString()
     const log = await data.saveSession({
       dayId: active.dayId,
       dayNumber: day?.dayNumber ?? 0,
@@ -286,7 +345,7 @@ export const useAppStore = () => {
     const record = await data.saveCheckIn({
       ...input,
       weekNumber: clock.value.week,
-      submittedAt: new Date().toISOString(),
+      submittedAt: trustedNow().toISOString(),
       rewardPoints: rewardValues.checkIn,
     })
     state.value.checkIns = [
@@ -301,7 +360,7 @@ export const useAppStore = () => {
     const record = await data.savePhoto({
       ...input,
       weekNumber: clock.value.week,
-      takenAt: new Date().toISOString(),
+      takenAt: trustedNow().toISOString(),
     })
     state.value.photos = [record, ...state.value.photos]
     await syncBadges()
@@ -338,7 +397,7 @@ export const useAppStore = () => {
     const fresh = qualified.filter((id) => !alreadyEarned[id])
     if (!fresh.length) return
 
-    const earnedAt = new Date().toISOString()
+    const earnedAt = trustedNow().toISOString()
     for (const id of fresh) await data.awardBadge(id, earnedAt)
     state.value.earnedBadges = {
       ...alreadyEarned,
@@ -372,7 +431,11 @@ export const useAppStore = () => {
     isAuthenticated,
     isSetupComplete,
     displayName,
+    now,
     clock,
+    sessionToday,
+    trainingLocked,
+    nextSessionAt,
     targets,
     days,
     today,
@@ -388,6 +451,8 @@ export const useAppStore = () => {
 
     // actions
     hydrate,
+    tick,
+    refreshClock,
     redeemAccessCode,
     saveProfile,
     completeSetup,
@@ -403,5 +468,43 @@ export const useAppStore = () => {
     markAllNotificationsRead,
     saveSettings,
     consumePendingBadge,
+  }
+}
+
+type AppStore = ReturnType<typeof buildStore>
+
+/**
+ * The store, built once per app.
+ *
+ * `buildStore` stands up roughly thirty `computed`s, several of which walk the
+ * whole session log (`rewards`, `days`, `sessionsThisWeek`). Calling it per
+ * consumer, meaning every page, every component, and the global route middleware
+ * on each navigation, meant a fresh un-shared computed graph each time: the same
+ * derivations recomputed once per caller instead of once per change, and the
+ * garbage to match. Memoising on the Nuxt instance gives every caller the same
+ * refs, so a value is recomputed only when its dependencies actually change.
+ *
+ * The build runs inside a detached `effectScope`, so the computeds belong to
+ * the app rather than to whichever component happened to ask first, because otherwise
+ * unmounting that component would dispose the store out from under everyone
+ * else.
+ */
+export const useAppStore = (): AppStore => {
+  const nuxtApp = useNuxtApp()
+  const existing = nuxtApp.$appStore as AppStore | undefined
+  if (existing) return existing
+
+  const scope = effectScope(true)
+  const store = scope.run(buildStore)!
+  nuxtApp.$appStore = store
+  // Tear the graph down with the app (matters for HMR and for tests, which
+  // create and discard app instances in the same process).
+  nuxtApp.hook('app:unmounted', () => scope.stop())
+  return store
+}
+
+declare module '#app' {
+  interface NuxtApp {
+    $appStore?: AppStore
   }
 }

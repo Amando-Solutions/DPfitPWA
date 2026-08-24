@@ -1,9 +1,9 @@
 // =============================================================================
-// Program content — authored, not earned.
+// Program content: authored, not earned.
 //
 // This is everything the coach defines: the cohort, the 6-week plan, the guide
 // library, the badge and rank ladders, the inbox seed. Member-owned data (their
-// logs, check-ins, photos) never lives here — see `lib/datasource`.
+// logs, check-ins, photos) never lives here. See `lib/datasource`.
 //
 // When a backend arrives this file becomes the response of `GET /program`.
 // =============================================================================
@@ -23,7 +23,7 @@ import type {
 // --- Cohort & coach --------------------------------------------------------
 export const coach: Coach = {
   id: 'coach-dp',
-  name: 'Coach Deni',
+  name: 'Coach Dayo',
   title: 'Head Coach · DP Fitness',
   avatar:
     'https://images.unsplash.com/photo-1594381898411-846e7d193883?w=200&q=80',
@@ -50,7 +50,7 @@ export const challenge = {
 export const weekThemes = [
   { weekNumber: 1, title: 'Foundation', subtitle: 'Dial in form & baseline loads' },
   { weekNumber: 2, title: 'Build', subtitle: 'Add volume, own the tempo' },
-  { weekNumber: 3, title: 'Overload', subtitle: 'Push intensity — prove the work' },
+  { weekNumber: 3, title: 'Overload', subtitle: 'Push intensity, prove the work' },
   { weekNumber: 4, title: 'Peak', subtitle: 'Heaviest loads of the block' },
   { weekNumber: 5, title: 'Refine', subtitle: 'Sharpen weak points' },
   { weekNumber: 6, title: 'Prove It', subtitle: 'Final push & photos' },
@@ -136,7 +136,7 @@ const lowerStrength: Exercise[] = [
     name: 'Goblet Squat',
     muscleGroup: 'Quads',
     targetSets: 4,
-    targetReps: '8–10',
+    targetReps: '8-10',
     restSeconds: 90,
     cues: ['Heels planted, chest tall.', 'Sit between the hips.', 'Two-second descent.'],
     sets: sets(4, 10, 16),
@@ -146,7 +146,7 @@ const lowerStrength: Exercise[] = [
     name: 'Romanian Deadlift',
     muscleGroup: 'Hamstrings',
     targetSets: 4,
-    targetReps: '8–10',
+    targetReps: '8-10',
     restSeconds: 90,
     cues: ['Hinge, don’t squat.', 'Bar stays close to the legs.'],
     sets: sets(4, 10, 30),
@@ -166,7 +166,7 @@ const lowerStrength: Exercise[] = [
     name: 'Standing Calf Raise',
     muscleGroup: 'Calves',
     targetSets: 3,
-    targetReps: '12–15',
+    targetReps: '12-15',
     restSeconds: 45,
     cues: ['Full stretch at the bottom.', 'Pause at the top.'],
     sets: sets(3, 15, 20),
@@ -179,7 +179,7 @@ const upperPush: Exercise[] = [
     name: 'Incline Dumbbell Press',
     muscleGroup: 'Chest',
     targetSets: 4,
-    targetReps: '8–10',
+    targetReps: '8-10',
     restSeconds: 90,
     cues: ['Set the bench to ~30°.', 'Elbows at 45°.', 'Control the eccentric for 2 seconds.'],
     sets: sets(4, 10, 14),
@@ -189,7 +189,7 @@ const upperPush: Exercise[] = [
     name: 'Seated Shoulder Press',
     muscleGroup: 'Shoulders',
     targetSets: 3,
-    targetReps: '10–12',
+    targetReps: '10-12',
     restSeconds: 75,
     cues: ['Brace the core.', 'Press just in front of the ears.'],
     sets: sets(3, 12, 10),
@@ -199,7 +199,7 @@ const upperPush: Exercise[] = [
     name: 'Cable Chest Fly',
     muscleGroup: 'Chest',
     targetSets: 3,
-    targetReps: '12–15',
+    targetReps: '12-15',
     restSeconds: 60,
     cues: ['Soft elbows.', 'Squeeze for a beat at the front.'],
     sets: sets(3, 14, 7),
@@ -209,7 +209,7 @@ const upperPush: Exercise[] = [
     name: 'Triceps Rope Pushdown',
     muscleGroup: 'Triceps',
     targetSets: 3,
-    targetReps: '12–15',
+    targetReps: '12-15',
     restSeconds: 60,
     cues: ['Pin the elbows.', 'Spread the rope at the bottom.'],
     sets: sets(3, 15, 20),
@@ -222,7 +222,7 @@ const upperPull: Exercise[] = [
     name: 'Lat Pulldown',
     muscleGroup: 'Back',
     targetSets: 4,
-    targetReps: '8–10',
+    targetReps: '8-10',
     restSeconds: 90,
     cues: ['Lead with the elbows.', 'Chest to the bar, not the bar to the chest.'],
     sets: sets(4, 10, 32),
@@ -232,7 +232,7 @@ const upperPull: Exercise[] = [
     name: 'Seated Cable Row',
     muscleGroup: 'Back',
     targetSets: 4,
-    targetReps: '10–12',
+    targetReps: '10-12',
     restSeconds: 75,
     cues: ['Squeeze the shoulder blades.', 'No torso swing.'],
     sets: sets(4, 12, 30),
@@ -242,7 +242,7 @@ const upperPull: Exercise[] = [
     name: 'Face Pull',
     muscleGroup: 'Rear delts',
     targetSets: 3,
-    targetReps: '12–15',
+    targetReps: '12-15',
     restSeconds: 60,
     cues: ['Pull to the forehead.', 'External rotation at the end.'],
     sets: sets(3, 15, 15),
@@ -252,7 +252,7 @@ const upperPull: Exercise[] = [
     name: 'Dumbbell Curl',
     muscleGroup: 'Biceps',
     targetSets: 3,
-    targetReps: '10–12',
+    targetReps: '10-12',
     restSeconds: 60,
     cues: ['Elbows pinned to the ribs.', 'Slow on the way down.'],
     sets: sets(3, 12, 8),
@@ -265,7 +265,7 @@ const lowerPosterior: Exercise[] = [
     name: 'Leg Press',
     muscleGroup: 'Quads',
     targetSets: 4,
-    targetReps: '10–12',
+    targetReps: '10-12',
     restSeconds: 90,
     cues: ['Feet mid-platform.', 'Stop just short of lockout.'],
     sets: sets(4, 12, 80),
@@ -275,7 +275,7 @@ const lowerPosterior: Exercise[] = [
     name: 'Hip Thrust',
     muscleGroup: 'Glutes',
     targetSets: 4,
-    targetReps: '10–12',
+    targetReps: '10-12',
     restSeconds: 90,
     cues: ['Ribs down.', 'Squeeze hard at the top for a beat.'],
     sets: sets(4, 12, 40),
@@ -285,7 +285,7 @@ const lowerPosterior: Exercise[] = [
     name: 'Seated Leg Curl',
     muscleGroup: 'Hamstrings',
     targetSets: 3,
-    targetReps: '12–15',
+    targetReps: '12-15',
     restSeconds: 60,
     cues: ['Toes pulled up.', 'Control the return.'],
     sets: sets(3, 15, 25),
@@ -295,7 +295,7 @@ const lowerPosterior: Exercise[] = [
     name: 'Leg Extension',
     muscleGroup: 'Quads',
     targetSets: 3,
-    targetReps: '12–15',
+    targetReps: '12-15',
     restSeconds: 60,
     cues: ['Pause at the top.', 'No swinging.'],
     sets: sets(3, 15, 30),
@@ -336,7 +336,7 @@ export const coreCardioExercises: Exercise[] = [
 ]
 
 /**
- * The training week. `status` is computed per member from their logs — the
+ * The training week. `status` is computed per member from their logs. The
  * value here is only the default for a week nobody has touched yet.
  */
 export const planDays: WorkoutDay[] = [
@@ -411,9 +411,9 @@ export const guides: Guide[] = [
     locked: false,
     excerpt: 'Four steps that get you ready to lift without burning the session.',
     body: [
-      '5 minutes easy cardio — bike, row or brisk walk, just enough to break a light sweat.',
+      '5 minutes easy cardio: bike, row or brisk walk, just enough to break a light sweat.',
       'Dynamic mobility for the joints you are about to load: hips and ankles on lower days, shoulders and thoracic spine on upper days.',
-      'Two activation sets — glute bridges or band pull-aparts, 12 reps, no load worth counting.',
+      'Two activation sets: glute bridges or band pull-aparts, 12 reps, no load worth counting.',
       'Two ramp-up sets on your first exercise at roughly 50% and 75% of your working weight.',
     ].join('\n\n'),
   },
@@ -429,7 +429,7 @@ export const guides: Guide[] = [
       'Train the core to resist movement before you train it to create movement.',
       'Anti-extension first: dead bugs or planks, 3 sets, stop when the low back lifts.',
       'Anti-rotation second: Pallof press, 3 sets of 10 each side, slow and quiet.',
-      'Add load before you add reps — a 45-second plank with weight beats a 3-minute one without.',
+      'Add load before you add reps. A 45-second plank with weight beats a 3-minute one without.',
       'Finish with breathing: 5 slow exhales lying down, ribs pulled toward the hips.',
     ].join('\n\n'),
   },
@@ -443,7 +443,7 @@ export const guides: Guide[] = [
     excerpt: 'How much, how hard, and when it starts eating your recovery.',
     body: [
       'Two to three sessions a week is plenty alongside four lifting days.',
-      'Keep most of it conversational — you should be able to speak in full sentences.',
+      'Keep most of it conversational. You should be able to speak in full sentences.',
       'Save intervals for the day after a rest day, never before a heavy lower session.',
     ].join('\n\n'),
   },
@@ -456,7 +456,7 @@ export const guides: Guide[] = [
     locked: false,
     excerpt: 'Move through range instead of hanging in it.',
     body: [
-      'Leg swings, 10 each direction per leg — controlled, not thrown.',
+      'Leg swings, 10 each direction per leg, controlled and not thrown.',
       'World’s greatest stretch, 5 each side, pausing at the rotation.',
       'Cat-cow into thoracic rotations, 8 slow rounds.',
       'Save the long static holds for after training or a rest day.',
@@ -471,7 +471,7 @@ export const guides: Guide[] = [
     locked: true,
     excerpt: 'The rule that turns four weeks of effort into visible change.',
     body: [
-      'Add reps before you add weight — top of the rep range on every set, then go up.',
+      'Add reps before you add weight. Top of the rep range on every set, then go up.',
       'Increase load by the smallest increment available, usually 2.5kg on compounds.',
       'Leave one to two reps in reserve on your first working set of the day.',
       'If a session drops off two weeks running, that is a recovery problem, not a programming one.',
@@ -486,7 +486,7 @@ export const notificationSeed: Omit<AppNotification, 'read'>[] = [
     id: 'notif-call-moved',
     type: 'coach',
     title: 'Pinned announcement',
-    body: 'Live call moves to Wednesday 7pm — same link — see you there 💗',
+    body: 'Live call moves to Wednesday 7pm, same link. See you there 💗',
     time: '2h ago',
     icon: 'bell',
   },
@@ -494,7 +494,7 @@ export const notificationSeed: Omit<AppNotification, 'read'>[] = [
     id: 'notif-live-call',
     type: 'coach',
     title: 'Live call today',
-    body: 'Tuesdays · 7:00 PM WAT — recorded and posted to Cohort Chat if you miss it.',
+    body: 'Tuesdays · 7:00 PM WAT. Recorded and posted to Cohort Chat if you miss it.',
     time: 'Starts soon',
     icon: 'phone',
   },
@@ -502,7 +502,7 @@ export const notificationSeed: Omit<AppNotification, 'read'>[] = [
     id: 'notif-cohort-note',
     type: 'community',
     title: 'Cohort chat',
-    body: 'Coach Deni left a note in Cohort Chat for Week 3.',
+    body: 'Coach Dayo left a note in Cohort Chat for Week 3.',
     time: '2h ago',
     icon: 'chat',
   },
@@ -510,7 +510,7 @@ export const notificationSeed: Omit<AppNotification, 'read'>[] = [
     id: 'notif-schedule-change',
     type: 'coach',
     title: 'Update',
-    body: 'The Saturday call time changed — check the pinned announcement.',
+    body: 'The Saturday call time changed. Check the pinned announcement.',
     time: '1d ago',
     icon: 'info',
   },
@@ -529,7 +529,7 @@ export const announcements: Announcement[] = [
   {
     id: 'a2',
     eyebrow: 'Live call',
-    title: 'Q&A with Coach Deni · Sat 10am',
+    title: 'Q&A with Coach Dayo · Sat 10am',
     body: 'Bring your form questions. Replay available if you miss it.',
     cta: 'Add to calendar',
     accent: 'orange',

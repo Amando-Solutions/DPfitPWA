@@ -108,7 +108,7 @@ const discard = async () => {
   <div v-if="day && session" class="complete">
     <SessionHeader
       :eyebrow="`Log workout · Week ${store.clock.value.week}`"
-      :title="day.dayNumber ? `Day ${day.dayNumber} — ${day.label}` : day.label"
+      :title="day.dayNumber ? `Day ${day.dayNumber}: ${day.label}` : day.label"
       :duration="durationLabel"
       :volume="totals.volume"
       :sets-done="totals.setsDone"
@@ -139,6 +139,7 @@ const discard = async () => {
           :src="session.proofPhoto"
           class="dropzone__img"
           alt="Proof of workout"
+          decoding="async"
         />
         <template v-else>
           <AppIcon name="camera" :size="26" :stroke="1.8" />
@@ -151,7 +152,7 @@ const discard = async () => {
           {{
             day.proofRequired
               ? 'Required. This is how your coach knows the session happened.'
-              : 'Optional for the finisher — add one if you want it on record.'
+              : 'Optional for the finisher. Add one if you want it on record.'
           }}
         </p>
         <button v-if="session.proofPhoto" class="complete__retake" @click="clearPhoto">

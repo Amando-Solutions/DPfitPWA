@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 30 · More — the hub the tab bar's "More" opens onto.
+// 30 · More: the hub the tab bar's "More" opens onto.
 definePageMeta({ layout: 'app' })
 
 import { cohort } from '~/data/program'
@@ -19,7 +19,7 @@ const links = computed(() => [
     label: 'Progress photos',
     meta: store.photos.value.length
       ? `${store.photos.value.length} saved`
-      : 'Nothing yet — start your before',
+      : 'Nothing yet. Start your before',
   },
   {
     to: '/check-in',
@@ -84,6 +84,7 @@ const initials = computed(() =>
           :src="store.profile.value.avatar"
           :alt="store.displayName.value"
           class="more__avatar"
+          decoding="async"
         />
         <span v-else class="more__avatar more__avatar--initials">{{ initials }}</span>
         <div class="more__profile-text">

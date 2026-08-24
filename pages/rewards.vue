@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 19 · Rewards (+ 33–35 badge / leaderboard tabs, 37–40 rank states)
+// 19 · Rewards (+ 33 to 35 badge / leaderboard tabs, 37 to 40 rank states)
 definePageMeta({ layout: 'app' })
 
 import { badges as badgeDefs, cohort, leaderboardPeers, ranks } from '~/data/program'
@@ -148,7 +148,14 @@ const initials = (name: string) =>
             :class="{ 'board__row--self': entry.isSelf }"
           >
             <span class="board__rank data">{{ entry.rank }}</span>
-            <img v-if="entry.avatar" :src="entry.avatar" :alt="entry.name" class="board__avatar" />
+            <img
+              v-if="entry.avatar"
+              :src="entry.avatar"
+              :alt="entry.name"
+              class="board__avatar"
+              loading="lazy"
+              decoding="async"
+            />
             <span v-else class="board__avatar board__avatar--initials">
               {{ initials(entry.name) }}
             </span>

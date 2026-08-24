@@ -12,35 +12,104 @@ const dayId = computed(() => String(route.params.dayId))
 const day = computed(() => store.getDay(dayId.value))
 
 // Resume the session for this day, or open a fresh one. A session already in
-// progress for a *different* day is left alone — the picker offers to resume it.
+// progress for a *different* day is left alone; the picker offers to resume it.
 onMounted(async () => {
   if (!day.value) {
     router.replace('/train')
     return
   }
   if (store.activeSession.value?.dayId !== dayId.value) {
-    await store.startSession(day.value)
+    // Null means today's session is already in the log. The picker is where
+    // that gets explained, so hand back to it rather than showing an empty
+    // session that cannot be started.
+    const started = await store.startSession(day.value)
+    if (!started) router.replace('/train')
   }
 })
 
 const session = computed(() => store.activeSession.value)
 
 // --- Timer -----------------------------------------------------------------
+/**
+ * The session clock.
+ *
+ * Two things it deliberately does not do. It does not tick while the session is
+ * paused or the screen is hidden. An interval that wakes once a second to
+ * decide it has nothing to do still costs a wakeup, and on a phone that is real
+ * battery over a 45-minute workout. And it does not count ticks: it advances by
+ * the wall-clock delta since the previous tick. Backgrounded tabs get their
+ * timers throttled to about once a minute, so a counter incremented per tick
+ * silently loses time whenever the member takes a call mid-set.
+ */
 let clock: ReturnType<typeof setInterval> | null = null
+let lastTickAt = 0
+/** Fractions carried between ticks, so repeated rounding cannot drift. */
+let carry = 0
+
+const advance = (seconds: number) => {
+  const active = store.activeSession.value
+  if (!active || seconds <= 0) return
+
+  const before = active.elapsedSeconds
+  const total = seconds + carry
+  const whole = Math.floor(total)
+  carry = total - whole
+  if (whole <= 0) return
+
+  active.elapsedSeconds += whole
+
+  if (restRemaining.value > 0) {
+    restRemaining.value = Math.max(0, restRemaining.value - whole)
+    if (restRemaining.value === 0) restActive.value = false
+  }
+
+  // Persist about every 30s rather than every tick. What matters is crossing
+  // the boundary, not landing exactly on it, since a jump can step over it.
+  if (Math.floor(before / 30) !== Math.floor(active.elapsedSeconds / 30)) {
+    store.persistActiveSession()
+  }
+}
+
+const stopClock = () => {
+  if (clock) clearInterval(clock)
+  clock = null
+}
 
 const startClock = () => {
-  if (clock) return
+  if (clock || document.hidden) return
+  lastTickAt = Date.now()
+  carry = 0
   clock = setInterval(() => {
-    const active = store.activeSession.value
-    if (!active?.running) return
-    active.elapsedSeconds++
-    if (restRemaining.value > 0) {
-      restRemaining.value--
-      if (restRemaining.value === 0) restActive.value = false
-    }
-    // Persist about once a minute rather than every tick.
-    if (active.elapsedSeconds % 30 === 0) store.persistActiveSession()
+    const now = Date.now()
+    const delta = (now - lastTickAt) / 1000
+    lastTickAt = now
+    advance(delta)
   }, 1000)
+}
+
+/** Only run while there is something to count. */
+const syncClock = () => {
+  if (store.activeSession.value?.running && !document.hidden) startClock()
+  else stopClock()
+}
+
+/**
+ * Coming back from the background: settle up the time that passed while the
+ * interval was stopped, then resume.
+ */
+const onVisibility = () => {
+  if (document.hidden) {
+    if (store.activeSession.value?.running && lastTickAt) {
+      advance((Date.now() - lastTickAt) / 1000)
+    }
+    stopClock()
+    store.persistActiveSession()
+    return
+  }
+  if (store.activeSession.value?.running && lastTickAt) {
+    advance((Date.now() - lastTickAt) / 1000)
+  }
+  syncClock()
 }
 
 const startWorkout = async () => {
@@ -48,14 +117,20 @@ const startWorkout = async () => {
   if (!active) return
   active.running = true
   active.startedAt = active.startedAt ?? new Date().toISOString()
-  startClock()
+  syncClock()
   await store.persistActiveSession()
 }
 
-onMounted(startClock)
+watch(() => store.activeSession.value?.running, syncClock)
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', onVisibility)
+  syncClock()
+})
+
 onBeforeUnmount(() => {
-  if (clock) clearInterval(clock)
-  clock = null
+  document.removeEventListener('visibilitychange', onVisibility)
+  stopClock()
   // Leaving the screen shouldn't lose the last few reps.
   store.persistActiveSession()
 })
@@ -119,11 +194,13 @@ const addSet = async (exerciseIndex: number) => {
   const exercise = active.exercises[exerciseIndex]
   const last = exercise.sets.at(-1)
   // A set added mid-session has no counterpart in a previous week, so it
-  // carries no "previous" reference — the column renders a dash.
+  // carries no "previous" reference and the column renders a dash. `added`
+  // marks it as the member's own, which is what makes it removable again.
   exercise.sets.push({
     reps: last?.reps ?? 10,
     weightKg: last?.weightKg ?? 0,
     done: false,
+    added: true,
   })
   await store.persistActiveSession()
 }
@@ -131,6 +208,10 @@ const addSet = async (exerciseIndex: number) => {
 const removeSet = async (exerciseIndex: number, setIndex: number) => {
   const active = store.activeSession.value
   if (!active) return
+  // The card only offers this for a set the member added, but the guard belongs
+  // here too: the prescribed sets are the workout, and nothing should be able
+  // to take one out of it.
+  if (!active.exercises[exerciseIndex].sets[setIndex]?.added) return
   active.exercises[exerciseIndex].sets.splice(setIndex, 1)
   await store.persistActiveSession()
 }
@@ -164,7 +245,7 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
     <div v-if="day && session" class="session__scroll scroll-y">
       <SessionHeader
         :eyebrow="`${session.running ? 'Logging' : 'Ready to start'} · Week ${store.clock.value.week}`"
-        :title="day.dayNumber ? `Day ${day.dayNumber} — ${day.label}` : day.label"
+        :title="day.dayNumber ? `Day ${day.dayNumber}: ${day.label}` : day.label"
         :duration="durationLabel"
         :volume="totals.volume"
         :sets-done="totals.setsDone"

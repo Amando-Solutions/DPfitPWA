@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Onboarding tour — 01 The Challenge, 02 How it Works, 03 You · The Cohort
+// Onboarding tour: 01 The Challenge, 02 How it Works, 03 You · The Cohort
 definePageMeta({ layout: 'default' })
 
 import { onboardingSlides } from '~/data/onboarding'
@@ -32,6 +32,10 @@ const skip = () => router.push('/access-code')
             :src="current.illustration"
             :alt="current.title"
             class="onb__art-img"
+            width="396"
+            height="366"
+            decoding="async"
+            fetchpriority="high"
           />
         </Transition>
       </div>
@@ -70,7 +74,7 @@ const skip = () => router.push('/access-code')
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 22px 20px 18px;
+  padding: var(--screen-pad-top) 20px 18px;
 
   &__top {
     height: 42px;
