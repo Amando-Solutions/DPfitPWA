@@ -21,7 +21,7 @@ const next = async () => {
   await store.saveProfile({
     weightKg: weightKg.value,
     heightCm: heightCm.value,
-    // The weight they started at is fixed here — every later check-in compares
+    // The weight they started at is fixed here, and every later check-in compares
     // against it rather than overwriting it.
     startWeightKg: store.profile.value?.startWeightKg ?? weightKg.value,
   })
@@ -36,7 +36,7 @@ const next = async () => {
     :total="4"
     eyebrow="Your numbers"
     title="What's your starting point?"
-    subtitle="Weight and height set your daily food targets — nothing here is shared with the group."
+    subtitle="Weight and height set your daily food targets. Nothing here is shared with the group."
     :can-continue="canContinue"
     :busy="busy"
     @continue="next"
@@ -49,7 +49,7 @@ const next = async () => {
 
       <p class="form-card__tip">
         These two numbers set your calorie and protein targets. Update them any time
-        from Profile &amp; Settings — your daily fuel recalculates itself.
+        from Profile &amp; Settings, and your daily fuel recalculates itself.
       </p>
     </AppCard>
   </SetupStepShell>

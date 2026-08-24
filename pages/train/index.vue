@@ -2,21 +2,65 @@
 // 12 · Train · Day Picker
 definePageMeta({ layout: 'app' })
 
+import type { WorkoutDay } from '~/data/types'
+
 const store = useAppStore()
 
 const setsFor = (exercises: { targetSets: number }[]) =>
   exercises.reduce((n, e) => n + e.targetSets, 0)
 
 const resumable = computed(() => store.activeSession.value)
+
+/**
+ * A locked day is a plain div, not a link.
+ *
+ * Leaving it a link and blocking the arrival on the other side works, but the
+ * row still looks tappable and still lights up under a finger, which reads as
+ * the app being broken rather than as a rule.
+ */
+const NuxtLinkComponent = resolveComponent('NuxtLink')
+const rowTag = (day: WorkoutDay) =>
+  day.status === 'locked' ? 'div' : NuxtLinkComponent
+
+/** The first locked day is the one that opens next; the rest just wait. */
+const nextUpId = computed(() => store.days.value.find((d) => d.status === 'locked')?.id)
+
+const nextSessionLabel = computed(() =>
+  store.nextSessionAt.value.toLocaleDateString(undefined, {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'short',
+  }),
+)
+
+const lockedNote = computed(() => {
+  // Nothing left to name once the week is done, so don't point at day 1 again.
+  if (store.weekComplete.value) return 'Every session this week is logged. Well played.'
+  const next = store.days.value.find((d) => d.id === nextUpId.value)
+  return `Recovery counts. Day ${next?.dayNumber} opens ${nextSessionLabel.value}.`
+})
 </script>
 
 <template>
   <div class="picker">
     <ScreenIntro
       :eyebrow="`Week ${store.clock.value.week} · log workout`"
-      title="Pick today's session"
-      subtitle="Tap a day to start logging sets."
+      :title="store.trainingLocked.value ? 'Today is logged' : 'Pick today\u2019s session'"
+      :subtitle="
+        store.trainingLocked.value
+          ? 'One session a day. The next one opens tomorrow.'
+          : 'Tap a day to start logging sets.'
+      "
     />
+
+    <!-- Says why the list is inert, so a locked row isn't just unresponsive. -->
+    <div v-if="store.trainingLocked.value" class="picker__locked">
+      <span class="picker__locked-icon"><AppIcon name="check" :size="16" /></span>
+      <span class="picker__locked-text">
+        <strong>{{ store.sessionToday.value?.label }} is in the log</strong>
+        <small>{{ lockedNote }}</small>
+      </span>
+    </div>
 
     <!-- A workout left half-logged is the first thing they should see. -->
     <NuxtLink v-if="resumable" :to="`/train/${resumable.dayId}`" class="picker__resume">
@@ -29,28 +73,44 @@ const resumable = computed(() => store.activeSession.value)
     </NuxtLink>
 
     <div class="picker__list">
-      <NuxtLink
+      <component
+        :is="rowTag(day)"
         v-for="day in store.days.value"
         :key="day.id"
-        :to="`/train/${day.id}`"
+        :to="day.status === 'locked' ? undefined : `/train/${day.id}`"
         class="day"
-        :class="{ 'day--done': day.status === 'completed' }"
+        :class="{
+          'day--done': day.status === 'completed',
+          'day--locked': day.status === 'locked',
+        }"
       >
         <span class="day__badge">
           <AppIcon v-if="day.status === 'completed'" name="check" :size="16" />
+          <AppIcon v-else-if="day.status === 'locked'" name="lock" :size="16" />
           <span v-else class="data">D{{ day.dayNumber }}</span>
         </span>
 
         <span class="day__text">
-          <span class="day__title">Day {{ day.dayNumber }} — {{ day.label }}</span>
+          <span class="day__title">Day {{ day.dayNumber }}: {{ day.label }}</span>
           <span class="day__meta">
             <span>{{ day.exercises.length }} exercises · {{ setsFor(day.exercises) }} sets</span>
             <span v-if="day.status === 'completed'" class="day__logged">Logged</span>
+            <span
+              v-else-if="day.id === nextUpId"
+              class="day__logged day__logged--soon"
+            >
+              Tomorrow
+            </span>
           </span>
         </span>
 
-        <AppIcon name="chevronRight" :size="16" class="day__chev" />
-      </NuxtLink>
+        <AppIcon
+          v-if="day.status !== 'locked'"
+          name="chevronRight"
+          :size="16"
+          class="day__chev"
+        />
+      </component>
     </div>
   </div>
 </template>
@@ -99,6 +159,46 @@ const resumable = computed(() => store.activeSession.value)
     }
   }
 
+  &__locked {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 20px;
+    padding: 14px 18px;
+    border-radius: var(--radius-card);
+    background: var(--rose-softer);
+    border: 1px solid var(--rose-ring);
+  }
+
+  &__locked-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: var(--radius-pill);
+    background: var(--rose-fill);
+    color: var(--on-rose);
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+  }
+
+  &__locked-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+
+    strong {
+      font-family: var(--font-display);
+      font-weight: 900;
+      font-size: 14.5px;
+      color: var(--ink);
+    }
+    small {
+      font-size: 12.5px;
+      color: var(--violet-45);
+    }
+  }
+
   &__list {
     display: flex;
     flex-direction: column;
@@ -120,6 +220,16 @@ const resumable = computed(() => store.activeSession.value)
 
   &--done {
     border-color: var(--rose-ring);
+  }
+
+  &--locked {
+    opacity: 0.55;
+    cursor: default;
+
+    .day__badge {
+      background: var(--fill-subtle);
+      color: var(--violet-45);
+    }
   }
 
   &__badge {
@@ -169,6 +279,11 @@ const resumable = computed(() => store.activeSession.value)
     color: var(--orange-text);
     font-size: 8px;
     font-weight: 500;
+
+    &--soon {
+      background: var(--fill-subtle);
+      color: var(--violet-45);
+    }
   }
 
   &__chev {
@@ -205,6 +320,12 @@ const resumable = computed(() => store.activeSession.value)
       transform: translateY(-2px);
       box-shadow: var(--shadow-raised);
     }
+  }
+
+  // Nothing to open, so nothing should lift under the pointer.
+  .day--locked:hover {
+    transform: none;
+    box-shadow: none;
   }
 }
 </style>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 19 · Rewards (+ 33–35 badge / leaderboard tabs, 37–40 rank states)
+// 19 · Rewards (+ 33 to 35 badge / leaderboard tabs, 37 to 40 rank states)
 definePageMeta({ layout: 'app' })
 
 import { badges as badgeDefs, cohort, leaderboardPeers, ranks } from '~/data/program'

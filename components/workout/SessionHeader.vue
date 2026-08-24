@@ -7,7 +7,7 @@ const props = withDefaults(
     eyebrow: string
     title: string
     duration: string
-    /** Always kilograms — the display unit is `unit`. */
+    /** Always kilograms; the display unit is `unit`. */
     volume: number
     setsDone: number
     setsTotal: number

@@ -21,7 +21,7 @@ const rawFiles = import.meta.glob('../../assets/icons/*.svg', {
   eager: true,
 }) as Record<string, string>
 
-/** Colours that appear on rendered elements — `<defs>` content doesn't count. */
+/** Colours that appear on rendered elements; `<defs>` content doesn't count. */
 const visibleColours = (svg: string): string[] => {
   const body = svg.replace(/<defs>[\s\S]*?<\/defs>/g, '')
   const found = new Set<string>()
@@ -40,11 +40,19 @@ const toGlyph = (svg: string): Glyph => {
     inner = inner
       .replace(/\bstroke="(?!none)[^"]*"/g, 'stroke="currentColor"')
       .replace(/\bfill="(?!none|white)[^"]*"/g, 'fill="currentColor"')
+      // Figma bakes in the opacity of whichever *state* a glyph happened to be
+      // exported from: the tab bar's chat, fuel and more icons came out of the
+      // inactive tab at 50%, home and train out of the active one at full
+      // strength. Tinting is meant to hand that decision to the caller's
+      // `color`, so a stroke that stays half-transparent whatever the colour
+      // says defeats it, and the bar ends up with one icon brighter than its
+      // neighbours.
+      .replace(/\s*\b(?:stroke|fill)-opacity="[^"]*"/g, '')
   }
   return { viewBox, inner }
 }
 
-/** Raw source keyed by glyph name — parsed on demand, not up front. */
+/** Raw source keyed by glyph name, parsed on demand rather than up front. */
 const sources: Record<string, string> = Object.fromEntries(
   Object.entries(rawFiles).map(([path, svg]) => [
     path.split('/').pop()!.replace('.svg', ''),
@@ -53,8 +61,8 @@ const sources: Record<string, string> = Object.fromEntries(
 )
 
 /**
- * `toGlyph` runs four regex passes over the file, and it used to run for all of
- * them at module-evaluation time — on the boot path, for glyphs a given screen
+ * `toGlyph` runs several regex passes over the file, and it used to run for all
+ * of them at module-evaluation time: on the boot path, for glyphs a given screen
  * may never render. Parsing lazily and caching the result means each glyph is
  * processed at most once, the first time something actually asks for it.
  */

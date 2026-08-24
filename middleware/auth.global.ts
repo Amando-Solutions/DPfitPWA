@@ -5,8 +5,9 @@
  *   member, no setup   → the setup steps
  *   member, setup done → the app; the intro screens bounce to Home
  *
- * `/` is exempt: it is the splash, and it routes onward itself once its
- * animation finishes.
+ * `/` is exempt: it has no screen of its own. The boot splash in
+ * `spa-loading-template.html` covers the first paint, and `pages/index.vue`
+ * hands the member on from there.
  *
  * Runs on every navigation. `plugins/store.client.ts` hydrates the store before
  * the app mounts, so these checks never see a half-loaded state.
@@ -26,7 +27,7 @@ const SETUP_ROUTES = [
 export const FIRST_SETUP_STEP = SETUP_ROUTES[0]
 
 export default defineNuxtRouteMiddleware((to) => {
-  // The splash owns its own routing decision.
+  // The entry route owns its own decision. See `pages/index.vue`.
   if (to.path === '/') return
 
   const store = useAppStore()

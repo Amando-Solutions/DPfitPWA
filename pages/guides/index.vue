@@ -6,7 +6,7 @@ import { guideCategories, guides } from '~/data/program'
 
 const store = useAppStore()
 
-// Resolved once in setup — `resolveComponent` isn't usable from a v-for render.
+// Resolved once in setup, because `resolveComponent` isn't usable from a v-for render.
 const NuxtLink = resolveComponent('NuxtLink')
 
 const filter = ref('All')
@@ -18,7 +18,7 @@ const rows = computed(() =>
     .map((guide) => ({
       ...guide,
       steps: stepsOf(guide.body),
-      // A guide unlocks when the member reaches its week — never a fixed flag.
+      // A guide unlocks when the member reaches its week, never a fixed flag.
       locked: store.clock.value.week < guide.unlockWeek,
     }))
     .filter((guide) => filter.value === 'All' || guide.category === filter.value),

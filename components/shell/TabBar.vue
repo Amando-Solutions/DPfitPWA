@@ -1,12 +1,16 @@
 <script setup lang="ts">
-// Mobile primary navigation — the floating bar from the Figma UI, including the
+// Mobile primary navigation: the floating bar from the Figma UI, including the
 // gradient scrim that fades content out behind it. Hidden from 1024px up, where
 // SideNav takes over.
 const { navItems, isActive } = useNavigation()
 const store = useAppStore()
 
-// The centre action goes straight into today's session rather than the picker.
-const trainTo = computed(() => `/train/${store.today.value?.id ?? ''}`)
+// The centre action goes straight into today's session rather than the picker,
+// unless today's is already logged, in which case the picker is the screen that
+// can explain why.
+const trainTo = computed(() =>
+  store.trainingLocked.value ? '/train' : `/train/${store.today.value?.id ?? ''}`,
+)
 </script>
 
 <template>
@@ -84,10 +88,12 @@ const trainTo = computed(() => `/train/${store.today.value?.id ?? ''}`)
     color: var(--on-inverse);
   }
 
+  // Only the raised button is rose; the label underneath follows the same
+  // muted/active rule as its neighbours, so the centre tab doesn't read as
+  // permanently selected.
   &--center {
     flex: 0 0 60px;
     padding: 0;
-    color: var(--on-rose);
   }
 }
 

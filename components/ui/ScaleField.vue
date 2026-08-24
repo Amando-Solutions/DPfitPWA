@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// The 1–5 rating row used by the weekly check-in.
+// The 1 to 5 rating row used by the weekly check-in.
 withDefaults(
   defineProps<{
     modelValue: number | null

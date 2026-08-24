@@ -1,45 +1,141 @@
 <!--
-  First paint before the app boots. Deliberately matches the splash screen so
-  the transition into the app is invisible.
+  First paint, before the app boots, and the splash screen itself.
+
+  `/` has no screen of its own any more: it redirects straight to wherever the
+  member left off, so this markup is the only splash there is. It carries the
+  design's full boot frame (corner art, lockup, tagline, loading bar) and is
+  torn down by Nuxt the moment the destination screen is ready, which is why
+  the member sees it exactly once instead of it handing over to a second,
+  identical-looking Vue screen.
 
   This markup can render before the app's stylesheet is live, so it carries its
   own copy of the two palettes rather than reading design tokens. It keys off
   the `data-theme` attribute that the inline boot script in `nuxt.config.ts`
-  puts on <html> — so a dark-mode member never gets a white flash.
+  puts on <html>, so a dark-mode member never gets a white flash.
 -->
 <div class="dp-boot">
-  <div class="dp-boot__mark" role="img" aria-label="DP Fitness"></div>
-  <div class="dp-boot__accent"></div>
-  <div class="dp-boot__track"><div class="dp-boot__fill"></div></div>
+  <!-- Corner art, in the design's paint order: both discs, then the rings
+       over them. -->
+  <div class="dp-boot__glow dp-boot__glow--rose"></div>
+  <div class="dp-boot__glow dp-boot__glow--violet"></div>
+  <div class="dp-boot__ring dp-boot__ring--top"></div>
+  <div class="dp-boot__ring dp-boot__ring--bottom"></div>
+
+  <div class="dp-boot__center">
+    <div class="dp-boot__mark" role="img" aria-label="DP Fitness"></div>
+    <div class="dp-boot__accent"></div>
+    <p class="dp-boot__tagline">Train with purpose &middot; Transform with proof</p>
+  </div>
+
+  <div class="dp-boot__loading">
+    <div class="dp-boot__track"><div class="dp-boot__fill"></div></div>
+  </div>
 </div>
 
 <style>
   .dp-boot {
-    --boot-bg: #fbf6f2;
+    /*
+      The corner art is authored at the design frame's 412 x 892, so every size
+      and offset below is that file's number. `--art` scales the whole set
+      together on the wider desktop surface. Change it, not the geometry.
+    */
+    --art: 1;
+    /* The app's light palette, inlined: --surface, --text, --rose-fill and the
+       three splash-art colours. Keep in step with `assets/styles/main.css`. */
+    --boot-bg: #f3eae4;
+    --boot-ink: #241b2e;
     --boot-accent: #c81e5c;
-    --boot-track: rgba(36, 27, 46, 0.12);
+    --boot-glow-rose: rgba(200, 30, 92, 0.5);
+    --boot-glow-violet: rgba(36, 27, 46, 0.8);
+    --boot-ring: rgba(200, 30, 92, 0.7);
+
     position: fixed;
     inset: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: var(--boot-bg);
+    /* Matches `--font-data`. The webfont arrives with `display=swap`, so this
+       may paint in the fallback for a frame, and the fallback is the same stack
+       the app itself falls back to. */
+    font-family: "Space Mono", ui-monospace, monospace;
+  }
+
+  [data-theme="dark"] .dp-boot {
+    --boot-bg: #14101a;
+    --boot-ink: #f5f0ea;
+    --boot-accent: #d6295f;
+    --boot-glow-rose: rgba(255, 134, 168, 0.5);
+    /* Dark mode flips the violet disc from ink to a lifted mauve, because a glow that
+       darkens is invisible on a dark page. */
+    --boot-glow-violet: rgba(150, 132, 172, 0.35);
+    --boot-ring: rgba(255, 134, 168, 0.6);
+  }
+
+  .dp-boot__glow,
+  .dp-boot__ring {
+    position: absolute;
+    border-radius: 50%;
+    pointer-events: none;
+  }
+
+  /* Solid discs behind a heavy blur, not radial gradients: a gradient starts
+     fading at its own centre, which reads as haze rather than as light. */
+  .dp-boot__glow--rose {
+    width: calc(330px * var(--art));
+    height: calc(330px * var(--art));
+    top: calc(-180px * var(--art));
+    right: calc(-178px * var(--art));
+    background: var(--boot-glow-rose);
+    filter: blur(calc(32px * var(--art)));
+  }
+
+  .dp-boot__glow--violet {
+    width: calc(360px * var(--art));
+    height: calc(360px * var(--art));
+    bottom: calc(-130px * var(--art));
+    left: calc(-220px * var(--art));
+    background: var(--boot-glow-violet);
+    filter: blur(calc(38px * var(--art)));
+  }
+
+  /* Hairline rings, each roughly concentric with the disc it sits over. */
+  .dp-boot__ring {
+    width: calc(250px * var(--art));
+    height: calc(250px * var(--art));
+    border: 1px solid var(--boot-ring);
+  }
+
+  .dp-boot__ring--top {
+    top: calc(-72px * var(--art));
+    right: calc(-134px * var(--art));
+  }
+
+  .dp-boot__ring--bottom {
+    bottom: calc(-72px * var(--art));
+    left: calc(-134px * var(--art));
+  }
+
+  .dp-boot__center {
+    position: relative;
+    z-index: 1;
+    margin: auto;
+    padding: 40px 24px;
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    gap: 14px;
-    background: var(--boot-bg);
-    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    gap: 15px;
   }
-  [data-theme="dark"] .dp-boot {
-    --boot-bg: #14101a;
-    --boot-accent: #ef4b7d;
-    --boot-track: rgba(245, 240, 234, 0.14);
-  }
+
   /*
     Two exports of the same lockup, picked by theme: the light file sets
     "FITNESS" in ink for the cream background, the dark file sets it in cream
-    for the near-black one. The pink "DP" is identical in both.
+    for the near-black one. The pink "DP" is identical in both. An image rather
+    than the live <BrandWordmark> type, because this frame has to paint before
+    Chivo and Space Mono are guaranteed to be there.
 
     Driving it from `background-image` rather than an <img> means only the rule
-    that matches `data-theme` ever fetches a file — two <img> tags with one
+    that matches `data-theme` ever fetches a file: two <img> tags with one
     hidden would pull both down. Both share a 2.883:1 canvas, so a single
     width/height fits either; `contain` keeps them honest if that ever changes.
   */
@@ -48,22 +144,52 @@
     height: 66px;
     background: url("/DP_wordmark_light.png") center / contain no-repeat;
   }
+
   [data-theme="dark"] .dp-boot__mark {
     background-image: url("/DP_wordmark_dark.png");
   }
+
   .dp-boot__accent {
     width: 52px;
     height: 4px;
     border-radius: 999px;
     background: var(--boot-accent);
   }
+
+  .dp-boot__tagline {
+    margin: 0;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.15px;
+    font-size: 9.5px;
+    line-height: 14px;
+    color: var(--boot-ink);
+  }
+
+  .dp-boot__loading {
+    position: relative;
+    z-index: 1;
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+    display: grid;
+    place-items: center;
+  }
+
   .dp-boot__track {
     width: 68px;
     height: 4px;
     border-radius: 999px;
-    background: var(--boot-track);
+    background: var(--boot-ink);
     overflow: hidden;
   }
+
+  /*
+    Indeterminate rather than a bar filling to 100%: this frame lives for
+    however long boot actually takes, which nothing here knows in advance. A
+    fixed-duration fill would either finish early and sit at full, reading as
+    stuck, or still be crawling when the app replaces it. The slide is
+    composited (`transform` only), so it stays smooth through the busiest
+    moment in the app's life.
+  */
   .dp-boot__fill {
     width: 40%;
     height: 100%;
@@ -71,8 +197,30 @@
     background: var(--boot-accent);
     animation: dp-boot-slide 1.1s ease-in-out infinite;
   }
+
   @keyframes dp-boot-slide {
     0% { transform: translateX(-100%); }
     100% { transform: translateX(250%); }
+  }
+
+  /* With motion reduced, show the track filled rather than leaving an empty
+     one for the duration. */
+  @media (prefers-reduced-motion: reduce) {
+    .dp-boot__fill {
+      width: 100%;
+      animation: none;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .dp-boot {
+      --art: 1.55;
+    }
+
+    /* The art already hangs off the screen corners here, so this frame is
+       viewport-sized, unlike the width-capped app surface underneath it. */
+    .dp-boot__center {
+      transform: scale(1.35);
+    }
   }
 </style>

@@ -4,6 +4,7 @@ import type {
   AppNotification,
   ChatAttachment,
   ChatMessage,
+  ChatReaction,
   CheckInRecord,
   MemberAccount,
   MemberProfile,
@@ -18,7 +19,7 @@ import type {
  * The routes below are the API this app expects; the backend is not built yet,
  * so this class exists to prove the seam and to be the single file that needs
  * finishing when it is. Select it by setting `NUXT_PUBLIC_USE_MOCK_DATA=false`
- * and `NUXT_PUBLIC_API_BASE=https://…` — see `.env.example`.
+ * and `NUXT_PUBLIC_API_BASE=https://…`. See `.env.example`.
  *
  * Auth is assumed to be a session cookie set by `POST /session`; add a bearer
  * token here if the backend goes that way instead.
@@ -139,7 +140,19 @@ export class HttpDataSource implements DataSource {
     })
   }
 
+  toggleReaction(threadId: 'cohort' | 'coach', messageId: string, emoji: string) {
+    return this.request<ChatReaction[]>(
+      `/threads/${threadId}/messages/${messageId}/reactions`,
+      { method: 'POST', body: { emoji } },
+    )
+  }
+
   // --- Rewards -------------------------------------------------------------
+  /** Uploads land on the server, so there is no device budget to run out of. */
+  async storageFull() {
+    return false
+  }
+
   listEarnedBadges() {
     return this.request<Record<string, string>>('/me/badges')
   }

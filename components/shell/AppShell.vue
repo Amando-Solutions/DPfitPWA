@@ -2,7 +2,7 @@
 // The outer app surface.
 //
 // This deliberately does NOT look like a phone: no bezel, no notch, no faux
-// status bar. It is one responsive product surface —
+// status bar. It is one responsive product surface:
 //   · mobile  → full-bleed, edge to edge
 //   · desktop → centered, capped at --app-max-width, viewport tall with
 //               internal scrolling so no screen turns into a very long page.
@@ -40,7 +40,7 @@
     background: var(--app-backdrop);
   }
 
-  // The cap constrains the layout, never the paint — no border or shadow, so the
+  // The cap constrains the layout, never the paint: no border or shadow, so the
   // background runs unbroken from edge to edge.
   .app-shell__surface {
     max-width: var(--app-max-width);

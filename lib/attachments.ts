@@ -1,17 +1,27 @@
 /**
  * Turning picked files into chat attachments.
  *
- * Photos go through the same downscale as progress shots — a phone camera JPEG
- * is several megabytes and the whole app shares one ~5 MB Web Storage budget.
- * Other files are base64'd into the message as-is, so they are capped; an HTTP
- * data source would upload them instead and drop the cap.
+ * Photos go through the same downscale as progress shots, then a byte budget on
+ * top: a chat thread is the one collection that grows without limit, and the
+ * whole app shares one ~5 MB Web Storage budget. Other files are base64'd into
+ * the message as-is, so they are capped; an HTTP data source would upload them
+ * instead and drop the cap.
  */
 
 import { readImageAsDataUrl } from '~/lib/image'
 import type { ChatAttachment } from '~/data/types'
 
-/** Longest edge for a shared photo — smaller than a progress shot, it's a chat. */
-const IMAGE_MAX_EDGE = 1000
+/** Longest edge for a shared photo. */
+const IMAGE_MAX_EDGE = 900
+
+/**
+ * Ceiling for one shared photo once it has been re-encoded.
+ *
+ * Progress photos are bounded (three poses, six weeks); a chat thread is not,
+ * so a photo that is merely "not huge" still adds up. Quality steps down until
+ * it fits.
+ */
+const IMAGE_MAX_BYTES = 160 * 1024
 
 /** Ceiling for non-image files while attachments live in Web Storage. */
 export const MAX_FILE_BYTES = 800 * 1024
@@ -42,16 +52,22 @@ const readAsDataUrl = (file: File): Promise<string> =>
     reader.readAsDataURL(file)
   })
 
-/** Rejects with a user-facing message — callers surface it in the composer. */
+/** Rejects with a user-facing message; callers surface it in the composer. */
 export const fileToAttachment = async (file: File): Promise<ChatAttachment> => {
   const base = { id: uid(), name: file.name, size: file.size, mimeType: file.type }
 
   if (file.type.startsWith('image/')) {
-    return { ...base, kind: 'image', url: await readImageAsDataUrl(file, IMAGE_MAX_EDGE) }
+    return {
+      ...base,
+      kind: 'image',
+      url: await readImageAsDataUrl(file, IMAGE_MAX_EDGE, IMAGE_MAX_BYTES),
+    }
   }
 
   if (file.size > MAX_FILE_BYTES) {
-    throw new Error(`“${file.name}” is too big — files need to be under ${formatBytes(MAX_FILE_BYTES)}.`)
+    throw new Error(
+      `“${file.name}” is too big. Files need to be under ${formatBytes(MAX_FILE_BYTES)}.`,
+    )
   }
   return { ...base, kind: 'file', url: await readAsDataUrl(file) }
 }

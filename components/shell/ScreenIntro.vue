@@ -33,7 +33,7 @@ const store = useAppStore()
           <NuxtLink
             to="/rewards?tab=streak"
             class="statpill__half"
-            :aria-label="`${store.rewards.value.streakWeeks} week streak — see rewards`"
+            :aria-label="`${store.rewards.value.streakWeeks} week streak, see rewards`"
           >
             <span class="statpill__chip statpill__chip--flame">
               <AppIcon name="flame" :size="14" />
@@ -44,7 +44,7 @@ const store = useAppStore()
           <NuxtLink
             to="/rewards?tab=badges"
             class="statpill__half"
-            :aria-label="`${store.rewards.value.badgeCount} badges earned — see rewards`"
+            :aria-label="`${store.rewards.value.badgeCount} badges earned, see rewards`"
           >
             <span class="statpill__chip statpill__chip--rose">
               <AppIcon name="trophy" :size="14" />

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Onboarding tour — 01 The Challenge, 02 How it Works, 03 You · The Cohort
+// Onboarding tour: 01 The Challenge, 02 How it Works, 03 You · The Cohort
 definePageMeta({ layout: 'default' })
 
 import { onboardingSlides } from '~/data/onboarding'

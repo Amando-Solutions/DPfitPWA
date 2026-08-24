@@ -67,9 +67,14 @@ const initials = computed(() =>
       </NuxtLink>
     </nav>
 
-    <NuxtLink :to="`/train/${store.today.value?.id ?? ''}`" class="sidenav__cta btn-raised btn-glow">
-      <AppIcon name="play" :size="16" fill />
-      <span>Start today's session</span>
+    <!-- Once today's session is logged, the rail points at the picker, which is
+         the screen that says when the next one opens. -->
+    <NuxtLink
+      :to="store.trainingLocked.value ? '/train' : `/train/${store.today.value?.id ?? ''}`"
+      class="sidenav__cta btn-raised btn-glow"
+    >
+      <AppIcon :name="store.trainingLocked.value ? 'check' : 'play'" :size="16" fill />
+      <span>{{ store.trainingLocked.value ? 'Today is logged' : "Start today's session" }}</span>
     </NuxtLink>
 
     <div class="sidenav__spacer" />

@@ -1,7 +1,7 @@
-# DP Fitness · Recomp Challenge — member PWA
+# DP Fitness · Recomp Challenge, member PWA
 
 Member-facing Nuxt 3 PWA for the DP Fitness 6-week recomp challenge.
-Design source: [Figma — DP Fitness](https://www.figma.com/design/B931SXWG53I3zKWa2MS9pY/DP-Fitness?node-id=301-2).
+Design source: [Figma, DP Fitness](https://www.figma.com/design/B931SXWG53I3zKWa2MS9pY/DP-Fitness?node-id=301-2).
 
 This is a working app, not a screen gallery: the member redeems a code, fills in
 a profile, logs real sets against a real clock, uploads proof, earns real RP and
@@ -11,7 +11,7 @@ badges, and everything survives a reload.
 
 ```bash
 npm install
-cp .env.example .env     # optional — the defaults already work
+cp .env.example .env     # optional; the defaults already work
 npm run dev              # http://localhost:3000
 ```
 
@@ -28,12 +28,12 @@ Other scripts: `npm run build`, `npm run preview`, `npm run generate`.
 data/program.ts        authored program content (plan, guides, badges, ranks, inbox)
         ↓
 lib/datasource/        the ONE contract every screen reads and writes through
-  types.ts               DataSource interface — async, maps 1:1 onto REST routes
+  types.ts               DataSource interface: async, maps 1:1 onto REST routes
   local.ts               localStorage implementation (default)
   http.ts                HTTP implementation, ready for the backend
   index.ts               picks one from env
         ↓
-lib/domain/            pure logic — challenge clock, nutrition maths, reward rules
+lib/domain/            pure logic: challenge clock, nutrition maths, reward rules
         ↓
 composables/useAppStore.ts   reactive state + actions; the only thing pages use
         ↓
@@ -50,9 +50,10 @@ Two rules keep this honest:
 ### Swapping localStorage for an API
 
 Implement the backend against the routes named in
-[`lib/datasource/types.ts`](lib/datasource/types.ts) — `POST /session`, `GET /me`,
+[`lib/datasource/types.ts`](lib/datasource/types.ts): `POST /session`, `GET /me`,
 `GET|POST /me/sessions`, `/me/check-ins`, `/me/photos`, `/notifications`,
-`/threads/:id/messages`, `/me/badges`, `/me/settings` — then set:
+`/threads/:id/messages`, `/threads/:id/messages/:id/reactions`, `/me/badges`,
+`/me/settings`, then set:
 
 ```bash
 NUXT_PUBLIC_USE_MOCK_DATA=false
@@ -68,16 +69,37 @@ composable changes.
 | --- | --- |
 | `dpfit:member` | account + profile, `joinedAt` (the challenge clock's origin) |
 | `dpfit:sessions` | completed workouts, including every logged set |
-| `dpfit:active-session` | the workout in progress — survives a reload mid-set |
+| `dpfit:active-session` | the workout in progress; survives a reload mid-set |
 | `dpfit:check-ins` | one record per week |
 | `dpfit:photos` | progress photos, downscaled to ~900px JPEG before saving |
 | `dpfit:badges` | badge id → awarded timestamp |
 | `dpfit:settings` | units and notification preferences |
 | `dpfit:messages` | messages the member sent |
+| `dpfit:message-reactions` | the member's own reactions, keyed `<thread>:<message>` |
+| `dpfit:clock-offset` | milliseconds between the device clock and network time |
+| `dpfit:clock-high-water` | the latest network reading seen, so the clock cannot be wound back |
 
 [`lib/storage.ts`](lib/storage.ts) is the only file that touches Web Storage. It
 is versioned (`SCHEMA_VERSION`), falls back to memory when storage is blocked,
-and never throws out of a click handler when the quota is hit.
+and never throws out of a click handler when the quota is hit. A key whose write
+hit the quota is read back from that memory fallback for the rest of the
+session, so the two stores cannot disagree; `DataSource.storageFull()` reports
+when that has happened, and the chat composer says so.
+
+### One session a day
+
+The plan is one workout per calendar day, and the date it is measured against
+comes off the network rather than the device, so moving the phone's clock
+forward does not unlock the rest of the week. [`lib/time.ts`](lib/time.ts) keeps
+the *offset* between network time and the device clock, which means `trustedNow()`
+stays a synchronous read and the app still works offline on the last known
+offset. `plugins/clock.client.ts` re-syncs on launch and on return to the
+foreground, and rolls the date over at midnight.
+
+Once today's session is logged, `store.trainingLocked` is true: every remaining
+day shows as locked, and `startSession` refuses, so a deep link into
+`/train/<id>` cannot walk around it. Finishing is not gated, so a session opened
+before midnight can still be closed after it.
 
 ## The flow
 
@@ -89,7 +111,8 @@ and never throws out of a click handler when the quota is hit.
 | Member, setup unfinished | the four `/setup/*` steps |
 | Member, setup done | the app; intro screens bounce to `/home` |
 
-`/` is the splash and routes onward itself.
+`/` has no screen of its own: it redirects straight to whichever of those the
+member belongs on.
 
 Derived, never stored: the current week and day come from `joinedAt`; each
 training day's status comes from what has been logged this week; fuel targets
@@ -101,7 +124,7 @@ Reward economy (from the design): **25 RP** a workout, **20 RP** a check-in,
 
 ## Layout model
 
-One responsive product — no device frame, no simulated OS status bar.
+One responsive product: no device frame, no simulated OS status bar.
 
 | Viewport | Behaviour |
 | --- | --- |
@@ -114,11 +137,11 @@ stacking; auth and setup become a centred card; an active workout gets a
 `--focus-max` reading column. The side rail also promotes the destinations that
 sit behind "More" on mobile.
 
-The breakpoint is `1024px` throughout — grep for it when tuning.
+The breakpoint is `1024px` throughout; grep for it when tuning.
 
 ## Environment
 
-All configuration is public (bundled into the client) — never put secrets in a
+All configuration is public (bundled into the client), so never put secrets in a
 `NUXT_PUBLIC_*` variable. See [`.env.example`](.env.example).
 
 | Variable | Default | What it does |
@@ -133,8 +156,9 @@ to local storage rather than going blank.
 ## Notes
 
 - `ssr: false`. Every screen is driven by device-local member data, so server
-  rendering would only emit an empty shell. `spa-loading-template.html` covers
-  the first paint and matches the splash.
+  rendering would only emit an empty shell. `spa-loading-template.html` is the
+  splash: it covers the first paint and Nuxt tears it down once the first real
+  screen is ready, so the member never sees it twice.
 - Design tokens in `assets/styles/_tokens.scss` are the Figma variables verbatim
   (colours, type ramp, radii, spacing).
 - `assets/icons/` holds the SVGs exported from Figma. `AppIcon` inlines them and
