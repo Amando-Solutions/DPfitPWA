@@ -226,9 +226,9 @@ export default defineNuxtConfig({
         },
       ],
     },
-    client: {
-      installPrompt: true,
-    },
+    // client: {
+    //   installPrompt: true,
+    // },
     devOptions: {
       enabled: false,
       type: 'module',
