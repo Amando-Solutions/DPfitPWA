@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 18 · Fuel · Daily Targets — computed from the member's own numbers.
+// 18 · Fuel · Daily Targets, computed from the member's own numbers.
 definePageMeta({ layout: 'app' })
 
 import { targetsBreakdown } from '~/lib/domain/nutrition'
@@ -15,7 +15,7 @@ const allergies = computed(() => store.profile.value?.allergies?.trim() ?? '')
     <ScreenIntro
       eyebrow="Your targets"
       title="Daily fuel"
-      subtitle="Calculated from your profile. No logging, no counting — just hit these."
+      subtitle="Calculated from your profile. No logging, no counting. Just hit these."
       class="fuel__header"
     />
 

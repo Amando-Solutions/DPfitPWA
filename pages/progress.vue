@@ -114,7 +114,7 @@ const takenLabel = (iso: string) =>
 
       <div v-if="!byWeek.length" class="progress__empty">
         <AppIcon name="image" :size="28" :stroke="1.6" />
-        <p>No photos yet. Take your first set today — it becomes your before.</p>
+        <p>No photos yet. Take your first set today. It becomes your before.</p>
       </div>
     </div>
 

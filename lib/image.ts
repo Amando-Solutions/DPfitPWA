@@ -1,5 +1,5 @@
 /**
- * Photo handling for proof-of-workout and progress shots.
+ * Photo handling for proof-of-workout shots, progress shots and chat photos.
  *
  * Camera output is several megabytes; Web Storage gives us about five in total.
  * Everything that gets persisted goes through `readImageAsDataUrl` first, which
@@ -7,68 +7,141 @@
  */
 
 const MAX_EDGE = 900
-const QUALITY = 0.72
 
-export const readImageAsDataUrl = (file: File, maxEdge = MAX_EDGE): Promise<string> =>
+/** Tried in order when a byte budget is set; the first that fits wins. */
+const QUALITY_STEPS = [0.72, 0.6, 0.48, 0.38]
+
+/**
+ * How long a decode is given before it is treated as failed.
+ *
+ * A decode that runs out of memory does not reliably reject. On a phone the
+ * browser can drop the work and fire neither `load` nor `error`, which left the
+ * caller awaiting a promise that would never settle: the chat composer sat with
+ * its buttons disabled and nothing on screen, indefinitely. A stalled decode
+ * has to turn into something the member can act on.
+ */
+const DECODE_TIMEOUT_MS = 20_000
+
+const TOO_BIG = 'That photo was too large to process. Try a smaller one.'
+
+/** Rejects `promise` with `message` if it has not settled within `ms`. */
+const withTimeout = <T>(promise: Promise<T>, ms: number, message: string): Promise<T> =>
   new Promise((resolve, reject) => {
-    if (!file.type.startsWith('image/')) {
-      reject(new Error('That file isn’t an image.'))
-      return
+    const timer = setTimeout(() => reject(new Error(message)), ms)
+    const done = <A>(fn: (value: A) => void) => (value: A) => {
+      clearTimeout(timer)
+      fn(value)
     }
-
-    const reader = new FileReader()
-    reader.onerror = () => reject(new Error('Could not read that file.'))
-    reader.onload = () => {
-      const image = new Image()
-
-      /**
-       * Hand the decoded bitmap and the canvas backing store back immediately.
-       *
-       * A 12 MP phone photo decodes to ~48 MB of RGBA, and the canvas holds a
-       * second buffer on top. Left to the collector those sit around until the
-       * next GC — long enough that picking a few shots in a row can push a
-       * mobile tab over its limit, which on iOS is a reload rather than an
-       * error. Dropping `src` releases the bitmap; sizing the canvas to 0×0
-       * releases its buffer (WebKit in particular will not free it otherwise).
-       */
-      const release = () => {
-        image.onload = null
-        image.onerror = null
-        image.src = ''
-      }
-
-      image.onerror = () => {
-        release()
-        reject(new Error('Could not decode that image.'))
-      }
-
-      image.onload = () => {
-        const scale = Math.min(1, maxEdge / Math.max(image.width, image.height))
-        const width = Math.round(image.width * scale)
-        const height = Math.round(image.height * scale)
-
-        const canvas = document.createElement('canvas')
-        canvas.width = width
-        canvas.height = height
-        const context = canvas.getContext('2d')
-        if (!context) {
-          // No canvas: fall back to the original bytes rather than failing.
-          release()
-          resolve(String(reader.result))
-          return
-        }
-        context.drawImage(image, 0, 0, width, height)
-        const encoded = canvas.toDataURL('image/jpeg', QUALITY)
-        canvas.width = 0
-        canvas.height = 0
-        release()
-        resolve(encoded)
-      }
-
-      image.src = String(reader.result)
-    }
-    reader.readAsDataURL(file)
+    promise.then(done(resolve), done(reject))
   })
+
+/** A decoded image plus the handle needed to let go of it again. */
+interface Decoded {
+  source: CanvasImageSource
+  width: number
+  height: number
+  release: () => void
+}
+
+/**
+ * Decode `file`, without routing its bytes through a JavaScript string.
+ *
+ * This used to read the file into a base64 data URL and set that as an `<img>`
+ * src, so a 12 MP photo cost a ~1.9 MB string *and* a decode of that string on
+ * top of the bitmap itself. Handing the Blob to the decoder skips both, and
+ * `createImageBitmap` returns a handle that can be released as soon as it has
+ * been drawn rather than whenever the collector next runs. The `<img>` path
+ * stays for engines without it (Safari before 15), on an object URL for the
+ * same reason.
+ */
+const decode = (file: File): Promise<Decoded> => {
+  if (typeof createImageBitmap === 'function') {
+    return withTimeout(createImageBitmap(file), DECODE_TIMEOUT_MS, TOO_BIG).then(
+      (bitmap) => ({
+        source: bitmap,
+        width: bitmap.width,
+        height: bitmap.height,
+        release: () => bitmap.close(),
+      }),
+    )
+  }
+
+  const url = URL.createObjectURL(file)
+  const image = new Image()
+  const release = () => {
+    image.onload = null
+    image.onerror = null
+    image.src = ''
+    URL.revokeObjectURL(url)
+  }
+
+  const loaded = new Promise<Decoded>((resolve, reject) => {
+    image.onload = () =>
+      resolve({
+        source: image,
+        width: image.naturalWidth,
+        height: image.naturalHeight,
+        release,
+      })
+    image.onerror = () => reject(new Error('Could not decode that image.'))
+    image.src = url
+  })
+
+  return withTimeout(loaded, DECODE_TIMEOUT_MS, TOO_BIG).catch((error) => {
+    release()
+    throw error
+  })
+}
+
+/**
+ * Read `file` into a downscaled JPEG data URL.
+ *
+ * `maxEdge` caps the longest side. `maxBytes`, when given, steps the quality
+ * down until the result fits. The last step is returned either way, so an
+ * awkward photo still goes through rather than failing outright.
+ *
+ * Rejects with a message written for the member, so callers can show it as-is.
+ */
+export const readImageAsDataUrl = async (
+  file: File,
+  maxEdge = MAX_EDGE,
+  maxBytes?: number,
+): Promise<string> => {
+  if (!file.type.startsWith('image/')) throw new Error('That file isn’t an image.')
+
+  const decoded = await decode(file)
+  try {
+    const scale = Math.min(1, maxEdge / Math.max(decoded.width, decoded.height))
+    const width = Math.round(decoded.width * scale)
+    const height = Math.round(decoded.height * scale)
+
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('Could not process that image.')
+
+    try {
+      context.drawImage(decoded.source, 0, 0, width, height)
+
+      // One decode, one draw, then as many encodes as the budget needs.
+      let encoded = ''
+      for (const quality of QUALITY_STEPS) {
+        encoded = canvas.toDataURL('image/jpeg', quality)
+        if (maxBytes === undefined || dataUrlBytes(encoded) <= maxBytes) break
+      }
+      return encoded
+    } finally {
+      // Sizing the canvas to 0×0 releases its backing store. Left alone it sits
+      // there until the next collection, which on WebKit is long enough that a
+      // few photos in a row can push a mobile tab over its limit.
+      canvas.width = 0
+      canvas.height = 0
+    }
+  } finally {
+    decoded.release()
+  }
+}
 
 /** Rough byte size of a data URL, for quota warnings. */
 export const dataUrlBytes = (dataUrl: string): number => {

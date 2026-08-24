@@ -1,18 +1,18 @@
 import type { ChatMessage } from './types'
 
 // Seed conversation. Anything the member sends is stored separately and appended
-// at read time — see `lib/datasource/local.ts`.
+// at read time. See `lib/datasource/local.ts`.
 
 export const cohortSeed: ChatMessage[] = [
   {
     id: 'm1',
     authorId: 'coach-dp',
-    authorName: 'Coach Deni',
+    authorName: 'Coach Dayo',
     authorAvatar:
       'https://images.unsplash.com/photo-1594381898411-846e7d193883?w=100&q=80',
     isCoach: true,
     isSelf: false,
-    text: 'Welcome in 💗 Week 1 is Foundation week — dial in your form and find your baseline loads. Proof photo after every session, please.',
+    text: 'Welcome in 💗 Week 1 is Foundation week, so dial in your form and find your baseline loads. Proof photo after every session, please.',
     sentAt: '2026-08-18T07:30:00Z',
     reactions: [
       { emoji: '🔥', count: 12 },
@@ -49,12 +49,12 @@ export const coachSeed: ChatMessage[] = [
   {
     id: 'dm1',
     authorId: 'coach-dp',
-    authorName: 'Coach Deni',
+    authorName: 'Coach Dayo',
     authorAvatar:
       'https://images.unsplash.com/photo-1594381898411-846e7d193883?w=100&q=80',
     isCoach: true,
     isSelf: false,
-    text: 'Hey! I’m here for anything — form checks, swaps, or a bad week. Send me a clip whenever you want eyes on a lift 💪',
+    text: 'Hey! I’m here for anything: form checks, swaps, or a bad week. Send me a clip whenever you want eyes on a lift 💪',
     sentAt: '2026-08-17T18:00:00Z',
   },
 ]

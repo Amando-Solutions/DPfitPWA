@@ -7,6 +7,7 @@ import type {
   AppNotification,
   ChatAttachment,
   ChatMessage,
+  ChatReaction,
   CheckInRecord,
   MemberAccount,
   MemberProfile,
@@ -15,7 +16,7 @@ import type {
   Settings,
 } from '~/data/types'
 
-// Storage keys — one per collection, mirroring the REST resources.
+// Storage keys, one per collection, mirroring the REST resources.
 const KEY = {
   member: 'member',
   sessions: 'sessions',
@@ -24,12 +25,37 @@ const KEY = {
   photos: 'photos',
   notificationsRead: 'notifications-read',
   messages: 'messages',
+  /** The member's own reactions, keyed `<thread>:<message>`. */
+  reactions: 'message-reactions',
   badges: 'badges',
   settings: 'settings',
 } as const
 
 const uid = (prefix: string) =>
   `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
+
+/**
+ * Fold the member's own reactions into a message's counts.
+ *
+ * Reactions arrive from two places: the seed carries what the rest of the
+ * cohort has left, and the member's own live in their storage. Keeping them
+ * apart means a member's tap never has to rewrite the seed, and a future
+ * backend can hand back everyone's counts with the same shape.
+ */
+const withMyReactions = (message: ChatMessage, mine: string[]): ChatMessage => {
+  if (!mine.length) return message
+  const merged: ChatReaction[] = (message.reactions ?? []).map((r) => ({ ...r }))
+  for (const emoji of mine) {
+    const existing = merged.find((r) => r.emoji === emoji)
+    if (existing) {
+      existing.count += 1
+      existing.mine = true
+    } else {
+      merged.push({ emoji, count: 1, mine: true })
+    }
+  }
+  return { ...message, reactions: merged }
+}
 
 export const emptyProfile = (): MemberProfile => ({
   displayName: '',
@@ -58,7 +84,7 @@ export const defaultSettings = (): Settings => ({
  * localStorage-backed implementation of the app's data contract.
  *
  * Reads and writes are synchronous underneath but the methods are async so the
- * calling code is already shaped for a network round-trip — swapping in
+ * calling code is already shaped for a network round-trip, so swapping in
  * `HttpDataSource` requires no changes above this layer.
  */
 export class LocalDataSource implements DataSource {
@@ -155,7 +181,7 @@ export class LocalDataSource implements DataSource {
   async saveCheckIn(input: Omit<CheckInRecord, 'id'>): Promise<CheckInRecord> {
     const all = await this.listCheckIns()
     const record: CheckInRecord = { ...input, id: uid('checkin') }
-    // One check-in per week — a resubmit replaces the earlier one.
+    // One check-in per week; a resubmit replaces the earlier one.
     const next = [record, ...all.filter((c) => c.weekNumber !== input.weekNumber)]
     storage.write(KEY.checkIns, next)
     return record
@@ -203,7 +229,33 @@ export class LocalDataSource implements DataSource {
   async listMessages(threadId: 'cohort' | 'coach'): Promise<ChatMessage[]> {
     const seed = threadId === 'cohort' ? cohortSeed : coachSeed
     const mine = storage.read<Record<string, ChatMessage[]>>(KEY.messages, {})
-    return [...seed, ...(mine[threadId] ?? [])]
+    const reactions = storage.read<Record<string, string[]>>(KEY.reactions, {})
+    return [...seed, ...(mine[threadId] ?? [])].map((message) =>
+      withMyReactions(message, reactions[`${threadId}:${message.id}`] ?? []),
+    )
+  }
+
+  async toggleReaction(
+    threadId: 'cohort' | 'coach',
+    messageId: string,
+    emoji: string,
+  ): Promise<ChatReaction[]> {
+    const all = storage.read<Record<string, string[]>>(KEY.reactions, {})
+    const key = `${threadId}:${messageId}`
+    const current = all[key] ?? []
+    const next = current.includes(emoji)
+      ? current.filter((e) => e !== emoji)
+      : [...current, emoji]
+
+    // Drop the entry rather than storing an empty list, so un-reacting leaves
+    // no trace and the store does not fill with `[]`.
+    const updated = { ...all }
+    if (next.length) updated[key] = next
+    else delete updated[key]
+    storage.write(KEY.reactions, updated)
+
+    const messages = await this.listMessages(threadId)
+    return messages.find((m) => m.id === messageId)?.reactions ?? []
   }
 
   async sendMessage(
@@ -251,6 +303,10 @@ export class LocalDataSource implements DataSource {
     const next = { ...(await this.getSettings()), ...patch }
     storage.write(KEY.settings, next)
     return next
+  }
+
+  async storageFull(): Promise<boolean> {
+    return storage.hasOverflow()
   }
 
   async reset(): Promise<void> {

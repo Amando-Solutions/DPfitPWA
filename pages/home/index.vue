@@ -10,10 +10,26 @@ const store = useAppStore()
 const data = useDataSourceClient()
 
 const greeting = computed(() => {
-  const hour = new Date().getHours()
+  // The store's clock, not the device's, so the greeting agrees with the date
+  // the rest of the app is working from.
+  const hour = store.now.value.getHours()
   if (hour < 12) return 'Morning'
   if (hour < 17) return 'Afternoon'
   return 'Evening'
+})
+
+const nextSessionLabel = computed(() =>
+  store.nextSessionAt.value.toLocaleDateString(undefined, {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'short',
+  }),
+)
+
+const dayLine = computed(() => {
+  if (store.weekComplete.value) return 'this week is done, well played'
+  if (store.trainingLocked.value) return 'today is logged, rest up'
+  return 'today is waiting on you'
 })
 
 const sessionsLogged = computed(() => store.sessions.value.length)
@@ -39,9 +55,7 @@ const initial = (name: string) => name.trim().charAt(0).toUpperCase() || 'C'
     <ScreenIntro
       :eyebrow="`Week ${store.clock.value.week} · ${store.clock.value.title}`"
       :title="`${greeting}, ${store.displayName.value}`"
-      :subtitle="`Day ${store.clock.value.dayInChallenge} of ${store.clock.value.totalDays} · ${
-        store.weekComplete.value ? 'this week is done — well played' : 'today is waiting on you'
-      }`"
+      :subtitle="`Day ${store.clock.value.dayInChallenge} of ${store.clock.value.totalDays} · ${dayLine}`"
       class="home__intro"
     />
 
@@ -51,7 +65,12 @@ const initial = (name: string) => name.trim().charAt(0).toUpperCase() || 'C'
     <div class="home__col home__col--main">
       <!-- Hero workout -->
       <section class="home__section home__section--hero">
-        <WorkoutHeroCard :day="store.today.value" :all-done="store.weekComplete.value" />
+        <WorkoutHeroCard
+          :day="store.today.value"
+          :all-done="store.weekComplete.value"
+          :locked="store.trainingLocked.value"
+          :next-label="nextSessionLabel"
+        />
       </section>
 
       <!-- This week at a glance -->
@@ -149,7 +168,7 @@ const initial = (name: string) => name.trim().charAt(0).toUpperCase() || 'C'
               <p class="checkin__body">
                 {{
                   store.checkInDue.value
-                    ? 'How the week went and how training felt — two minutes.'
+                    ? 'How the week went and how training felt. Two minutes.'
                     : 'Submitted for this week. You can still update it.'
                 }}
               </p>

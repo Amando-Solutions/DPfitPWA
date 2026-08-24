@@ -59,8 +59,8 @@ export const goalOptions: { id: Goal; label: string; desc: string; icon: string 
 
 export const activityOptions: { id: ActivityLevel; label: string; desc: string }[] = [
   { id: 'sedentary', label: 'Sedentary', desc: 'Desk job, little exercise' },
-  { id: 'light', label: 'Lightly active', desc: '1–2 days / week' },
-  { id: 'moderate', label: 'Moderately active', desc: '3–4 days / week' },
+  { id: 'light', label: 'Lightly active', desc: '1-2 days / week' },
+  { id: 'moderate', label: 'Moderately active', desc: '3-4 days / week' },
   { id: 'very', label: 'Very active', desc: '5+ days / week' },
 ]
 

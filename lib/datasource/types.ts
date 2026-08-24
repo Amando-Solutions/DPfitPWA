@@ -3,6 +3,7 @@ import type {
   AppNotification,
   ChatAttachment,
   ChatMessage,
+  ChatReaction,
   CheckInRecord,
   MemberAccount,
   MemberProfile,
@@ -15,7 +16,7 @@ import type {
  * The one contract every screen reads and writes through.
  *
  * Every method is async and takes/returns plain serialisable objects, so the
- * localStorage implementation and a future HTTP one are interchangeable — see
+ * localStorage implementation and a future HTTP one are interchangeable. See
  * `local.ts` and `http.ts`. Nothing in `components/` or `pages/` may import a
  * storage or fetch primitive directly.
  *
@@ -63,11 +64,33 @@ export interface DataSource {
     text: string,
     attachments?: ChatAttachment[],
   ): Promise<ChatMessage>
+  /**
+   * Add the member's reaction to a message, or take it back off if it is
+   * already there. Resolves to that message's reactions as they now stand,
+   * counting everyone's.
+   */
+  toggleReaction(
+    threadId: 'cohort' | 'coach',
+    messageId: string,
+    emoji: string,
+  ): Promise<ChatReaction[]>
 
   // --- Rewards ------------------------------------------- GET /me/rewards --
   /** Badge ids the member has already been awarded, with the award timestamp. */
   listEarnedBadges(): Promise<Record<string, string>>
   awardBadge(id: string, earnedAt: string): Promise<void>
+
+  // --- Device ---------------------------------------------------------------
+  /**
+   * Whether this session's writes have stopped reaching durable storage.
+   *
+   * The on-device implementation shares one ~5 MB Web Storage budget across
+   * photos, session logs and chat attachments. Once it is full, writes are kept
+   * in memory for the session and lost on the next reload, and a member relying
+   * on a photo they just sent deserves to know. A backend has no such ceiling
+   * and always answers no.
+   */
+  storageFull(): Promise<boolean>
 
   // --- Settings ----------------------------------------- GET/PUT /me/prefs -
   getSettings(): Promise<Settings>

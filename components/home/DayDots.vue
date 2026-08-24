@@ -1,15 +1,31 @@
 <script setup lang="ts">
 import type { WorkoutDay } from '~/data/types'
 
-defineProps<{ days: WorkoutDay[] }>()
+/**
+ * A locked dot is not a link.
+ *
+ * Today's session is already logged, so there is nowhere for it to go; leaving
+ * it tappable only produces a screen that bounces straight back.
+ */
+const NuxtLinkComponent = resolveComponent('NuxtLink')
+const dotTag = (day: WorkoutDay) => (day.status === 'locked' ? 'div' : NuxtLinkComponent)
+
+/**
+ * Once today is logged every remaining day is locked, so a padlock on each of
+ * them is four padlocks and no information. Only the one that opens next wears
+ * it; the rest keep their number.
+ */
+const props = defineProps<{ days: WorkoutDay[] }>()
+const nextUpId = computed(() => props.days.find((d) => d.status === 'locked')?.id)
 </script>
 
 <template>
   <div class="flex gap-2">
-    <NuxtLink
+    <component
+      :is="dotTag(day)"
       v-for="day in days"
       :key="day.id"
-      :to="`/train/${day.id}`"
+      :to="day.status === 'locked' ? undefined : `/train/${day.id}`"
       class="flex min-w-0 flex-1 flex-col items-center gap-2"
     >
       <span
@@ -31,6 +47,7 @@ defineProps<{ days: WorkoutDay[] }>()
 
         <AppIcon v-if="day.status === 'completed'" name="check" :size="17" />
         <AppIcon v-else-if="day.status === 'today'" name="train" :size="22" />
+        <AppIcon v-else-if="day.id === nextUpId" name="lock" :size="16" />
         <span v-else class="data text-[13px] tracking-[-0.13px]">
           {{ day.dayNumber }}
         </span>
@@ -40,8 +57,14 @@ defineProps<{ days: WorkoutDay[] }>()
         class="font-data text-[9px] uppercase"
         :class="day.status === 'today' ? 'text-rose' : 'text-muted'"
       >
-        {{ day.status === 'today' ? 'Today' : `Day ${day.dayNumber}` }}
+        {{
+          day.status === 'today'
+            ? 'Today'
+            : day.id === nextUpId
+              ? 'Tomorrow'
+              : `Day ${day.dayNumber}`
+        }}
       </span>
-    </NuxtLink>
+    </component>
   </div>
 </template>

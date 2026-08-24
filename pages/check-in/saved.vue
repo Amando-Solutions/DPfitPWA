@@ -10,7 +10,7 @@ const record = computed(() => store.currentCheckIn.value)
 
 const feelLabel = computed(
   () =>
-    trainingFeelOptions.find((o) => o.id === record.value?.trainingFeel)?.label ?? '—',
+    trainingFeelOptions.find((o) => o.id === record.value?.trainingFeel)?.label ?? '-',
 )
 
 const celebrated = ref<BadgeDef | null>(null)

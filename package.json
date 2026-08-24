@@ -2,7 +2,7 @@
   "name": "dp-fitness-pwa",
   "private": true,
   "type": "module",
-  "description": "DP Fitness · Recomp Challenge — member-facing PWA",
+  "description": "DP Fitness · Recomp Challenge, member-facing PWA",
   "scripts": {
     "build": "nuxt build",
     "dev": "nuxt dev",

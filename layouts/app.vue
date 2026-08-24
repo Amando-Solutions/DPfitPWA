@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Main app layout — navigation plus a scrolling content column.
+// Main app layout: navigation plus a scrolling content column.
 // Mobile: content stacks above the floating tab bar.
 // Desktop: side rail on the left, content capped at --content-max beside it.
 </script>

@@ -64,7 +64,7 @@ export interface Exercise {
   name: string
   muscleGroup: string // "Chest", "Legs", ...
   targetSets: number
-  targetReps: string // "8–10"
+  targetReps: string // "8-10"
   restSeconds: number
   videoThumb?: string
   cues: string[]
@@ -78,7 +78,8 @@ export interface WorkoutDay {
   focus: string // "Upper · Push"
   estMinutes: number
   estKcal: number
-  status: 'completed' | 'today' | 'upcoming' | 'rest'
+  /** `locked`: the next session in the plan, but today's is already logged. */
+  status: 'completed' | 'today' | 'upcoming' | 'rest' | 'locked'
   proofRequired: boolean
   exercises: Exercise[]
 }
@@ -157,6 +158,14 @@ export interface ChatAttachment {
   url: string
 }
 
+/** One emoji on one message, with how many people have picked it. */
+export interface ChatReaction {
+  emoji: string
+  count: number
+  /** True when the signed-in member is one of those people. */
+  mine?: boolean
+}
+
 export interface ChatMessage {
   id: string
   authorId: string
@@ -167,7 +176,7 @@ export interface ChatMessage {
   text: string
   sentAt: string
   attachments?: ChatAttachment[]
-  reactions?: { emoji: string; count: number }[]
+  reactions?: ChatReaction[]
 }
 
 export interface ChatThread {
@@ -280,7 +289,7 @@ export interface MemberAccount {
   id: string
   accessCode: string
   cohortId: string
-  joinedAt: string // ISO — the challenge clock starts here
+  joinedAt: string // ISO. The challenge clock starts here
   setupComplete: boolean
   profile: MemberProfile
 }
@@ -291,6 +300,15 @@ export interface LoggedSet {
   weightKg: number
   done: boolean
   /**
+   * Set by the member during the session rather than by the plan.
+   *
+   * The prescribed sets are the workout; removing one would quietly change what
+   * was asked for, so only the extras a member adds themselves can be taken
+   * back off. Absent on sets logged before this existed, which is the safe
+   * reading: treat them as prescribed.
+   */
+  added?: boolean
+  /**
    * What they lifted last time, for reference while logging. Kept as numbers
    * so the column can be re-rendered in whichever unit is selected.
    */
@@ -298,8 +316,8 @@ export interface LoggedSet {
   previousReps?: number
   /**
    * The same reference, pre-formatted. Only written by builds that predate
-   * switchable units — still read so a session logged back then keeps showing
-   * its previous column.
+   * switchable units, and still read so a session logged back then keeps
+   * showing its previous column.
    * @deprecated use `previousWeightKg` / `previousReps`
    */
   previous?: string
@@ -350,9 +368,9 @@ export interface CheckInRecord {
   id: string
   weekNumber: number
   submittedAt: string
-  /** Sessions they say they completed — their count, not ours. */
+  /** Sessions they say they completed: their count, not ours. */
   workoutsDone: number
-  /** Self-rated nutrition adherence, 0–100. */
+  /** Self-rated nutrition adherence, 0 to 100. */
   nutritionPct: number
   energy: number | null // 1..5
   trainingFeel: TrainingFeel | null

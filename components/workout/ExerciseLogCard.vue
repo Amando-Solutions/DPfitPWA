@@ -65,12 +65,24 @@ const onNumber = (index: number, field: 'reps' | 'weightKg', event: Event) => {
 const weightIn = (set: LoggedSet) => toDisplayWeight(set.weightKg, props.unit)
 
 /**
+ * Whether the last row is one the member added, and so can come back off.
+ *
+ * The sets that came with the exercise are the prescribed workout. Letting them
+ * be deleted turns "4 sets of 8" into whatever was easiest that day, and the
+ * previous-session column has nothing to line up against next week. Only the
+ * extras are the member's to remove, and only from the end.
+ */
+const removableSet = computed(() =>
+  !props.readonly && props.sets.at(-1)?.added ? props.sets.length - 1 : -1,
+)
+
+/**
  * Last session's numbers. Sessions logged before units were switchable only
  * kept a pre-formatted string, so fall back to it rather than showing nothing.
  */
 const previousLabel = (set: LoggedSet): string => {
   if (set.previousWeightKg === undefined || set.previousReps === undefined) {
-    return set.previous || '—'
+    return set.previous || '-'
   }
   if (!set.previousWeightKg) return `× ${set.previousReps}`
   return `${toDisplayWeight(set.previousWeightKg, props.unit)}${unitLabel(props.unit)} × ${set.previousReps}`
@@ -233,16 +245,16 @@ const NO_SPINNER =
         />
         <AppButton variant="secondary" @click="saveNote">Save note</AppButton>
         <AppButton
-          v-if="sets.length > 1"
+          v-if="removableSet >= 0"
           variant="ghost"
           @click="
             () => {
-              emit('remove-set', sets.length - 1)
+              emit('remove-set', removableSet)
               menuOpen = false
             }
           "
         >
-          Remove last set
+          Remove the set you added
         </AppButton>
       </div>
     </BottomSheet>

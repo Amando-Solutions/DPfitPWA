@@ -4,7 +4,7 @@ export type ThemePreference = 'light' | 'dark' | 'system'
 export type ResolvedTheme = 'light' | 'dark'
 
 /** Key inside the app's storage namespace. Mirrored by the pre-paint script in
- *  `nuxt.config.ts` — change one and you must change the other. */
+ *  `nuxt.config.ts`. Change one and you must change the other. */
 export const THEME_KEY = 'theme'
 
 const MEDIA = '(prefers-color-scheme: dark)'
@@ -25,7 +25,7 @@ const systemPrefersDark = (): boolean =>
  * the OS after the fact, which is why the raw preference and the resolved theme
  * are tracked separately.
  *
- * Nothing here paints directly — it only sets `data-theme` on <html>, and the
+ * Nothing here paints directly. It only sets `data-theme` on <html>, and the
  * token layer in `assets/styles/main.css` does the rest.
  */
 export const useTheme = () => {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 09 · Setup · Safety & Call — the last step, which opens the app.
+// 09 · Setup · Safety & Call: the last step, which opens the app.
 definePageMeta({ layout: 'default' })
 
 import { callSlots } from '~/data/onboarding'

@@ -18,7 +18,7 @@ export default defineNuxtConfig({
     // Nuxt's app manifest lives at `.nuxt/manifest/meta/<buildId>.json` and is
     // reached through the server-only `#app-manifest` alias. Nitro writes that
     // file when it bundles, which during `nuxt dev` happens *after* Vite has
-    // pre-transformed the composable importing it — hence the cold-start
+    // pre-transformed the composable importing it, hence the cold-start
     // "Failed to resolve import '#app-manifest'" errors. Nuxt seeds a
     // placeholder itself for `nuxt build` but not for `nuxt dev`, so do it
     // here; Nitro overwrites it with the real manifest moments later.
@@ -51,22 +51,22 @@ export default defineNuxtConfig({
 
   css: ['~/assets/styles/main.css'],
 
-  // Tailwind v4 is a Vite plugin — no PostCSS config, no tailwind.config.js.
+  // Tailwind v4 is a Vite plugin: no PostCSS config, no tailwind.config.js.
   // The theme itself lives in `assets/styles/main.css` under `@theme inline`.
   vite: {
     plugins: [tailwindcss()],
   },
 
   // Env-driven configuration. Values are overridden at runtime by the matching
-  // NUXT_PUBLIC_* variables (see .env.example) — Nuxt parses them against the
+  // NUXT_PUBLIC_* variables (see .env.example). Nuxt parses them against the
   // types declared here, so `useMockData` stays a real boolean.
   runtimeConfig: {
     public: {
-      // NUXT_PUBLIC_USE_MOCK_DATA — serve every screen from `data/*.ts`.
+      // NUXT_PUBLIC_USE_MOCK_DATA: serve every screen from `data/*.ts`.
       useMockData: true,
-      // NUXT_PUBLIC_API_BASE — backend origin used when mock data is off.
+      // NUXT_PUBLIC_API_BASE: backend origin used when mock data is off.
       apiBase: '',
-      // NUXT_PUBLIC_APP_ENV — free-form label for the running environment.
+      // NUXT_PUBLIC_APP_ENV: free-form label for the running environment.
       appEnv: 'development',
     },
   },
@@ -86,18 +86,18 @@ export default defineNuxtConfig({
         {
           name: 'description',
           content:
-            'DP Fitness Recomp Challenge — train with purpose, transform with proof.',
+            'DP Fitness Recomp Challenge. Train with purpose, transform with proof.',
         },
       ],
       // Resolves the theme before the first frame, so neither the SPA loading
       // template nor the app can flash the wrong palette. Reads the same
       // `dpfit:theme` key that `useTheme` writes (a JSON string), falling back
-      // to the OS preference. Kept inline and dependency-free on purpose — it
+      // to the OS preference. Kept inline and dependency-free on purpose, since it
       // has to run ahead of every bundle.
       //
       // It also preloads the boot splash's wordmark. The splash picks between
       // the light and dark export in CSS, so the correct file is only knowable
-      // once `d` is resolved — a static <link> would have to guess, and getting
+      // once `d` is resolved. A static <link> would have to guess, and getting
       // it wrong costs a wasted fetch plus a late-painting logo. Reusing `d`
       // also means the preload honours a stored override, so a member who
       // forces light on a dark phone still gets the light wordmark.
@@ -112,7 +112,7 @@ export default defineNuxtConfig({
       link: [
         // Files in `public/` are served at the web root as-is, so these resolve
         // to `/favicon.svg`, `/icons/…` etc. Everything under `/icons/` is
-        // generated from `public/DP.png` — that file is the source of truth for
+        // generated from `public/DP.png`, which is the source of truth for
         // the mark, so regenerate the set rather than editing a PNG by hand.
         { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' },
         // Safari ignores SVG icons for the home screen, so the raster ones are
@@ -120,7 +120,7 @@ export default defineNuxtConfig({
         { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/icons/favicon-32.png' },
         { rel: 'apple-touch-icon', sizes: '180x180', href: '/icons/apple-touch-icon.png' },
         // The boot splash's own wordmark is preloaded from the theme script
-        // below — which file it needs isn't known until the theme is resolved.
+        // below, because which file it needs isn't known until the theme is resolved.
         {
           rel: 'preconnect',
           href: 'https://fonts.googleapis.com',
@@ -147,7 +147,7 @@ export default defineNuxtConfig({
       name: 'DP Fitness · Recomp Challenge',
       short_name: 'DP Fitness',
       description:
-        'Train with purpose, transform with proof — the DP Fitness 6-week recomp challenge.',
+        'Train with purpose, transform with proof. The DP Fitness 6-week recomp challenge.',
       theme_color: '#241b2e',
       background_color: '#fbf6f2',
       display: 'standalone',
@@ -182,7 +182,7 @@ export default defineNuxtConfig({
       globPatterns: ['**/*.{js,css,html,png,svg,ico,woff2}'],
       // The onboarding illustrations are ~700 KB of Figma path data between
       // them, they are seen once before sign-in, and they are never seen again.
-      // Precaching made every install pay for all three up front — most of the
+      // Precaching made every install pay for all three up front, and most of the
       // install payload, for art most members view for a few seconds. They are
       // runtime-cached below instead, so the first slide still costs one fetch
       // and the other two are ready by the time they are swiped to.

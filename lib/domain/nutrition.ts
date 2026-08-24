@@ -95,7 +95,7 @@ export const lbToKg = (lb: number) => lb / 2.2046226218
 export const unitLabel = (units: Units): string => (units === 'kg' ? 'kg' : 'lb')
 
 export const formatWeight = (kg: number | null | undefined, units: Units): string => {
-  if (kg === null || kg === undefined) return '—'
+  if (kg === null || kg === undefined) return '-'
   return `${round1(units === 'kg' ? kg : kgToLb(kg))}${unitLabel(units)}`
 }
 
@@ -109,7 +109,7 @@ export const fromDisplayWeight = (value: number, units: Units): number =>
 
 /**
  * Session volume (weight × reps, summed). It is a mass, so it converts like
- * one — but it is shown as a whole number because the figure is already large.
+ * one, but it is shown as a whole number because the figure is already large.
  */
 export const formatVolume = (kg: number, units: Units): string =>
   `${Math.round(units === 'kg' ? kg : kgToLb(kg))}`

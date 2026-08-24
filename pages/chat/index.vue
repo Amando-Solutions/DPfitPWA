@@ -9,6 +9,9 @@ import type { ChatAttachment, ChatMessage } from '~/data/types'
 const data = useDataSourceClient()
 const messages = ref<ChatMessage[]>([])
 
+/** Set once a write has failed for want of room. See `DataSource.storageFull`. */
+const storageFull = ref(false)
+
 onMounted(async () => {
   messages.value = await data.listMessages('cohort')
 })
@@ -18,6 +21,15 @@ const send = async (payload: { text: string; attachments: ChatAttachment[] }) =>
     ...messages.value,
     await data.sendMessage('cohort', payload.text, payload.attachments),
   ]
+  storageFull.value = await data.storageFull()
+}
+
+/** Hold a message to react; the data source hands back the new counts. */
+const react = async (payload: { messageId: string; emoji: string }) => {
+  const reactions = await data.toggleReaction('cohort', payload.messageId, payload.emoji)
+  messages.value = messages.value.map((m) =>
+    m.id === payload.messageId ? { ...m, reactions } : m,
+  )
 }
 </script>
 
@@ -33,7 +45,9 @@ const send = async (payload: { text: string; attachments: ChatAttachment[] }) =>
         :subtitle="`Coach and ${cohort.memberCount - 1} members`"
         placeholder="Say something to the group…"
         dm-link
+        :storage-full="storageFull"
         @send="send"
+        @react="react"
       />
     </div>
   </div>
