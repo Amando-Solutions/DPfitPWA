@@ -6,6 +6,7 @@ import type {
   ChatMessage,
   ChatReaction,
   CheckInRecord,
+  LeaderboardEntry,
   MemberAccount,
   MemberProfile,
   PhotoRecord,
@@ -159,6 +160,11 @@ export class HttpDataSource implements DataSource {
 
   async awardBadge(id: string, earnedAt: string) {
     await this.request('/me/badges', { method: 'POST', body: { id, earnedAt } })
+  }
+
+  /** Real counts across the cohort, refreshed on load. No placeholder rows. */
+  listLeaderboard() {
+    return this.request<LeaderboardEntry[]>('/cohort/leaderboard')
   }
 
   // --- Settings ------------------------------------------------------------

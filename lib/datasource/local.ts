@@ -1,7 +1,8 @@
 import { storage } from '~/lib/storage'
 import { DataSourceError, type DataSource } from './types'
-import { accessCodes, cohort, notificationSeed } from '~/data/program'
+import { accessCodes, cohort, leaderboardSeed, notificationSeed } from '~/data/program'
 import { coachSeed, cohortSeed } from '~/data/community'
+import { qualifyingSessions } from '~/lib/domain/rewards'
 import type {
   ActiveSession,
   AppNotification,
@@ -9,6 +10,7 @@ import type {
   ChatMessage,
   ChatReaction,
   CheckInRecord,
+  LeaderboardEntry,
   MemberAccount,
   MemberProfile,
   PhotoRecord,
@@ -292,6 +294,26 @@ export class LocalDataSource implements DataSource {
     const earned = await this.listEarnedBadges()
     if (earned[id]) return
     storage.write(KEY.badges, { ...earned, [id]: earnedAt })
+  }
+
+  /**
+   * The member's real row, padded out with the stand-in cohort.
+   *
+   * Only their own row can be real on device: a leaderboard is a query across
+   * every member, and there is only ever one member in localStorage. The peers
+   * exist so mock mode has a board to show; `HttpDataSource` returns the whole
+   * cohort and never touches them.
+   */
+  async listLeaderboard(): Promise<LeaderboardEntry[]> {
+    const [member, sessions] = await Promise.all([this.getMember(), this.listSessions()])
+    const me: LeaderboardEntry = {
+      memberId: member?.id ?? 'me',
+      name: member?.profile.displayName?.trim() || 'You',
+      avatar: member?.profile.avatar ?? '',
+      sessions: qualifyingSessions(sessions).length,
+      isSelf: true,
+    }
+    return [...leaderboardSeed.map((peer) => ({ ...peer, isSelf: false })), me]
   }
 
   // --- Settings ------------------------------------------------------------

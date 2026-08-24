@@ -2,7 +2,7 @@ import { useDataSourceClient } from '~/lib/datasource'
 import { defaultSettings } from '~/lib/datasource/local'
 import { challengeClock, weekOf } from '~/lib/domain/challenge'
 import { nutritionTargetsFor } from '~/lib/domain/nutrition'
-import { rewardsSnapshot } from '~/lib/domain/rewards'
+import { rankLeaderboard, rewardsSnapshot, sessionQualifies } from '~/lib/domain/rewards'
 import { dateKey, restoreClock, startOfNextDay, syncClock, trustedNow } from '~/lib/time'
 import {
   badges as badgeDefs,
@@ -16,6 +16,7 @@ import type {
   AppNotification,
   BadgeRuleId,
   CheckInRecord,
+  LeaderboardEntry,
   MemberAccount,
   MemberProfile,
   PhotoRecord,
@@ -39,6 +40,8 @@ interface AppState {
   photos: PhotoRecord[]
   notifications: AppNotification[]
   earnedBadges: Record<string, string>
+  /** The cohort, as the last load saw it. Never ordered here: see `rankLeaderboard`. */
+  leaderboard: LeaderboardEntry[]
   settings: Settings
   /** Badge waiting to be celebrated, consumed by the celebration screen. */
   pendingBadge: BadgeRuleId | null
@@ -64,6 +67,7 @@ const buildStore = () => {
     photos: [],
     notifications: [],
     earnedBadges: {},
+    leaderboard: [],
     settings: defaultSettings(),
     pendingBadge: null,
   }))
@@ -74,17 +78,27 @@ const buildStore = () => {
     // Cheap and synchronous: the offset from the last session, so the first
     // paint already has the right date. The network sync lands later.
     restoreClock()
-    const [member, sessions, activeSession, checkIns, photos, notifications, earnedBadges, settings] =
-      await Promise.all([
-        data.getMember(),
-        data.listSessions(),
-        data.getActiveSession(),
-        data.listCheckIns(),
-        data.listPhotos(),
-        data.listNotifications(),
-        data.listEarnedBadges(),
-        data.getSettings(),
-      ])
+    const [
+      member,
+      sessions,
+      activeSession,
+      checkIns,
+      photos,
+      notifications,
+      earnedBadges,
+      leaderboard,
+      settings,
+    ] = await Promise.all([
+      data.getMember(),
+      data.listSessions(),
+      data.getActiveSession(),
+      data.listCheckIns(),
+      data.listPhotos(),
+      data.listNotifications(),
+      data.listEarnedBadges(),
+      data.listLeaderboard(),
+      data.getSettings(),
+    ])
 
     state.value = {
       hydrated: true,
@@ -96,9 +110,15 @@ const buildStore = () => {
       photos,
       notifications,
       earnedBadges,
+      leaderboard,
       settings,
       pendingBadge: null,
     }
+
+    // Two badges turn on the calendar as much as on the logs ("reach Week 3
+    // with…"), so their moment can arrive with no RP event to notice it. Catch
+    // up quietly here: a celebration hours after the fact is worse than none.
+    await syncBadges({ celebrate: false })
   }
 
   /** Re-read the trusted clock. Cheap, and what the midnight rollover calls. */
@@ -190,6 +210,31 @@ const buildStore = () => {
       earnedBadges: state.value.earnedBadges,
     }),
   )
+
+  /**
+   * The cohort board, ordered.
+   *
+   * The member's own count is taken from their live logs rather than from
+   * whatever the last fetch returned, so their row moves the moment they finish
+   * a session instead of on the next refresh. Everyone else's comes from the
+   * fetch, because it has to.
+   */
+  const leaderboard = computed(() => {
+    const mine = rewards.value.sessionsQualified
+    const rows = state.value.leaderboard.map((row) =>
+      row.isSelf ? { ...row, sessions: mine } : row,
+    )
+    if (!rows.some((row) => row.isSelf)) {
+      rows.push({
+        memberId: state.value.member?.id ?? 'me',
+        name: displayName.value,
+        avatar: profile.value?.avatar ?? '',
+        sessions: mine,
+        isSelf: true,
+      })
+    }
+    return rankLeaderboard(rows)
+  })
 
   const unreadNotifications = computed(
     () => state.value.notifications.filter((n) => !n.read).length,
@@ -309,6 +354,23 @@ const buildStore = () => {
       0,
     )
 
+    // Judged against what the plan asked for, so sets the member added
+    // themselves can only ever help. `|| setsTotal` covers a session made
+    // entirely of added sets, which has no prescription to measure against.
+    const setsPrescribed = active.exercises.reduce(
+      (n, e) => n + e.sets.filter((s) => !s.added).length,
+      0,
+    )
+    const qualifies = sessionQualifies(setsDone, setsPrescribed || setsTotal)
+
+    // Recorded whether or not the lift portion qualified: this is the extra
+    // mile, and it is deliberately outside the gate. Nothing pays out for it
+    // yet — see `rewardValues.core`.
+    const loggedIn = (group: string) =>
+      active.exercises.some(
+        (e) => e.muscleGroup.toLowerCase() === group && e.sets.some((s) => s.done),
+      )
+
     const completedAt = trustedNow().toISOString()
     const log = await data.saveSession({
       dayId: active.dayId,
@@ -322,7 +384,12 @@ const buildStore = () => {
       setsTotal,
       proofPhoto: active.proofPhoto,
       note: active.note,
-      rewardPoints: rewardValues.workout,
+      // A session below the threshold saves in full and still reaches the
+      // coach. It just earns nothing.
+      rewardPoints: qualifies ? rewardValues.workout : 0,
+      qualifies,
+      loggedCore: loggedIn('core'),
+      loggedCardio: loggedIn('cardio'),
       exercises: active.exercises,
     })
 
@@ -390,8 +457,15 @@ const buildStore = () => {
   }
 
   // --- Badges --------------------------------------------------------------
-  /** Award anything newly qualified and queue the first one for celebration. */
-  const syncBadges = async () => {
+  /**
+   * Award anything newly qualified and queue the first one for celebration.
+   *
+   * Called after every RP-earning event rather than on a timer, so the unlock
+   * lands while the member is still on the screen that earned it. A badge is
+   * only ever awarded once: anything already in `earnedBadges` is skipped, and
+   * nothing here can take one back.
+   */
+  const syncBadges = async ({ celebrate = true } = {}) => {
     const alreadyEarned = state.value.earnedBadges
     const qualified = rewards.value.earned
     const fresh = qualified.filter((id) => !alreadyEarned[id])
@@ -403,7 +477,12 @@ const buildStore = () => {
       ...alreadyEarned,
       ...Object.fromEntries(fresh.map((id) => [id, earnedAt])),
     }
-    state.value.pendingBadge = fresh[0]
+    if (celebrate) state.value.pendingBadge = fresh[0]
+  }
+
+  /** Re-read the cohort board. Refresh on load is enough for v1. */
+  const refreshLeaderboard = async () => {
+    state.value.leaderboard = await data.listLeaderboard()
   }
 
   const consumePendingBadge = () => {
@@ -442,6 +521,7 @@ const buildStore = () => {
     weekComplete,
     sessionsThisWeek,
     rewards,
+    leaderboard,
     unreadNotifications,
     currentCheckIn,
     checkInDue,
@@ -467,6 +547,7 @@ const buildStore = () => {
     markNotificationRead,
     markAllNotificationsRead,
     saveSettings,
+    refreshLeaderboard,
     consumePendingBadge,
   }
 }

@@ -4,6 +4,7 @@ definePageMeta({ layout: false })
 
 import type { Units } from '~/data/types'
 import { readImageAsDataUrl } from '~/lib/image'
+import { QUALIFYING_SET_PERCENT, sessionQualifies } from '~/lib/domain/rewards'
 
 const route = useRoute()
 const router = useRouter()
@@ -33,6 +34,7 @@ const totals = computed(() => {
   return {
     setsTotal: exercises.reduce((n, e) => n + e.sets.length, 0),
     setsDone: exercises.reduce((n, e) => n + e.sets.filter((s) => s.done).length, 0),
+    setsPrescribed: exercises.reduce((n, e) => n + e.sets.filter((s) => !s.added).length, 0),
     volume: Math.round(
       exercises.reduce(
         (n, e) => n + e.sets.filter((s) => s.done).reduce((v, s) => v + s.weightKg * s.reps, 0),
@@ -41,6 +43,14 @@ const totals = computed(() => {
     ),
   }
 })
+
+/**
+ * Whether this will count once saved. Told before the save, not after: the
+ * member can still go back and finish the sets they left.
+ */
+const willCount = computed(() =>
+  sessionQualifies(totals.value.setsDone, totals.value.setsPrescribed || totals.value.setsTotal),
+)
 
 const durationLabel = computed(() => {
   const total = session.value?.elapsedSeconds ?? 0
@@ -174,6 +184,12 @@ const discard = async () => {
         />
       </div>
 
+      <p v-if="!willCount" class="complete__short">
+        You’ve logged {{ totals.setsDone }} of {{ totals.setsPrescribed }} sets. Under
+        {{ QUALIFYING_SET_PERCENT }}% this still saves for your coach, but it earns no RP
+        and won’t count toward badges or your streak.
+      </p>
+
       <AppCard variant="raised" class="complete__logged">
         <AppIcon name="calendar" :size="18" />
         <div>
@@ -252,6 +268,16 @@ const discard = async () => {
     font-size: 13px;
     font-weight: 700;
     color: var(--rose);
+  }
+
+  &__short {
+    margin: 0;
+    padding: 12px 14px;
+    border-radius: var(--radius-md);
+    background: var(--orange-16);
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--orange-text);
   }
 
   &__notes {

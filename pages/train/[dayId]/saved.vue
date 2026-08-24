@@ -4,6 +4,7 @@ definePageMeta({ layout: 'app' })
 
 import type { BadgeDef } from '~/data/types'
 import { formatVolume, unitLabel } from '~/lib/domain/nutrition'
+import { QUALIFYING_SET_PERCENT, isQualifying } from '~/lib/domain/rewards'
 
 const router = useRouter()
 const store = useAppStore()
@@ -12,6 +13,9 @@ const units = computed(() => store.settings.value.units)
 
 // The log that was just written is the newest one.
 const log = computed(() => store.sessions.value[0] ?? null)
+
+/** A short session saves in full, it just doesn't count. Say so plainly. */
+const counted = computed(() => (log.value ? isQualifying(log.value) : true))
 
 const durationLabel = computed(() => {
   const total = log.value?.durationSeconds ?? 0
@@ -55,6 +59,12 @@ const back = () => router.push('/train')
           variant="flame"
         />
       </div>
+
+      <p v-if="!counted" class="saved__short">
+        Saved for your coach, but under {{ QUALIFYING_SET_PERCENT }}% of the sets —
+        so it earns no RP and doesn’t count toward badges, your streak or the
+        leaderboard.
+      </p>
 
       <div class="saved__stats">
         <div class="saved__stat">
@@ -135,6 +145,17 @@ const back = () => router.push('/train')
     display: flex;
     gap: 8px;
     margin-top: 2px;
+  }
+
+  &__short {
+    margin: 0;
+    max-width: 320px;
+    padding: 10px 14px;
+    border-radius: var(--radius-md);
+    background: var(--orange-16);
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--orange-text);
   }
 
   &__stats {

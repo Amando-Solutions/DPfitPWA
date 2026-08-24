@@ -11,6 +11,7 @@ import type {
   Announcement,
   AppNotification,
   BadgeDef,
+  BadgeTier,
   Coach,
   Cohort,
   Exercise,
@@ -67,10 +68,57 @@ export const trainingFeelOptions: { id: TrainingFeel; label: string; desc: strin
 ]
 
 // --- Reward economy --------------------------------------------------------
+/**
+ * Every way RP is earned. Nothing else awards points.
+ *
+ * `workout` is the only one behind the qualifying gate: a session that misses
+ * the completion threshold saves normally and earns nothing.
+ */
 export const rewardValues = {
   workout: 25,
   checkIn: 20,
-  progressPhoto: 10,
+  progressPhoto: 5,
+  /**
+   * Extra-mile credit for core / cardio logged inside a session, deliberately
+   * *outside* the qualifying gate: someone who misses the lift threshold but
+   * still did the extra work deserves the small credit. +5 matches the progress
+   * photo bonus rather than introducing a second point scale.
+   *
+   * Nothing awards these yet. They need the Log Workout screen to treat core
+   * and cardio as identifiable parts of a session, which is not built. Sessions
+   * already carry `loggedCore` / `loggedCardio`, so switching them on is a
+   * change here and in `totalPoints`, not a re-decision.
+   */
+  core: 5,
+  cardio: 5,
+}
+
+/** What a badge pays out, by how much real effort its tier takes. */
+export const badgeTierPoints: Record<BadgeTier, number> = {
+  starter: 15,
+  consistency: 25,
+  elite: 45,
+}
+
+/**
+ * The numbers behind the badge conditions.
+ *
+ * The two elite session counts are a share of what this cohort was actually
+ * prescribed, read from the same `challenge` setup the schedule is built from.
+ * That way a 3-day/week cohort (18 sessions → 6 and 15) is no easier than a
+ * 4-day one (24 → 8 and 20), with nothing to adjust per cohort.
+ */
+export const badgeTargets = {
+  /** Consistency Queen: every training day, this many times each. */
+  dayRepeats: 3,
+  /** Check-In Streak: check-ins this many weeks in a row. */
+  checkInWeeks: 4,
+  /** Foundation Complete: reach this week having done a third of the work. */
+  foundationWeek: 3,
+  foundationSessions: Math.ceil(challenge.totalSessions * 0.33),
+  /** Peak Performer: reach the last week having done 80% of the work. */
+  peakWeek: challenge.totalWeeks,
+  peakSessions: Math.ceil(challenge.totalSessions * 0.8),
 }
 
 export const ranks: Rank[] = [
@@ -81,48 +129,62 @@ export const ranks: Rank[] = [
   { id: 'peak-performer', name: 'Peak Performer', emoji: '🏆', minPoints: 350 },
 ]
 
+/**
+ * The badge ladder.
+ *
+ * The two starter badges are meant to be earned in the first week. Everything
+ * past them asks for sustained volume, which is the part that should feel
+ * earned. The conditions themselves live in `lib/domain/rewards`.
+ */
 export const badges: BadgeDef[] = [
   {
     id: 'first-workout',
     name: 'First Rep',
     emoji: '💪',
     description: 'Log your first qualifying workout.',
+    tier: 'starter',
   },
   {
     id: 'first-photo',
     name: 'Photo Proof',
     emoji: '📸',
     description: 'Upload your first progress photo.',
+    tier: 'starter',
   },
   {
-    id: 'all-days-once',
+    id: 'consistency-queen',
     name: 'Consistency Queen',
     emoji: '👑',
-    description: 'Log all 4 training days at least once.',
+    description: `Log all ${challenge.sessionsPerWeek} training days ${badgeTargets.dayRepeats} times each.`,
+    tier: 'consistency',
   },
   {
     id: 'checkin-streak-4',
     name: 'Check-In Streak',
     emoji: '📋',
-    description: 'Submit a weekly check-in 4 weeks in a row.',
+    description: `Submit a weekly check-in ${badgeTargets.checkInWeeks} weeks in a row.`,
+    tier: 'consistency',
   },
   {
-    id: 'week3-8-sessions',
+    id: 'foundation-complete',
     name: 'Foundation Complete',
     emoji: '🏁',
-    description: 'Reach Week 3 with 8+ sessions logged.',
+    description: `Reach Week ${badgeTargets.foundationWeek} with ${badgeTargets.foundationSessions}+ qualifying sessions.`,
+    tier: 'elite',
   },
   {
-    id: 'week6-20-sessions',
+    id: 'peak-performer',
     name: 'Peak Performer',
     emoji: '🏆',
-    description: 'Reach Week 6 with 20+ sessions logged.',
+    description: `Reach Week ${badgeTargets.peakWeek} with ${badgeTargets.peakSessions}+ qualifying sessions.`,
+    tier: 'elite',
   },
   {
-    id: 'no-week-missed',
+    id: 'no-days-off',
     name: 'No Days Off',
     emoji: '🔥',
-    description: 'Every week of the program, no week missed.',
+    description: `A qualifying session in all ${challenge.totalWeeks} weeks, none missed.`,
+    tier: 'elite',
   },
 ]
 
@@ -544,13 +606,20 @@ export const announcements: Announcement[] = [
 ]
 
 // --- Cohort leaderboard ----------------------------------------------------
-// Everyone but the member; their own row is spliced in from their real RP so
-// the ranking always reflects what they have actually earned.
-export const leaderboardPeers = [
-  { id: 'peer-tomi', name: 'Tomi A.', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&q=80', points: 310 },
-  { id: 'peer-lola', name: 'Lola B.', avatar: 'https://images.unsplash.com/photo-1531123897727-8f129e1688ce?w=100&q=80', points: 265 },
-  { id: 'peer-zainab', name: 'Zainab O.', avatar: 'https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?w=100&q=80', points: 220 },
-  { id: 'peer-ife', name: 'Ife K.', avatar: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=100&q=80', points: 155 },
-  { id: 'peer-chi', name: 'Chidi N.', avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=100&q=80', points: 90 },
-  { id: 'peer-ada', name: 'Ada M.', avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&q=80', points: 45 },
+/**
+ * Stand-in cohort, for mock mode only.
+ *
+ * The real board is one query across every member of the cohort, which no
+ * device-local build can answer, so `LocalDataSource` pads the member's own
+ * real row with these. Nothing outside `lib/datasource/local` may read this,
+ * and `HttpDataSource` never touches it: the shipped board is real counts or
+ * nothing.
+ */
+export const leaderboardSeed = [
+  { memberId: 'peer-tomi', name: 'Tomi A.', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&q=80', sessions: 14 },
+  { memberId: 'peer-lola', name: 'Lola B.', avatar: 'https://images.unsplash.com/photo-1531123897727-8f129e1688ce?w=100&q=80', sessions: 12 },
+  { memberId: 'peer-zainab', name: 'Zainab O.', avatar: 'https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?w=100&q=80', sessions: 9 },
+  { memberId: 'peer-ife', name: 'Ife K.', avatar: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=100&q=80', sessions: 7 },
+  { memberId: 'peer-chi', name: 'Chidi N.', avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=100&q=80', sessions: 4 },
+  { memberId: 'peer-ada', name: 'Ada M.', avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&q=80', sessions: 2 },
 ]

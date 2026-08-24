@@ -15,6 +15,10 @@
       <!-- spacer so content clears the floating tab bar on mobile -->
       <div class="layout-app__tab-spacer" />
     </main>
+
+    <!-- Mounted once for the whole app: the install surfaces on Home and More
+         both open this same sheet through `useInstallApp`. -->
+    <InstallAppSheet />
   </div>
 </template>
 

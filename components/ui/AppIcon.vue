@@ -108,6 +108,12 @@ const fallbacks: Record<string, string> = {
   scale: '<path d="M12 4v4M6 8h12M6 8 3 16a4 4 0 0 0 6 0L6 8ZM18 8l-3 8a4 4 0 0 0 6 0l-3-8ZM9 20h6"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   moon: '<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/>',
+  // iOS spells "share" as a box with an arrow leaving it, and the Add to
+  // Home Screen instructions are unreadable without the same shape.
+  share:
+    '<path d="M12 3.5v10"/><path d="M8.5 7 12 3.5 15.5 7"/><path d="M7.5 10.5H6A2 2 0 0 0 4 12.5v6A2 2 0 0 0 6 20.5h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-1.5"/>',
+  download:
+    '<path d="M12 3.5v10"/><path d="M8 10l4 3.5 4-3.5"/><path d="M4 16.5v2A2 2 0 0 0 6 20.5h12a2 2 0 0 0 2-2v-2"/>',
 }
 
 const glyph = computed(() => glyphFor(props.name))

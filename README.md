@@ -53,7 +53,7 @@ Implement the backend against the routes named in
 [`lib/datasource/types.ts`](lib/datasource/types.ts): `POST /session`, `GET /me`,
 `GET|POST /me/sessions`, `/me/check-ins`, `/me/photos`, `/notifications`,
 `/threads/:id/messages`, `/threads/:id/messages/:id/reactions`, `/me/badges`,
-`/me/settings`, then set:
+`/cohort/leaderboard`, `/me/settings`, then set:
 
 ```bash
 NUXT_PUBLIC_USE_MOCK_DATA=false
@@ -119,8 +119,25 @@ training day's status comes from what has been logged this week; fuel targets
 come from the profile (Mifflin-St Jeor → activity multiplier → goal multiplier);
 RP, rank, streak and badges come from the log.
 
-Reward economy (from the design): **25 RP** a workout, **20 RP** a check-in,
-**10 RP** a photo. Ranks at 0 / 40 / 100 / 200 / 350 RP.
+Reward economy: **25 RP** a workout, **20 RP** a check-in, **5 RP** a photo, and
+**15 / 25 / 45 RP** a badge by tier. Ranks at 0 / 40 / 100 / 200 / 350 RP.
+
+One gate sits under all of it: a session only earns RP, moves a badge, keeps a
+streak alive or reaches the leaderboard if it cleared **80% of its prescribed
+sets**. Anything below that still saves in full and still reaches the coach, it
+just earns nothing. The rules live in
+[`lib/domain/rewards.ts`](lib/domain/rewards.ts); the numbers they read
+(`rewardValues`, `badgeTargets`, `ranks`) are program content in
+[`data/program.ts`](data/program.ts). The two elite badge thresholds are a share
+of `challenge.sessionsPerWeek × totalWeeks`, so a 3-day/week cohort is no easier
+than a 4-day one without a spec change.
+
+The leaderboard ranks the cohort on qualifying sessions logged — not RP, weight
+or results — ties broken alphabetically. It is the one reward that cannot be
+answered from the member's own record, so it comes from
+`DataSource.listLeaderboard()` and refreshes on load. In mock mode
+`LocalDataSource` pads the member's real row with a stand-in cohort; the HTTP
+source returns real counts only.
 
 ## Layout model
 

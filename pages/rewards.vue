@@ -2,10 +2,15 @@
 // 19 · Rewards (+ 33 to 35 badge / leaderboard tabs, 37 to 40 rank states)
 definePageMeta({ layout: 'app' })
 
-import { badges as badgeDefs, cohort, leaderboardPeers, ranks } from '~/data/program'
+import { badgeTierPoints, badges as badgeDefs, cohort, ranks } from '~/data/program'
+import { QUALIFYING_SET_PERCENT } from '~/lib/domain/rewards'
 
 const store = useAppStore()
 const route = useRoute()
+
+// Refreshed on load rather than pushed: the board only has to be right when
+// someone is looking at it.
+onMounted(() => store.refreshLeaderboard())
 
 const tab = ref<'badges' | 'leaderboard'>(
   route.query.tab === 'leaderboard' ? 'leaderboard' : 'badges',
@@ -21,6 +26,7 @@ const badgeRows = computed(() =>
   badgeDefs.map((badge) => ({
     ...badge,
     earned: Boolean(store.earnedBadges.value[badge.id]),
+    points: badgeTierPoints[badge.tier],
   })),
 )
 
@@ -30,18 +36,7 @@ const nextRankLabel = computed(() =>
     : 'Top rank reached',
 )
 
-const leaderboard = computed(() => {
-  const me = {
-    id: 'me',
-    name: store.displayName.value,
-    avatar: store.profile.value?.avatar ?? '',
-    points: snapshot.value.points,
-    isSelf: true,
-  }
-  return [...leaderboardPeers.map((p) => ({ ...p, isSelf: false })), me]
-    .sort((a, b) => b.points - a.points)
-    .map((entry, index) => ({ ...entry, rank: index + 1 }))
-})
+const leaderboard = computed(() => store.leaderboard.value)
 
 const initials = (name: string) =>
   name
@@ -99,7 +94,8 @@ const initials = (name: string) =>
           <div>
             <h2 class="streak__title">{{ snapshot.streakWeeks }}-week streak</h2>
             <p class="streak__body">
-              Log at least one workout each week to keep it alive.
+              One workout a week keeps it alive — finished sessions only, at
+              least {{ QUALIFYING_SET_PERCENT }}% of the sets logged.
             </p>
           </div>
         </AppCard>
@@ -130,24 +126,27 @@ const initials = (name: string) =>
               <p class="badge__desc">{{ badge.description }}</p>
             </div>
             <span v-if="badge.earned" class="badge__earned">Earned</span>
-            <AppIcon v-else name="lock" :size="15" class="badge__lock" />
+            <span v-else class="badge__reward data">
+              +{{ badge.points }}
+              <AppIcon name="lock" :size="13" />
+            </span>
           </article>
         </div>
       </template>
 
       <template v-else>
         <div class="rewards__panel-head">
-          <EyebrowLabel tone="muted">This cohort</EyebrowLabel>
-          <span class="rewards__count data">{{ cohort.memberCount }} members</span>
+          <EyebrowLabel tone="muted">Sessions logged</EyebrowLabel>
+          <span class="rewards__count data">{{ leaderboard.length }} members</span>
         </div>
         <ol class="board">
           <li
             v-for="entry in leaderboard"
-            :key="entry.id"
+            :key="entry.memberId"
             class="board__row"
             :class="{ 'board__row--self': entry.isSelf }"
           >
-            <span class="board__rank data">{{ entry.rank }}</span>
+            <span class="board__rank data">{{ entry.position }}</span>
             <img
               v-if="entry.avatar"
               :src="entry.avatar"
@@ -160,7 +159,9 @@ const initials = (name: string) =>
               {{ initials(entry.name) }}
             </span>
             <span class="board__name">{{ entry.isSelf ? 'You' : entry.name }}</span>
-            <span class="board__points data">{{ entry.points }} RP</span>
+            <span class="board__points data">
+              {{ entry.sessions }} {{ entry.sessions === 1 ? 'session' : 'sessions' }}
+            </span>
           </li>
         </ol>
       </template>
@@ -382,8 +383,14 @@ const initials = (name: string) =>
     border-radius: var(--radius-pill);
   }
 
-  &__lock {
+  // What it pays out, shown while it is still locked.
+  &__reward {
     flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    font-weight: 700;
     color: var(--violet-45);
   }
 }

@@ -5,6 +5,7 @@ definePageMeta({ layout: 'app' })
 import { cohort } from '~/data/program'
 
 const store = useAppStore()
+const install = useInstallApp()
 
 const links = computed(() => [
   {
@@ -128,6 +129,30 @@ const initials = computed(() =>
         </span>
         <AppIcon name="chevronRight" :size="18" class="more__link-chev" />
       </NuxtLink>
+
+      <!-- Only while installing is actually possible: already installed, or a
+           browser with no install route, and the row is not there at all. -->
+      <button
+        v-if="install.canInstall.value"
+        type="button"
+        class="more__link more__link--action"
+        @click="install.install()"
+      >
+        <span class="more__link-icon">
+          <AppIcon name="download" :size="18" />
+        </span>
+        <span class="more__link-text">
+          <strong>Install the app</strong>
+          <small>
+            {{
+              install.method.value === 'prompt'
+                ? 'Put DP Fitness on your home screen'
+                : 'How to add it on this device'
+            }}
+          </small>
+        </span>
+        <AppIcon name="chevronRight" :size="18" class="more__link-chev" />
+      </button>
     </section>
   </div>
 </template>
@@ -226,6 +251,13 @@ const initials = computed(() =>
     background: var(--paper-raised);
     box-shadow: var(--shadow-card);
     color: var(--ink);
+  }
+
+  // The install row is a button rather than a link; these are the only two
+  // places where a button does not already inherit what an <a> gets.
+  &__link--action {
+    width: 100%;
+    text-align: left;
   }
 
   &__link-icon {

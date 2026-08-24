@@ -13,6 +13,22 @@ export default defineNuxtConfig({
   // replaced on hydration. `spa-loading-template.html` covers the first paint.
   ssr: false,
 
+  // `ssr: false` alone leaves Nitro rendering the SPA shell per request, so
+  // `nuxt build` emits no HTML at all into `.output/public`. The service worker
+  // needs one: @vite-pwa/nuxt rewrites the precached `index.html` entry to `/`,
+  // which is the `navigateFallback` below, and without that entry Workbox
+  // throws `non-precached-url :: [{"url":"/"}]` on registration and every
+  // offline navigation fails. Prerendering `/` writes the shell to disk so it
+  // lands in the precache manifest. `crawlLinks` stays off because the shell is
+  // the only thing worth prerendering; every route renders from it on the
+  // client anyway.
+  nitro: {
+    prerender: {
+      routes: ['/'],
+      crawlLinks: false,
+    },
+  },
+
   modules: [
     '@vite-pwa/nuxt',
     // Nuxt's app manifest lives at `.nuxt/manifest/meta/<buildId>.json` and is
@@ -141,97 +157,136 @@ export default defineNuxtConfig({
     },
   },
 
-  pwa: {
-    registerType: 'autoUpdate',
-    manifest: {
-      name: 'DP Fitness · Recomp Challenge',
-      short_name: 'DP Fitness',
-      description:
-        'Train with purpose, transform with proof. The DP Fitness 6-week recomp challenge.',
-      theme_color: '#241b2e',
-      background_color: '#fbf6f2',
-      display: 'standalone',
-      orientation: 'any',
-      start_url: '/',
-      // All three are generated from `public/DP.png` onto a solid
-      // `background_color` tile. Android builds its launch screen from the
-      // largest "any" icon over `background_color`, so keeping the tile and the
-      // manifest background the same cream means the OS splash, the boot
-      // template and the app's first frame are one continuous colour.
-      icons: [
-        {
-          src: '/icons/icon-192.png',
-          sizes: '192x192',
-          type: 'image/png',
-        },
-        {
-          src: '/icons/icon-512.png',
-          sizes: '512x512',
-          type: 'image/png',
-        },
-        {
-          src: '/icons/icon-512-maskable.png',
-          sizes: '512x512',
-          type: 'image/png',
-          purpose: 'maskable',
-        },
-      ],
+pwa: {
+  registerType: 'autoUpdate',
+
+  manifest: {
+    id: '/',
+    name: 'DP Fitness · Recomp Challenge',
+    short_name: 'DP Fitness',
+    description:
+      'Train with purpose, transform with proof. The DP Fitness 6-week recomp challenge.',
+
+    start_url: '/',
+    scope: '/',
+    display: 'standalone',
+    orientation: 'any',
+
+    theme_color: '#241b2e',
+    background_color: '#fbf6f2',
+
+    icons: [
+      {
+        src: '/icons/icon-192.png',
+        sizes: '192x192',
+        type: 'image/png',
+      },
+      {
+        src: '/icons/icon-512.png',
+        sizes: '512x512',
+        type: 'image/png',
+      },
+      {
+        src: '/icons/icon-512-maskable.png',
+        sizes: '512x512',
+        type: 'image/png',
+        purpose: 'maskable',
+      },
+    ],
+    screenshots: [
+    {
+      src: '/screenshots/desktop.png',
+      sizes: '1280x720',
+      type: 'image/png',
+      form_factor: 'wide',
     },
-    workbox: {
-      navigateFallback: '/',
-      globPatterns: ['**/*.{js,css,html,png,svg,ico,woff2}'],
-      // The onboarding illustrations are ~700 KB of Figma path data between
-      // them, they are seen once before sign-in, and they are never seen again.
-      // Precaching made every install pay for all three up front, and most of the
-      // install payload, for art most members view for a few seconds. They are
-      // runtime-cached below instead, so the first slide still costs one fetch
-      // and the other two are ready by the time they are swiped to.
-      globIgnores: ['**/onboarding_tour/**'],
-      runtimeCaching: [
-        {
-          urlPattern: ({ url }: { url: URL }) =>
-            url.pathname.startsWith('/onboarding_tour/'),
-          handler: 'CacheFirst',
-          options: {
-            cacheName: 'dpfit-onboarding-art',
-            expiration: { maxEntries: 6, maxAgeSeconds: 60 * 60 * 24 * 30 },
-            cacheableResponse: { statuses: [0, 200] },
-          },
-        },
-        {
-          // Coach and cohort avatars, and the two photographic card washes.
-          // Without a policy these were re-fetched on every cold start.
-          urlPattern: ({ url }: { url: URL }) => url.hostname === 'images.unsplash.com',
-          handler: 'StaleWhileRevalidate',
-          options: {
-            cacheName: 'dpfit-remote-images',
-            expiration: { maxEntries: 60, maxAgeSeconds: 60 * 60 * 24 * 14 },
-            cacheableResponse: { statuses: [0, 200] },
-          },
-        },
-        {
-          // The Google Fonts CSS changes rarely; the woff2 files never do.
-          urlPattern: ({ url }: { url: URL }) => url.hostname === 'fonts.googleapis.com',
-          handler: 'StaleWhileRevalidate',
-          options: { cacheName: 'dpfit-font-css' },
-        },
-        {
-          urlPattern: ({ url }: { url: URL }) => url.hostname === 'fonts.gstatic.com',
-          handler: 'CacheFirst',
-          options: {
-            cacheName: 'dpfit-font-files',
-            expiration: { maxEntries: 20, maxAgeSeconds: 60 * 60 * 24 * 365 },
-            cacheableResponse: { statuses: [0, 200] },
-          },
-        },
-      ],
+    {
+      src: '/screenshots/mobile.png',
+      sizes: '390x844',
+      type: 'image/png',
     },
-    // client: {
-    //   installPrompt: true,
-    // },
-    devOptions: {
-      enabled: false,
-      type: 'module',
-    },
+  ],
   },
+
+  workbox: {
+    // Important for an SPA: unknown navigations fall back
+    // to the cached application shell.
+    navigateFallback: '/',
+
+    globPatterns: ['**/*.{js,css,html,png,svg,ico,woff2}'],
+
+    // Don't precache the onboarding illustrations.
+    globIgnores: ['**/onboarding_tour/**'],
+
+    runtimeCaching: [
+      {
+        urlPattern: ({ url }: { url: URL }) =>
+          url.pathname.startsWith('/onboarding_tour/'),
+        handler: 'CacheFirst',
+        options: {
+          cacheName: 'dpfit-onboarding-art',
+          expiration: {
+            maxEntries: 6,
+            maxAgeSeconds: 60 * 60 * 24 * 30,
+          },
+          cacheableResponse: {
+            statuses: [0, 200],
+          },
+        },
+      },
+
+      {
+        urlPattern: ({ url }: { url: URL }) =>
+          url.hostname === 'images.unsplash.com',
+        handler: 'StaleWhileRevalidate',
+        options: {
+          cacheName: 'dpfit-remote-images',
+          expiration: {
+            maxEntries: 60,
+            maxAgeSeconds: 60 * 60 * 24 * 14,
+          },
+          cacheableResponse: {
+            statuses: [0, 200],
+          },
+        },
+      },
+
+      {
+        urlPattern: ({ url }: { url: URL }) =>
+          url.hostname === 'fonts.googleapis.com',
+        handler: 'StaleWhileRevalidate',
+        options: {
+          cacheName: 'dpfit-font-css',
+        },
+      },
+
+      {
+        urlPattern: ({ url }: { url: URL }) =>
+          url.hostname === 'fonts.gstatic.com',
+        handler: 'CacheFirst',
+        options: {
+          cacheName: 'dpfit-font-files',
+          expiration: {
+            maxEntries: 20,
+            maxAgeSeconds: 60 * 60 * 24 * 365,
+          },
+          cacheableResponse: {
+            statuses: [0, 200],
+          },
+        },
+      },
+    ],
+  },
+
+  client: {
+    // true = capture beforeinstallprompt so you can
+    // trigger installation yourself with $pwa.install()
+    installPrompt: true,
+  },
+
+  devOptions: {
+    enabled: false,
+    type: 'module',
+  },
+},
 })

@@ -5,6 +5,7 @@ import type {
   ChatMessage,
   ChatReaction,
   CheckInRecord,
+  LeaderboardEntry,
   MemberAccount,
   MemberProfile,
   PhotoRecord,
@@ -79,6 +80,17 @@ export interface DataSource {
   /** Badge ids the member has already been awarded, with the award timestamp. */
   listEarnedBadges(): Promise<Record<string, string>>
   awardBadge(id: string, earnedAt: string): Promise<void>
+
+  // --- Leaderboard ------------------------------ GET /cohort/leaderboard ---
+  /**
+   * Every member of the cohort with their qualifying-session count, unordered.
+   *
+   * The one piece of the reward system that isn't local to a single member's
+   * record: it has to be answered across the whole cohort, which is why it is a
+   * method here rather than another derivation in `lib/domain/rewards`. Sorting
+   * and tie-breaking belong to `rankLeaderboard`.
+   */
+  listLeaderboard(): Promise<LeaderboardEntry[]>
 
   // --- Device ---------------------------------------------------------------
   /**

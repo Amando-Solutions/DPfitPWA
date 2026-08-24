@@ -204,12 +204,18 @@ export interface RewardTier {
   achieved: boolean
 }
 
+/**
+ * One row of the cohort leaderboard.
+ *
+ * Ranked on qualifying sessions logged, never on weight, calories or visible
+ * results. Position is not stored: it falls out of sorting the rows, so it
+ * cannot drift out of sync with the counts.
+ */
 export interface LeaderboardEntry {
-  rank: number
   memberId: string
   name: string
   avatar: string
-  points: number
+  sessions: number
   isSelf: boolean
 }
 
@@ -357,6 +363,25 @@ export interface SessionLog {
   proofPhoto: string | null
   note: string
   rewardPoints: number
+  /**
+   * Whether the session cleared the completion threshold.
+   *
+   * This is the gate the whole reward system hangs off: only a qualifying
+   * session earns RP, counts toward a badge, keeps a streak alive or moves the
+   * leaderboard. A session below it still saves and is still visible to the
+   * coach, it just earns nothing.
+   *
+   * Absent on sessions logged before the gate existed; `isQualifying` in
+   * `lib/domain/rewards` recomputes those from the set counts.
+   */
+  qualifies?: boolean
+  /**
+   * Core / cardio work logged as part of this session. Recorded now so the
+   * extra-mile RP bonuses can be switched on the day the Log Workout screen
+   * treats them as identifiable parts of a session. See `rewardValues.core`.
+   */
+  loggedCore?: boolean
+  loggedCardio?: boolean
   /** What was actually logged, kept so the next session can show "previous". */
   exercises: LoggedExercise[]
 }
@@ -406,17 +431,21 @@ export interface Rank {
 export type BadgeRuleId =
   | 'first-workout'
   | 'first-photo'
-  | 'all-days-once'
+  | 'consistency-queen'
   | 'checkin-streak-4'
-  | 'week3-8-sessions'
-  | 'week6-20-sessions'
-  | 'no-week-missed'
+  | 'foundation-complete'
+  | 'peak-performer'
+  | 'no-days-off'
+
+/** How much real effort a badge takes, which is also what it pays out. */
+export type BadgeTier = 'starter' | 'consistency' | 'elite'
 
 export interface BadgeDef {
   id: BadgeRuleId
   name: string
   emoji: string
   description: string
+  tier: BadgeTier
 }
 
 export interface EarnedBadge {
