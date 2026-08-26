@@ -22,24 +22,25 @@ defineEmits<{ (e: 'update:modelValue', value: number): void }>()
       {{ label }}
     </span>
 
-    <div class="flex gap-1.75" role="radiogroup" :aria-label="label">
-      <button
+    <!-- A rating is a single choice from five, so it is a radio group: arrow
+         keys walk the scale, and the whole row is one tab stop. -->
+    <RadioGroup
+      :model-value="modelValue ?? undefined"
+      orientation="horizontal"
+      :aria-label="label"
+      class="flex gap-1.75"
+      @update:model-value="$emit('update:modelValue', Number($event))"
+    >
+      <RadioGroupItem
         v-for="step in steps"
         :key="step"
-        type="button"
-        role="radio"
-        :aria-checked="modelValue === step"
-        class="min-w-0 flex-1 rounded-[14px] border-[1.5px] px-0.5 py-[13.5px] text-center font-data text-[13px] font-bold transition-colors duration-150"
-        :class="
-          modelValue === step
-            ? 'border-rose bg-rose-soft text-rose'
-            : 'border-hairline bg-sunken text-soft'
-        "
-        @click="$emit('update:modelValue', step)"
+        :value="step"
+        variant="plain"
+        class="min-w-0 flex-1 rounded-[14px] border-[1.5px] border-hairline bg-sunken px-0.5 py-[13.5px] text-center font-data text-[13px] font-bold text-soft transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-ring data-[state=checked]:border-rose data-[state=checked]:bg-rose-soft data-[state=checked]:text-rose"
       >
         {{ step }}
-      </button>
-    </div>
+      </RadioGroupItem>
+    </RadioGroup>
 
     <div
       v-if="lowLabel || highLabel"

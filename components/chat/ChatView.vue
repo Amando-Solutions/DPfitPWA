@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Bubble, BubbleContent, BubbleReactions } from '~/components/ui/bubble'
 import type { ChatAttachment, ChatMessage } from '~/data/types'
 import {
   FILE_ACCEPT,
@@ -245,15 +246,13 @@ watch(() => props.messages.length, scrollToEnd)
 const timeOf = (iso: string) =>
   new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
 
-// A bubble's skin depends on who sent it. Resolving that here keeps the
-// template from carrying three nested ternaries per element.
-const bubbleClass = (m: ChatMessage) => [
-  m.isSelf
-    ? 'bg-rose-fill text-on-rose rounded-tl-2xl rounded-tr-[4px]'
-    : 'rounded-tl-[4px]',
-  !m.isSelf && m.isCoach && 'bg-bubble-coach text-ink',
-  !m.isSelf && !m.isCoach && 'bg-raised text-ink',
-]
+// Shadcn's variants own the bubble skin; this local shape keeps the app's
+// sender/receiver tail treatment.
+const bubbleVariant = (m: ChatMessage): 'default' | 'secondary' | 'muted' =>
+  m.isSelf ? 'default' : m.isCoach ? 'muted' : 'secondary'
+
+const bubbleShape = (m: ChatMessage) =>
+  m.isSelf ? 'rounded-2xl rounded-tr-[4px]' : 'rounded-2xl rounded-tl-[4px]'
 
 /**
  * The log, with each message's attachments split once.
@@ -272,7 +271,8 @@ const rows = computed(() =>
       message: m,
       images: attachments.filter((a) => a.kind === 'image'),
       files: attachments.filter((a) => a.kind !== 'image'),
-      bubble: bubbleClass(m),
+      shape: bubbleShape(m),
+      variant: bubbleVariant(m),
       time: timeOf(m.sentAt),
     }
   }),
@@ -324,21 +324,15 @@ const TOOL =
       -->
       <div class="flex min-h-full flex-col justify-end gap-3.5">
         <div
-          v-for="{ message: m, images, files, bubble, time } in rows"
+          v-for="{ message: m, images, files, shape, time, variant } in rows"
           :key="m.id"
           class="flex max-w-[82%] gap-2 lg:max-w-[68%]"
           :class="m.isSelf && 'flex-row-reverse self-end'"
         >
-          <img
-            v-if="!m.isSelf"
-            :src="m.authorAvatar"
-            class="mt-4 size-7.5 shrink-0 rounded-full object-cover"
-            :alt="m.authorName"
-            width="30"
-            height="30"
-            loading="lazy"
-            decoding="async"
-          />
+          <Avatar v-if="!m.isSelf" size="xs" class="mt-4">
+            <AvatarImage :src="m.authorAvatar ?? ''" :alt="m.authorName" loading="lazy" />
+            <AvatarFallback>{{ m.authorName.charAt(0).toUpperCase() }}</AvatarFallback>
+          </Avatar>
 
           <div class="flex min-w-0 flex-col gap-1">
             <span
@@ -355,91 +349,94 @@ const TOOL =
               make that possible on a phone: left alone, a long press on text
               starts a selection and raises the system menu instead.
             -->
-            <div
-              class="flex flex-col gap-1.5 rounded-2xl text-sm leading-[1.45] shadow-card select-none transition-transform duration-150 [-webkit-touch-callout:none]"
-              :class="[
-                bubble,
-                m.text ? 'px-3.5 py-3' : 'p-1.25',
-                pressing === m.id && 'scale-[0.97]',
-              ]"
-              @pointerdown="startHold($event, m.id)"
-              @pointermove="moveHold"
-              @pointerup="cancelHold"
-              @pointercancel="cancelHold"
-              @pointerleave="cancelHold"
-              @click.capture="swallowClick"
-              @contextmenu="onContextMenu($event, m.id)"
-            >
-              <div
-                v-if="images.length"
-                class="max-w-58"
-                :class="images.length > 1 ? 'grid grid-cols-2 gap-1' : 'flex'"
+            <Bubble :variant="variant" :align="m.isSelf ? 'end' : 'start'" class="max-w-full">
+              <BubbleContent
+                class="flex flex-col gap-1.5 border-0 text-sm leading-[1.45] shadow-card select-none transition-transform duration-150 [-webkit-touch-callout:none]"
+                :class="[
+                  shape,
+                  m.text ? 'px-3.5 py-3' : 'p-1.25',
+                  pressing === m.id && 'scale-[0.97]',
+                ]"
+                @pointerdown="startHold($event, m.id)"
+                @pointermove="moveHold"
+                @pointerup="cancelHold"
+                @pointercancel="cancelHold"
+                @pointerleave="cancelHold"
+                @click.capture="swallowClick"
+                @contextmenu="onContextMenu($event, m.id)"
+              >
+                <div
+                  v-if="images.length"
+                  class="max-w-58"
+                  :class="images.length > 1 ? 'grid grid-cols-2 gap-1' : 'flex'"
+                >
+                  <button
+                    v-for="shot in images"
+                    :key="shot.id"
+                    class="block overflow-hidden rounded-xl bg-fill-subtle leading-none"
+                    :aria-label="'Open ' + shot.name"
+                    @click="viewing = shot"
+                  >
+                    <img
+                      :src="shot.url"
+                      :alt="shot.name"
+                      class="block w-full object-cover"
+                      :class="images.length > 1 ? 'h-26' : 'max-h-70'"
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  </button>
+                </div>
+
+                <a
+                  v-for="doc in files"
+                  :key="doc.id"
+                  class="flex max-w-58 items-center gap-2 rounded-xl px-3 py-2.5"
+                  :class="m.isSelf ? 'bg-white/18' : 'bg-fill-subtle'"
+                  :href="doc.url"
+                  :download="doc.name"
+                >
+                  <AppIcon name="file" :size="18" :stroke="1.8" />
+                  <span class="min-w-0 flex-1 truncate text-[13px] font-semibold">
+                    {{ doc.name }}
+                  </span>
+                  <span class="data shrink-0 text-[10px] opacity-65">
+                    {{ formatBytes(doc.size) }}
+                  </span>
+                </a>
+
+                <p v-if="m.text" class="m-0 wrap-break-word whitespace-pre-wrap">
+                  {{ m.text }}
+                </p>
+              </BubbleContent>
+
+              <span
+                class="data text-[9px] text-muted"
+                :class="m.isSelf ? 'self-start' : 'self-end'"
+              >
+                {{ time }}
+              </span>
+
+              <!-- The chips toggle too, so taking a reaction back is one tap. -->
+              <BubbleReactions
+                v-if="m.reactions?.length"
+                :align="m.isSelf ? 'end' : 'start'"
+                class="static translate-y-0 flex-wrap gap-1.5 rounded-none bg-transparent p-0 ring-0"
+                :class="m.isSelf ? 'self-end' : 'self-start'"
               >
                 <button
-                  v-for="shot in images"
-                  :key="shot.id"
-                  class="block overflow-hidden rounded-xl bg-fill-subtle leading-none"
-                  :aria-label="'Open ' + shot.name"
-                  @click="viewing = shot"
+                  v-for="r in m.reactions"
+                  :key="r.emoji"
+                  class="rounded-pill bg-raised px-2 py-0.5 text-[11px] font-bold text-ink shadow-card"
+                  :class="r.mine && 'shadow-[0_0_0_1.5px_var(--rose)]'"
+                  :aria-pressed="Boolean(r.mine)"
+                  :aria-label="`${r.count} reacted ${r.emoji}`"
+                  @click="emit('react', { messageId: m.id, emoji: r.emoji })"
                 >
-                  <img
-                    :src="shot.url"
-                    :alt="shot.name"
-                    class="block w-full object-cover"
-                    :class="images.length > 1 ? 'h-26' : 'max-h-70'"
-                    loading="lazy"
-                    decoding="async"
-                  />
+                  {{ r.emoji }} {{ r.count }}
                 </button>
-              </div>
-
-              <a
-                v-for="doc in files"
-                :key="doc.id"
-                class="flex max-w-58 items-center gap-2 rounded-xl px-3 py-2.5"
-                :class="m.isSelf ? 'bg-white/18' : 'bg-fill-subtle'"
-                :href="doc.url"
-                :download="doc.name"
-              >
-                <AppIcon name="file" :size="18" :stroke="1.8" />
-                <span class="min-w-0 flex-1 truncate text-[13px] font-semibold">
-                  {{ doc.name }}
-                </span>
-                <span class="data shrink-0 text-[10px] opacity-65">
-                  {{ formatBytes(doc.size) }}
-                </span>
-              </a>
-
-              <p v-if="m.text" class="m-0 wrap-break-word whitespace-pre-wrap">
-                {{ m.text }}
-              </p>
-            </div>
-
-            <span
-              class="data text-[9px] text-muted"
-              :class="m.isSelf ? 'self-start' : 'self-end'"
-            >
-              {{ time }}
-            </span>
-
-            <!-- The chips toggle too, so taking a reaction back is one tap. -->
-            <div
-              v-if="m.reactions?.length"
-              class="flex flex-wrap gap-1.5"
-              :class="m.isSelf && 'justify-end'"
-            >
-              <button
-                v-for="r in m.reactions"
-                :key="r.emoji"
-                class="rounded-pill bg-raised px-2 py-0.5 text-[11px] font-bold text-ink shadow-card"
-                :class="r.mine && 'shadow-[0_0_0_1.5px_var(--rose)]'"
-                :aria-pressed="Boolean(r.mine)"
-                :aria-label="`${r.count} reacted ${r.emoji}`"
-                @click="emit('react', { messageId: m.id, emoji: r.emoji })"
-              >
-                {{ r.emoji }} {{ r.count }}
-              </button>
-            </div>
+              </BubbleReactions>
+            </Bubble>
           </div>
         </div>
       </div>

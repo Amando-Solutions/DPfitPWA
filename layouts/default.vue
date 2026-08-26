@@ -5,56 +5,11 @@
 </script>
 
 <template>
-  <div class="layout-default">
-    <div class="layout-default__body scroll-y">
-      <div class="layout-default__flow">
+  <div class="layout-default [position:relative] [height:100%] w-full [display:flex] [flex-direction:column] [overflow:hidden] [background:var(--paper)]">
+    <div class="layout-default__body scroll-y max-w-screen [flex:1] [display:flex] [flex-direction:column] [min-height:0] lg:[align-items:center] lg:[padding:40px_24px]">
+      <div class="layout-default__flow w-full [flex:1] [display:flex] [flex-direction:column] [width:100%] lg:[flex:0_1_auto] lg:[margin:auto] lg:[max-width:var(--flow-max)] lg:[background:var(--paper-raised)] lg:[border-radius:var(--radius-lg)] lg:[box-shadow:var(--shadow-raised)] lg:[overflow:hidden]">
         <slot />
       </div>
     </div>
   </div>
 </template>
-
-<style scoped lang="scss">
-.layout-default {
-  position: relative;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  background: var(--paper);
-
-  &__body {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-  }
-
-  &__flow {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    width: 100%;
-  }
-}
-
-@media (min-width: 1024px) {
-  .layout-default {
-    &__body {
-      align-items: center;
-      padding: 40px 24px;
-    }
-
-    &__flow {
-      // `margin: auto` (rather than justify-content) centres the card without
-      // clipping its top once the content outgrows the viewport.
-      flex: 0 1 auto;
-      margin: auto;
-      max-width: var(--flow-max);
-      background: var(--paper-raised);
-      border-radius: var(--radius-lg);
-      box-shadow: var(--shadow-raised);
-      overflow: hidden;
-    }
-  }
-}
-</style>

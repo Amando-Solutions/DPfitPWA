@@ -36,34 +36,34 @@ const finish = async () => {
     :busy="busy"
     @continue="finish"
   >
-    <AppCard variant="raised" class="form-card">
+    <AppCard variant="raised" class="form-card [display:flex] [flex-direction:column] [gap:20px]">
       <div>
-        <span class="form-card__label">Allergies / restrictions</span>
+        <span class="form-card__label [display:block] [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:1px] [font-size:10px] [font-weight:700] [color:var(--violet-45)] [margin-bottom:10px]">Allergies / restrictions</span>
         <textarea
           v-model="allergies"
-          class="area"
+          class="area [width:100%] [padding:14px_16px] [background:var(--paper)] [border:1px_solid_var(--hairline)] [border-radius:var(--space-16)] [font-size:15px] [color:var(--ink)] [outline:none] [resize:none] [font-family:var(--font-body)] placeholder:[color:var(--text-placeholder)]"
           placeholder="e.g. dairy, shellfish"
           rows="2"
         />
       </div>
 
       <div>
-        <span class="form-card__label">Injuries / limitations · coach only</span>
+        <span class="form-card__label [display:block] [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:1px] [font-size:10px] [font-weight:700] [color:var(--violet-45)] [margin-bottom:10px]">Injuries / limitations · coach only</span>
         <textarea
           v-model="injuries"
-          class="area"
+          class="area [width:100%] [padding:14px_16px] [background:var(--paper)] [border:1px_solid_var(--hairline)] [border-radius:var(--space-16)] [font-size:15px] [color:var(--ink)] [outline:none] [resize:none] [font-family:var(--font-body)] placeholder:[color:var(--text-placeholder)]"
           placeholder="e.g. slight knee tenderness"
           rows="2"
         />
       </div>
 
       <div>
-        <span class="form-card__label">Preferred live call</span>
-        <div class="slots">
+        <span class="form-card__label [display:block] [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:1px] [font-size:10px] [font-weight:700] [color:var(--violet-45)] [margin-bottom:10px]">Preferred live call</span>
+        <div class="slots [display:grid] [grid-template-columns:1fr_1fr] [gap:12px]">
           <button
             v-for="slot in callSlots"
             :key="slot.id"
-            class="slot"
+            class="slot [height:52px] [border-radius:var(--space-16)] [background:var(--paper)] [box-shadow:inset_0_0_0_1px_var(--hairline)] [font-weight:700] [font-size:14px] [color:var(--ink)] [&.slot--active]:[background:var(--rose-softer)] [&.slot--active]:[box-shadow:inset_0_0_0_1.5px_var(--rose)] [&.slot--active]:[color:var(--rose)]"
             :class="{ 'slot--active': callSlot === slot.id }"
             @click="callSlot = slot.id"
           >
@@ -74,58 +74,3 @@ const finish = async () => {
     </AppCard>
   </SetupStepShell>
 </template>
-
-<style scoped lang="scss">
-.form-card {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-
-  &__label {
-    display: block;
-    font-family: var(--font-eyebrow);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    font-size: 10px;
-    font-weight: 700;
-    color: var(--violet-45);
-    margin-bottom: 10px;
-  }
-}
-.area {
-  width: 100%;
-  padding: 14px 16px;
-  background: var(--paper);
-  border: 1px solid var(--hairline);
-  border-radius: var(--space-16);
-  font-size: 15px;
-  color: var(--ink);
-  outline: none;
-  resize: none;
-  font-family: var(--font-body);
-
-  &::placeholder {
-    color: var(--text-placeholder);
-  }
-}
-.slots {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-.slot {
-  height: 52px;
-  border-radius: var(--space-16);
-  background: var(--paper);
-  box-shadow: inset 0 0 0 1px var(--hairline);
-  font-weight: 700;
-  font-size: 14px;
-  color: var(--ink);
-
-  &--active {
-    background: var(--rose-softer);
-    box-shadow: inset 0 0 0 1.5px var(--rose);
-    color: var(--rose);
-  }
-}
-</style>

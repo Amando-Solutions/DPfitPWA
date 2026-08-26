@@ -10,6 +10,8 @@ import type { ActivityLevel, Goal, Units } from '~/data/types'
 const router = useRouter()
 const store = useAppStore()
 
+const UNIT_OPTIONS: Units[] = ['kg', 'lb']
+
 const profile = computed(() => store.profile.value)
 
 // --- Editable fields (saved on blur so nothing needs a "save" button) -------
@@ -68,29 +70,29 @@ const signOut = async () => {
 </script>
 
 <template>
-  <div class="profile">
+  <div class="profile [padding:var(--screen-pad-top)_20px_0] [display:flex] [flex-direction:column] [gap:18px] [&_.profile__title]:[margin:8px_0_6px] [&_.profile__sub]:[margin:0] [&_.profile__sub]:[font-size:13.5px] [&_.profile__sub]:[line-height:1.45] [&_.switch]:[width:46px] [&_.switch]:[height:27px] [&_.switch]:[border-radius:var(--radius-pill)] [&_.switch]:[background:var(--hairline-strong)] [&_.switch]:[padding:3px] [&_.switch]:[display:flex] [&_.switch]:[transition:background_0.18s_ease] [&_.switch--on]:[background:var(--rose-fill)] [&_.switch--on]:[justify-content:flex-end] [&_.switch__knob]:[width:21px] [&_.switch__knob]:[height:21px] [&_.switch__knob]:[border-radius:50%] [&_.switch__knob]:[background:var(--paper-raised)] [&_.switch__knob]:[box-shadow:var(--shadow-knob)] [&_.fade-enter-active]:[transition:opacity_0.2s_ease] [&_.fade-leave-active]:[transition:opacity_0.2s_ease] [&_.fade-enter-from]:[opacity:0] [&_.fade-leave-to]:[opacity:0] lg:[padding:0] lg:[display:grid] lg:[grid-template-columns:minmax(0,_1fr)_minmax(0,_1fr)] lg:[grid-template-areas:'header_header'_'snapshot_snapshot'_'details_right'_'danger_danger'] lg:[align-content:start] lg:[align-items:start] lg:[column-gap:24px] lg:[row-gap:18px] lg:[&_.profile__sub]:[font-size:15px] lg:[&_.profile__sub]:[max-width:560px]">
     <ScreenIntro
       :eyebrow="cohort.name"
       title="Profile & settings"
       subtitle="Change these any time. Your fuel targets recalculate straight away."
       :actions="false"
-      class="profile__header"
+      class="profile__header lg:[grid-area:header]"
     />
 
     <!-- Snapshot -->
-    <section class="profile__snapshot">
-      <AppCard variant="ink" class="snapshot">
-        <div class="snapshot__cell">
-          <span class="snapshot__label">Started at</span>
-          <span class="snapshot__value data">{{ formatWeight(startWeight, units) }}</span>
+    <section class="profile__snapshot lg:[grid-area:snapshot]">
+      <AppCard variant="ink" class="snapshot [display:grid] [grid-template-columns:repeat(3,_1fr)] [gap:12px]">
+        <div class="snapshot__cell [display:flex] [flex-direction:column] [gap:5px]">
+          <span class="snapshot__label [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:0.5px] [font-size:8.5px] [font-weight:700] [color:var(--on-inverse-muted)]">Started at</span>
+          <span class="snapshot__value data [font-size:17px] [font-weight:700] [color:var(--on-inverse)]">{{ formatWeight(startWeight, units) }}</span>
         </div>
-        <div class="snapshot__cell">
-          <span class="snapshot__label">Now</span>
-          <span class="snapshot__value data">{{ formatWeight(weightKg, units) }}</span>
+        <div class="snapshot__cell [display:flex] [flex-direction:column] [gap:5px]">
+          <span class="snapshot__label [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:0.5px] [font-size:8.5px] [font-weight:700] [color:var(--on-inverse-muted)]">Now</span>
+          <span class="snapshot__value data [font-size:17px] [font-weight:700] [color:var(--on-inverse)]">{{ formatWeight(weightKg, units) }}</span>
         </div>
-        <div class="snapshot__cell">
-          <span class="snapshot__label">Change</span>
-          <span class="snapshot__value snapshot__value--accent data">
+        <div class="snapshot__cell [display:flex] [flex-direction:column] [gap:5px]">
+          <span class="snapshot__label [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:0.5px] [font-size:8.5px] [font-weight:700] [color:var(--on-inverse-muted)]">Change</span>
+          <span class="snapshot__value snapshot__value--accent data [font-size:17px] [font-weight:700] [color:var(--on-inverse)] [color:var(--orange)]">
             {{ change === null ? '-' : `${change > 0 ? '+' : ''}${change.toFixed(1)}kg` }}
           </span>
         </div>
@@ -98,14 +100,14 @@ const signOut = async () => {
     </section>
 
     <!-- Your details -->
-    <section class="profile__section">
-      <div class="profile__section-head">
+    <section class="profile__section [display:flex] [flex-direction:column] [gap:10px] lg:[&:nth-of-type(2)]:[grid-area:details]">
+      <div class="profile__section-head [display:flex] [align-items:center] [justify-content:space-between]">
         <EyebrowLabel tone="muted">Your details</EyebrowLabel>
         <Transition name="fade">
-          <span v-if="saved" class="profile__saved">Saved</span>
+          <span v-if="saved" class="profile__saved [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:1px] [font-size:9px] [font-weight:700] [color:var(--rose)]">Saved</span>
         </Transition>
       </div>
-      <AppCard variant="raised" class="profile__card">
+      <AppCard variant="raised" class="profile__card [display:flex] [flex-direction:column] [gap:16px]">
         <TextField v-model="displayName" label="Display name" @blur="persist" />
         <TextField
           v-model.number="weightKg"
@@ -116,8 +118,8 @@ const signOut = async () => {
         />
 
         <div>
-          <span class="profile__label">Activity level</span>
-          <div class="profile__options">
+          <span class="profile__label [display:block] [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:1px] [font-size:10px] [font-weight:700] [color:var(--violet-45)] [margin-bottom:10px]">Activity level</span>
+          <div class="profile__options [display:flex] [flex-direction:column] [gap:8px]">
             <OptionCard
               v-for="option in activityOptions"
               :key="option.id"
@@ -135,8 +137,8 @@ const signOut = async () => {
         </div>
 
         <div>
-          <span class="profile__label">Goal</span>
-          <div class="profile__options">
+          <span class="profile__label [display:block] [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:1px] [font-size:10px] [font-weight:700] [color:var(--violet-45)] [margin-bottom:10px]">Goal</span>
+          <div class="profile__options [display:flex] [flex-direction:column] [gap:8px]">
             <OptionCard
               v-for="option in goalOptions"
               :key="option.id"
@@ -156,26 +158,26 @@ const signOut = async () => {
       </AppCard>
     </section>
 
-    <div class="profile__right">
+    <div class="profile__right [display:contents] lg:[grid-area:right] lg:[display:flex] lg:[flex-direction:column] lg:[gap:18px] lg:[align-self:start]">
       <!-- Coach only -->
-      <section class="profile__section">
+      <section class="profile__section [display:flex] [flex-direction:column] [gap:10px] lg:[&:nth-of-type(2)]:[grid-area:details]">
       <EyebrowLabel tone="muted">Coach only</EyebrowLabel>
-      <AppCard variant="raised" class="profile__card">
+      <AppCard variant="raised" class="profile__card [display:flex] [flex-direction:column] [gap:16px]">
         <div>
-          <span class="profile__label">Allergies / restrictions</span>
-          <textarea v-model="allergies" class="profile__area" rows="2" @blur="persist" />
+          <span class="profile__label [display:block] [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:1px] [font-size:10px] [font-weight:700] [color:var(--violet-45)] [margin-bottom:10px]">Allergies / restrictions</span>
+          <textarea v-model="allergies" class="profile__area [width:100%] [padding:12px_14px] [background:var(--paper)] [border-radius:var(--radius-md)] [box-shadow:inset_0_0_0_1.5px_var(--hairline)] [font-family:var(--font-body)] [font-size:14px] [color:var(--ink)] [border:none] [outline:none] [resize:none]" rows="2" @blur="persist" />
         </div>
         <div>
-          <span class="profile__label">Injuries / limitations</span>
-          <textarea v-model="injuries" class="profile__area" rows="2" @blur="persist" />
+          <span class="profile__label [display:block] [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:1px] [font-size:10px] [font-weight:700] [color:var(--violet-45)] [margin-bottom:10px]">Injuries / limitations</span>
+          <textarea v-model="injuries" class="profile__area [width:100%] [padding:12px_14px] [background:var(--paper)] [border-radius:var(--radius-md)] [box-shadow:inset_0_0_0_1.5px_var(--hairline)] [font-family:var(--font-body)] [font-size:14px] [color:var(--ink)] [border:none] [outline:none] [resize:none]" rows="2" @blur="persist" />
         </div>
         <div>
-          <span class="profile__label">Preferred live call</span>
-          <div class="profile__slots">
+          <span class="profile__label [display:block] [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:1px] [font-size:10px] [font-weight:700] [color:var(--violet-45)] [margin-bottom:10px]">Preferred live call</span>
+          <div class="profile__slots [display:grid] [grid-template-columns:1fr_1fr] [gap:12px]">
             <button
               v-for="slot in callSlots"
               :key="slot.id"
-              class="profile__slot"
+              class="profile__slot [height:48px] [border-radius:var(--radius-md)] [background:var(--paper)] [box-shadow:inset_0_0_0_1.5px_var(--hairline)] [font-weight:700] [font-size:14px] [color:var(--ink)] [&.profile__slot--on]:[background:var(--rose-softer)] [&.profile__slot--on]:[box-shadow:inset_0_0_0_1.5px_var(--rose)] [&.profile__slot--on]:[color:var(--rose)]"
               :class="{ 'profile__slot--on': callSlot === slot.id }"
               @click="
                 () => {
@@ -192,55 +194,51 @@ const signOut = async () => {
     </section>
 
     <!-- Preferences -->
-    <section class="profile__section">
+    <section class="profile__section [display:flex] [flex-direction:column] [gap:10px] lg:[&:nth-of-type(2)]:[grid-area:details]">
       <EyebrowLabel tone="muted">Preferences</EyebrowLabel>
-      <AppCard variant="raised" class="profile__card">
-        <div class="profile__row">
-          <span class="profile__row-label">Appearance</span>
+      <AppCard variant="raised" class="profile__card [display:flex] [flex-direction:column] [gap:16px]">
+        <div class="profile__row [display:flex] [align-items:center] [justify-content:space-between] [gap:12px] [flex-wrap:wrap] [row-gap:10px]">
+          <span class="profile__row-label [font-size:14px] [font-weight:600] [color:var(--ink)]">Appearance</span>
           <ThemeToggle />
         </div>
 
-        <div class="profile__row">
-          <span class="profile__row-label">Weight unit</span>
-          <div class="profile__units">
-            <button
-              class="profile__unit"
-              :class="{ 'profile__unit--on btn-raised': units === 'kg' }"
-              @click="setUnits('kg')"
+        <div class="profile__row [display:flex] [align-items:center] [justify-content:space-between] [gap:12px] [flex-wrap:wrap] [row-gap:10px]">
+          <span class="profile__row-label [font-size:14px] [font-weight:600] [color:var(--ink)]">Weight unit</span>
+          <RadioGroup
+            :model-value="units"
+            orientation="horizontal"
+            aria-label="Weight unit"
+            class="profile__units [display:flex] [gap:2px] [padding:3px] [background:var(--fill-subtle)] [border-radius:var(--radius-pill)]"
+            @update:model-value="setUnits($event as Units)"
+          >
+            <RadioGroupItem
+              v-for="option in UNIT_OPTIONS"
+              :key="option"
+              :value="option"
+              variant="plain"
+              class="profile__unit [padding:6px_14px] [border-radius:var(--radius-pill)] [font-family:var(--font-eyebrow)] [letter-spacing:0.5px] [font-size:10px] [font-weight:700] [color:var(--violet-45)] data-[state=checked]:btn-raised data-[state=checked]:[background:var(--surface-inverse)] data-[state=checked]:[--btn-face:var(--surface-inverse)] data-[state=checked]:[color:var(--on-inverse)]"
             >
-              KG
-            </button>
-            <button
-              class="profile__unit"
-              :class="{ 'profile__unit--on btn-raised': units === 'lb' }"
-              @click="setUnits('lb')"
-            >
-              LB
-            </button>
-          </div>
+              {{ option.toUpperCase() }}
+            </RadioGroupItem>
+          </RadioGroup>
         </div>
 
-        <div v-for="toggle in toggles" :key="toggle.key" class="profile__row">
-          <span class="profile__row-label">{{ toggle.label }}</span>
-          <button
-            class="switch"
-            :class="{ 'switch--on': toggle.value }"
-            role="switch"
-            :aria-checked="toggle.value"
+        <div v-for="toggle in toggles" :key="toggle.key" class="profile__row [display:flex] [align-items:center] [justify-content:space-between] [gap:12px] [flex-wrap:wrap] [row-gap:10px]">
+          <span class="profile__row-label [font-size:14px] [font-weight:600] [color:var(--ink)]">{{ toggle.label }}</span>
+          <Switch
+            :model-value="toggle.value"
             :aria-label="toggle.label"
-            @click="store.saveSettings({ [toggle.key]: !toggle.value })"
-          >
-            <span class="switch__knob" />
-          </button>
+            @update:model-value="store.saveSettings({ [toggle.key]: $event })"
+          />
         </div>
       </AppCard>
     </section>
 
     </div>
 
-    <section class="profile__section profile__section--danger">
+    <section class="profile__section profile__section--danger [display:flex] [flex-direction:column] [gap:10px] lg:[&:nth-of-type(2)]:[grid-area:details] lg:[grid-area:danger] lg:[max-width:420px]">
       <AppButton variant="danger" @click="showSignOut = true">Sign out</AppButton>
-      <p class="profile__danger-note">
+      <p class="profile__danger-note [margin:0] [font-size:12px] [line-height:1.45] [color:var(--violet-45)] [text-align:center]">
         Signing out clears everything stored on this device: logs, photos and
         check-ins included.
       </p>
@@ -248,291 +246,14 @@ const signOut = async () => {
 
     <!-- 31 · Confirm Sign Out -->
     <BottomSheet v-model="showSignOut" title="Sign out?">
-      <p class="signout__body">
+      <p class="signout__body [margin:0_0_16px] [font-size:14px] [line-height:1.5] [color:var(--violet-45)]">
         This device is where your challenge lives. Signing out erases your logged
         sessions, photos and check-ins.
       </p>
-      <div class="signout__actions">
+      <div class="signout__actions [display:grid] [grid-template-columns:1fr_1fr] [gap:12px]">
         <AppButton variant="secondary" @click="showSignOut = false">Stay</AppButton>
         <AppButton variant="danger" @click="signOut">Sign out</AppButton>
       </div>
     </BottomSheet>
   </div>
 </template>
-
-<style scoped lang="scss">
-.profile {
-  padding: var(--screen-pad-top) 20px 0;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-
-  // Transparent on mobile so the sections stay in one column.
-  &__right {
-    display: contents;
-  }
-
-  &__title {
-    margin: 8px 0 6px;
-  }
-
-  &__sub {
-    margin: 0;
-    font-size: 13.5px;
-    line-height: 1.45;
-  }
-
-  &__section {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  &__section-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  &__saved {
-    font-family: var(--font-eyebrow);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    font-size: 9px;
-    font-weight: 700;
-    color: var(--rose);
-  }
-
-  &__card {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  &__label {
-    display: block;
-    font-family: var(--font-eyebrow);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    font-size: 10px;
-    font-weight: 700;
-    color: var(--violet-45);
-    margin-bottom: 10px;
-  }
-
-  &__options {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  &__area {
-    width: 100%;
-    padding: 12px 14px;
-    background: var(--paper);
-    border-radius: var(--radius-md);
-    box-shadow: inset 0 0 0 1.5px var(--hairline);
-    font-family: var(--font-body);
-    font-size: 14px;
-    color: var(--ink);
-    border: none;
-    outline: none;
-    resize: none;
-  }
-
-  &__slots {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-  }
-
-  &__slot {
-    height: 48px;
-    border-radius: var(--radius-md);
-    background: var(--paper);
-    box-shadow: inset 0 0 0 1.5px var(--hairline);
-    font-weight: 700;
-    font-size: 14px;
-    color: var(--ink);
-
-    &--on {
-      background: var(--rose-softer);
-      box-shadow: inset 0 0 0 1.5px var(--rose);
-      color: var(--rose);
-    }
-  }
-
-  &__row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    // The appearance control is ~224px wide; on a 320px screen it drops to its
-    // own line rather than pushing out of the card.
-    flex-wrap: wrap;
-    row-gap: 10px;
-  }
-
-  &__row-label {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--ink);
-  }
-
-  &__units {
-    display: flex;
-    gap: 2px;
-    padding: 3px;
-    background: var(--fill-subtle);
-    border-radius: var(--radius-pill);
-  }
-
-  &__unit {
-    padding: 6px 14px;
-    border-radius: var(--radius-pill);
-    font-family: var(--font-eyebrow);
-    letter-spacing: 0.5px;
-    font-size: 10px;
-    font-weight: 700;
-    color: var(--violet-45);
-
-    &--on {
-      background: var(--surface-inverse);
-      --btn-face: var(--surface-inverse);
-      color: var(--on-inverse);
-    }
-  }
-
-  &__danger-note {
-    margin: 0;
-    font-size: 12px;
-    line-height: 1.45;
-    color: var(--violet-45);
-    text-align: center;
-  }
-}
-
-.switch {
-  width: 46px;
-  height: 27px;
-  border-radius: var(--radius-pill);
-  background: var(--hairline-strong);
-  padding: 3px;
-  display: flex;
-  transition: background 0.18s ease;
-
-  &--on {
-    background: var(--rose-fill);
-    justify-content: flex-end;
-  }
-
-  &__knob {
-    width: 21px;
-    height: 21px;
-    border-radius: 50%;
-    background: var(--paper-raised);
-    box-shadow: var(--shadow-knob);
-  }
-}
-
-.snapshot {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-
-  &__cell {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-  }
-
-  &__label {
-    font-family: var(--font-eyebrow);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    font-size: 8.5px;
-    font-weight: 700;
-    color: var(--on-inverse-muted);
-  }
-
-  &__value {
-    font-size: 17px;
-    font-weight: 700;
-    color: var(--on-inverse);
-
-    &--accent {
-      color: var(--orange);
-    }
-  }
-}
-
-.signout {
-  &__body {
-    margin: 0 0 16px;
-    font-size: 14px;
-    line-height: 1.5;
-    color: var(--violet-45);
-  }
-  &__actions {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-  }
-}
-
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
-
-@media (min-width: 1024px) {
-  .profile {
-    padding: 0;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-areas:
-      'header   header'
-      'snapshot snapshot'
-      'details  right'
-      'danger   danger';
-    align-content: start;
-    align-items: start;
-    column-gap: 24px;
-    row-gap: 18px;
-
-    &__header {
-      grid-area: header;
-    }
-
-    &__sub {
-      font-size: 15px;
-      max-width: 560px;
-    }
-
-    &__snapshot {
-      grid-area: snapshot;
-    }
-
-    &__section:nth-of-type(2) {
-      grid-area: details;
-    }
-
-    &__right {
-      grid-area: right;
-      display: flex;
-      flex-direction: column;
-      gap: 18px;
-      align-self: start;
-    }
-
-    &__section--danger {
-      grid-area: danger;
-      max-width: 420px;
-    }
-  }
-}
-</style>

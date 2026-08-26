@@ -58,7 +58,14 @@ export default defineNuxtConfig({
 
   // Auto-import components by filename (no directory prefix), so
   // components/shell/AppShell.vue is <AppShell/>, etc.
-  components: [{ path: '~/components', pathPrefix: false }],
+  //
+  // `extensions` is narrowed to Vue files because the shadcn components under
+  // `components/ui/*` ship a barrel `index.ts` each, and Nuxt would otherwise
+  // register that barrel as a component named after its directory: `Dialog`
+  // from `ui/dialog/index.ts` colliding with `Dialog` from `ui/dialog/Dialog.vue`,
+  // and the same for the other six. Keeping the barrels means `shadcn-vue add`
+  // output drops in unchanged and explicit imports still work.
+  components: [{ path: '~/components', pathPrefix: false, extensions: ['vue'] }],
 
   // Nuxt only auto-detects `~/app/spa-loading-template.html`; this project keeps
   // it at the root, so without an explicit path the boot splash is compiled in
@@ -220,8 +227,7 @@ pwa: {
 
     runtimeCaching: [
       {
-        urlPattern: ({ url }: { url: URL }) =>
-          url.pathname.startsWith('/onboarding_tour/'),
+        urlPattern: /\/onboarding_tour\//,
         handler: 'CacheFirst',
         options: {
           cacheName: 'dpfit-onboarding-art',
@@ -236,8 +242,7 @@ pwa: {
       },
 
       {
-        urlPattern: ({ url }: { url: URL }) =>
-          url.hostname === 'images.unsplash.com',
+        urlPattern: /^https:\/\/images\.unsplash\.com\//,
         handler: 'StaleWhileRevalidate',
         options: {
           cacheName: 'dpfit-remote-images',
@@ -252,8 +257,7 @@ pwa: {
       },
 
       {
-        urlPattern: ({ url }: { url: URL }) =>
-          url.hostname === 'fonts.googleapis.com',
+        urlPattern: /^https:\/\/fonts\.googleapis\.com\//,
         handler: 'StaleWhileRevalidate',
         options: {
           cacheName: 'dpfit-font-css',
@@ -261,8 +265,7 @@ pwa: {
       },
 
       {
-        urlPattern: ({ url }: { url: URL }) =>
-          url.hostname === 'fonts.gstatic.com',
+        urlPattern: /^https:\/\/fonts\.gstatic\.com\//,
         handler: 'CacheFirst',
         options: {
           cacheName: 'dpfit-font-files',

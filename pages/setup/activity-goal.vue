@@ -41,11 +41,11 @@ const next = async () => {
     :busy="busy"
     @continue="next"
   >
-    <AppCard variant="raised" class="form-card">
+    <AppCard variant="raised" class="form-card [display:flex] [flex-direction:column] [gap:22px]">
       <div>
-        <span class="form-card__label">How active are your days?</span>
+        <span class="form-card__label [display:block] [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:1px] [font-size:10px] [font-weight:700] [color:var(--violet-45)] [margin-bottom:10px]">How active are your days?</span>
         <button
-          class="dropdown"
+          class="dropdown [width:100%] [height:52px] [padding:0_16px] [display:flex] [align-items:center] [justify-content:space-between] [background:var(--paper)] [border:1px_solid_var(--hairline)] [border-radius:var(--space-16)] [font-size:15px] [font-weight:600] [color:var(--ink)] [&.dropdown--empty]:[color:var(--text-placeholder)]"
           :class="{ 'dropdown--empty': !activity }"
           @click="showActivity = true"
         >
@@ -55,8 +55,8 @@ const next = async () => {
       </div>
 
       <div>
-        <span class="form-card__label">What are you here for?</span>
-        <div class="goals">
+        <span class="form-card__label [display:block] [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:1px] [font-size:10px] [font-weight:700] [color:var(--violet-45)] [margin-bottom:10px]">What are you here for?</span>
+        <div class="goals [display:flex] [flex-direction:column] [gap:10px]">
           <OptionCard
             v-for="option in goalOptions"
             :key="option.id"
@@ -71,7 +71,7 @@ const next = async () => {
     </AppCard>
 
     <BottomSheet v-model="showActivity" title="How active are your days?">
-      <div class="sheet-list">
+      <div class="sheet-list [display:flex] [flex-direction:column] [gap:10px]">
         <OptionCard
           v-for="option in activityOptions"
           :key="option.id"
@@ -89,50 +89,3 @@ const next = async () => {
     </BottomSheet>
   </SetupStepShell>
 </template>
-
-<style scoped lang="scss">
-.form-card {
-  display: flex;
-  flex-direction: column;
-  gap: 22px;
-
-  &__label {
-    display: block;
-    font-family: var(--font-eyebrow);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    font-size: 10px;
-    font-weight: 700;
-    color: var(--violet-45);
-    margin-bottom: 10px;
-  }
-}
-.dropdown {
-  width: 100%;
-  height: 52px;
-  padding: 0 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--paper);
-  border: 1px solid var(--hairline);
-  border-radius: var(--space-16);
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--ink);
-
-  &--empty {
-    color: var(--text-placeholder);
-  }
-}
-.goals {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.sheet-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-</style>

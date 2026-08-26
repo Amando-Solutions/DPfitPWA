@@ -29,11 +29,16 @@ const volumeLabel = computed(
 const STAT = 'flex flex-col gap-1 rounded-[14px] bg-on-photo/8 px-3 py-2.5'
 const STAT_LABEL =
   'font-eyebrow text-[8px] uppercase tracking-[0.5px] text-on-photo/55'
+const UNITS: Units[] = ['kg', 'lb']
+
 const TOGGLE_BTN =
-  'min-h-6.5 rounded-pill px-3 py-1.5 text-[10px] font-bold tracking-[0.5px]'
+  'min-h-6.5 rounded-pill px-3 py-1.5 text-[10px] font-bold tracking-[0.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-on-photo/40'
 // The selected unit is the raised thumb of the segmented control; its other
 // half stays flat so the pair reads as one switch rather than two buttons.
-const TOGGLE_ON = 'btn-raised bg-on-photo text-photo [--btn-face:var(--on-photo)]'
+// Reka sets `data-state` on the checked item, so the two halves no longer need
+// a bound class each.
+const TOGGLE_ON =
+  'data-[state=checked]:btn-raised data-[state=checked]:bg-on-photo data-[state=checked]:text-photo data-[state=checked]:[--btn-face:var(--on-photo)]'
 const TOGGLE_OFF = 'text-on-photo/60 transition-colors'
 </script>
 
@@ -94,36 +99,25 @@ const TOGGLE_OFF = 'text-on-photo/60 transition-colors'
         >
           Weight unit
         </span>
-        <div
-          class="flex gap-0.5 rounded-pill bg-on-photo/10 p-0.75"
-          role="radiogroup"
+        <!-- A two-option radio group rather than two buttons wearing radio
+             roles: Reka gives it one tab stop and arrow-key movement. -->
+        <RadioGroup
+          :model-value="unit"
+          orientation="horizontal"
           aria-label="Weight unit"
+          class="flex gap-0.5 rounded-pill bg-on-photo/10 p-0.75"
+          @update:model-value="emit('unit', $event as 'kg' | 'lb')"
         >
-          <button
-            type="button"
-            role="radio"
-            :aria-checked="unit === 'kg'"
-            :class="[
-              TOGGLE_BTN,
-              unit === 'kg' ? TOGGLE_ON : TOGGLE_OFF,
-            ]"
-            @click="emit('unit', 'kg')"
+          <RadioGroupItem
+            v-for="option in UNITS"
+            :key="option"
+            :value="option"
+            variant="plain"
+            :class="[TOGGLE_BTN, TOGGLE_OFF, TOGGLE_ON]"
           >
-            KG
-          </button>
-          <button
-            type="button"
-            role="radio"
-            :aria-checked="unit === 'lb'"
-            :class="[
-              TOGGLE_BTN,
-              unit === 'lb' ? 'bg-on-photo text-photo' : 'text-on-photo/60',
-            ]"
-            @click="emit('unit', 'lb')"
-          >
-            LB
-          </button>
-        </div>
+            {{ option.toUpperCase() }}
+          </RadioGroupItem>
+        </RadioGroup>
       </div>
     </div>
   </header>

@@ -36,24 +36,24 @@ watch(code, () => {
 </script>
 
 <template>
-  <div class="access">
-    <div class="access__glow" />
+  <div class="access [flex:1] [min-height:0] [display:flex] [flex-direction:column] [padding:40px_24px_24px] [position:relative] [overflow:hidden] lg:[padding:44px_44px_36px]">
+    <div class="access__glow [position:absolute] [width:260px] [height:260px] [top:-80px] [right:-80px] [border-radius:50%] [background:radial-gradient(circle,_var(--rose-ring),_transparent_70%)] [filter:blur(8px)] [pointer-events:none]" />
 
-    <div class="access__intro">
+    <div class="access__intro [position:relative] [margin-top:auto] [margin-bottom:24px] [display:flex] [flex-direction:column] [gap:8px] lg:[margin-top:0] lg:[margin-bottom:28px]">
       <BrandWordmark size="lg" stacked />
       <EyebrowLabel tone="muted"
         >6-week recomp challenge · Cohort 01</EyebrowLabel
       >
-      <h1 class="access__title">
-        Let's get<br /><span class="access__title--rose">your glow back.</span>
+      <h1 class="access__title [margin:6px_0_4px] [font-family:var(--font-display)] [font-weight:900] [font-size:30px] [line-height:1.08] [letter-spacing:-0.5px] [color:var(--ink)] lg:[font-size:36px]">
+        Let's get<br /><span class="access__title--rose [color:var(--rose)]">your glow back.</span>
       </h1>
-      <p class="access__sub">
+      <p class="access__sub [margin:0] [color:var(--violet-45)] [font-size:14px] [line-height:1.45] lg:[font-size:15px]">
         Enter the access code sent to your email after your payment was
         confirmed.
       </p>
     </div>
 
-    <AppCard variant="raised" class="access__card">
+    <AppCard variant="raised" class="access__card [display:flex] [flex-direction:column] [gap:16px] [box-shadow:var(--shadow-raised)]">
       <TextField
         v-model="code"
         label="Access code"
@@ -66,114 +66,11 @@ watch(code, () => {
       </AppButton>
     </AppCard>
 
-    <p class="access__hint muted">
+    <p class="access__hint muted [margin:18px_0_0] [text-align:center] [font-size:13px]">
       Can’t find your code? Check spam or
-      <NuxtLink to="/access-code" class="access__link">contact support</NuxtLink>.
+      <NuxtLink to="/access-code" class="access__link [color:var(--rose)] [font-weight:700]">contact support</NuxtLink>.
     </p>
 
-    <p class="access__dev">Demo code: <strong>{{ accessCodes[0] }}</strong></p>
+    <p class="access__dev [margin-top:auto] [text-align:center] [font-family:var(--font-data)] [font-size:11px] [color:var(--text-muted)] lg:[margin-top:28px]">Demo code: <strong>{{ accessCodes[0] }}</strong></p>
   </div>
 </template>
-
-<style scoped lang="scss">
-.access {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  padding: 40px 24px 24px;
-  position: relative;
-
-  &__glow {
-    position: absolute;
-    width: 260px;
-    height: 260px;
-    top: -80px;
-    right: -80px;
-    border-radius: 50%;
-    background: radial-gradient(circle, var(--rose-ring), transparent 70%);
-    filter: blur(8px);
-  }
-
-  &__intro {
-    position: relative;
-    margin-top: auto;
-    margin-bottom: 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  &__title {
-    margin: 6px 0 4px;
-    font-family: var(--font-display);
-    font-weight: 900;
-    font-size: 30px;
-    line-height: 1.08;
-    letter-spacing: -0.5px;
-    color: var(--ink);
-
-    &--rose {
-      color: var(--rose);
-    }
-  }
-
-  &__sub {
-    margin: 0;
-    color: var(--violet-45);
-    font-size: 14px;
-    line-height: 1.45;
-  }
-
-  &__card {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    box-shadow: var(--shadow-raised);
-  }
-
-  &__hint {
-    margin: 18px 0 0;
-    text-align: center;
-    font-size: 13px;
-  }
-
-  &__link {
-    color: var(--rose);
-    font-weight: 700;
-  }
-
-  &__dev {
-    margin-top: auto;
-    text-align: center;
-    font-family: var(--font-data);
-    font-size: 11px;
-    color: var(--text-muted);
-  }
-}
-
-// Desktop: the flow sits in a card, so the auto-margins that stretched the
-// screen on a phone give way to fixed spacing.
-@media (min-width: 1024px) {
-  .access {
-    padding: 44px 44px 36px;
-
-    &__intro {
-      margin-top: 0;
-      margin-bottom: 28px;
-    }
-
-    &__title {
-      font-size: 36px;
-    }
-
-    &__sub {
-      font-size: 15px;
-    }
-
-    &__dev {
-      margin-top: 28px;
-    }
-  }
-}
-
-</style>

@@ -241,8 +241,8 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
 </script>
 
 <template>
-  <div class="session">
-    <div v-if="day && session" class="session__scroll scroll-y">
+  <div class="session [position:relative] [height:100%] [display:flex] [flex-direction:column] [background:var(--paper)]">
+    <div v-if="day && session" class="session__scroll scroll-y [flex:1] [min-height:0]">
       <SessionHeader
         :eyebrow="`${session.running ? 'Logging' : 'Ready to start'} · Week ${store.clock.value.week}`"
         :title="day.dayNumber ? `Day ${day.dayNumber}: ${day.label}` : day.label"
@@ -255,7 +255,7 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
         @unit="setUnits"
       />
 
-      <div class="session__body">
+      <div class="session__body [padding:16px_20px_120px] [display:flex] [flex-direction:column] [gap:14px] lg:[width:100%] lg:[max-width:var(--focus-max)] lg:[margin:0_auto] lg:[padding:24px_40px_150px]">
         <ExerciseLogCard
           v-for="(exercise, i) in session.exercises"
           :key="exercise.id"
@@ -276,7 +276,7 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
     </div>
 
     <!-- Docked footer: rest timer (when running) + primary CTA -->
-    <div class="session__footer">
+    <div class="session__footer [position:absolute] [left:16px] [right:16px] [bottom:16px] [display:flex] [flex-direction:column] [gap:10px] lg:[left:50%] lg:[right:auto] lg:[transform:translateX(-50%)] lg:[width:min(var(--focus-max),_100%_-_80px)] lg:[bottom:24px]">
       <RestTimerBar
         v-if="restActive"
         :seconds="restRemaining"
@@ -303,78 +303,14 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
     </div>
 
     <BottomSheet v-model="showDiscard" title="Discard this workout?">
-      <p class="discard__body">
+      <p class="discard__body [margin:0_0_16px] [font-size:14px] [color:var(--violet-45)] [line-height:1.5]">
         You’ve logged {{ totals.setsDone }} of {{ totals.setsTotal }} sets. This can’t be
         undone.
       </p>
-      <div class="discard__actions">
+      <div class="discard__actions [display:grid] [grid-template-columns:1fr_1fr] [gap:12px]">
         <AppButton variant="secondary" @click="showDiscard = false">Keep going</AppButton>
         <AppButton variant="danger" @click="confirmDiscard">Discard workout</AppButton>
       </div>
     </BottomSheet>
   </div>
 </template>
-
-<style scoped lang="scss">
-.session {
-  position: relative;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  background: var(--paper);
-
-  &__scroll {
-    flex: 1;
-    min-height: 0;
-  }
-
-  &__body {
-    padding: 16px 20px 120px;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-  }
-
-  &__footer {
-    position: absolute;
-    left: 16px;
-    right: 16px;
-    bottom: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-}
-.discard {
-  &__body {
-    margin: 0 0 16px;
-    font-size: 14px;
-    color: var(--violet-45);
-    line-height: 1.5;
-  }
-  &__actions {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-  }
-}
-
-@media (min-width: 1024px) {
-  .session {
-    &__body {
-      width: 100%;
-      max-width: var(--focus-max);
-      margin: 0 auto;
-      padding: 24px 40px 150px;
-    }
-
-    &__footer {
-      left: 50%;
-      right: auto;
-      transform: translateX(-50%);
-      width: min(var(--focus-max), calc(100% - 80px));
-      bottom: 24px;
-    }
-  }
-}
-</style>

@@ -5,15 +5,15 @@
 </script>
 
 <template>
-  <div class="layout-app">
+  <div class="layout-app [position:relative] [height:100%] [display:flex] [flex-direction:column] [background:var(--paper)] lg:[flex-direction:row]">
     <AppNav />
 
-    <main class="layout-app__main scroll-y">
-      <div class="layout-app__content">
+    <main class="layout-app__main scroll-y [flex:1] [min-height:0] lg:[min-width:0] lg:[padding:32px_40px_0]">
+      <div class="layout-app__content [width:100%] lg:[max-width:var(--content-max)] lg:[margin:0_auto]">
         <slot />
       </div>
       <!-- spacer so content clears the floating tab bar on mobile -->
-      <div class="layout-app__tab-spacer" />
+      <div class="layout-app__tab-spacer [height:96px] lg:[height:40px]" />
     </main>
 
     <!-- Mounted once for the whole app: the install surfaces on Home and More
@@ -21,46 +21,3 @@
     <InstallAppSheet />
   </div>
 </template>
-
-<style scoped lang="scss">
-.layout-app {
-  position: relative;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  background: var(--paper);
-
-  &__main {
-    flex: 1;
-    min-height: 0;
-  }
-
-  &__content {
-    width: 100%;
-  }
-
-  &__tab-spacer {
-    height: 96px;
-  }
-}
-
-@media (min-width: 1024px) {
-  .layout-app {
-    flex-direction: row;
-
-    &__main {
-      min-width: 0;
-      padding: 32px 40px 0;
-    }
-
-    &__content {
-      max-width: var(--content-max);
-      margin: 0 auto;
-    }
-
-    &__tab-spacer {
-      height: 40px;
-    }
-  }
-}
-</style>

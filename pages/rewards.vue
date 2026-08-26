@@ -49,39 +49,39 @@ const initials = (name: string) =>
 </script>
 
 <template>
-  <div class="rewards">
+  <div class="rewards [padding:var(--screen-pad-top)_20px_0] [display:flex] [flex-direction:column] [gap:16px] [&_.rewards__title]:[margin:8px_0_6px] [&_.rewards__sub]:[margin:0] [&_.rewards__sub]:[font-size:13.5px] [&_.rewards__sub]:[line-height:1.45] [&_.rewards__sub]:[max-width:320px] lg:[display:grid] lg:[grid-template-columns:minmax(0,_0.9fr)_minmax(0,_1.1fr)] lg:[grid-template-areas:'header_header'_'left_panel'] lg:[align-content:start] lg:[align-items:start] lg:[column-gap:24px] lg:[row-gap:18px] lg:[padding:0_0_8px] lg:[&_.rewards__sub]:[max-width:520px] lg:[&_.rewards__sub]:[font-size:15px]">
     <ScreenIntro
       :eyebrow="`${cohort.name} · rewards`"
       title="Your rewards"
       subtitle="RP for showing up, badges for milestones, a streak worth protecting."
       :actions="false"
-      class="rewards__header"
+      class="rewards__header lg:[grid-area:header]"
     />
 
-    <div class="rewards__left">
+    <div class="rewards__left [display:contents] lg:[grid-area:left] lg:[display:flex] lg:[flex-direction:column] lg:[gap:18px] lg:[align-self:start]">
       <!-- Rank -->
       <section class="rewards__rank">
-      <AppCard variant="ink" class="rank">
-        <div class="rank__top">
-          <span class="rank__emoji">{{ snapshot.rank.emoji }}</span>
-          <div class="rank__id">
-            <span class="rank__name">{{ snapshot.rank.name }}</span>
-            <span class="rank__points data">{{ snapshot.points }} RP</span>
+      <AppCard variant="ink" class="rank [display:flex] [flex-direction:column] [gap:12px]">
+        <div class="rank__top [display:flex] [align-items:center] [gap:14px]">
+          <span class="rank__emoji [font-size:34px] [line-height:1]">{{ snapshot.rank.emoji }}</span>
+          <div class="rank__id [display:flex] [flex-direction:column] [gap:2px]">
+            <span class="rank__name [font-family:var(--font-display)] [font-weight:900] [font-size:18px] [color:var(--on-inverse)]">{{ snapshot.rank.name }}</span>
+            <span class="rank__points data [font-size:26px] [font-weight:700] [line-height:1.1] [color:var(--on-inverse)] lg:[font-size:32px]">{{ snapshot.points }} RP</span>
           </div>
         </div>
         <ProgressBar :value="snapshot.rankProgress" :max="100" :height="6" flame />
-        <p class="rank__next">{{ nextRankLabel }}</p>
+        <p class="rank__next [margin:-4px_0_0] [font-size:12.5px] [color:var(--on-inverse-soft)]">{{ nextRankLabel }}</p>
 
-        <ol class="rank__ladder">
+        <ol class="rank__ladder [list-style:none] [margin:6px_0_0] [padding:12px_0_0] [border-top:1px_solid_var(--hairline-inverse)] [display:flex] [flex-direction:column] [gap:8px]">
           <li
             v-for="step in ranks"
             :key="step.id"
-            class="rank__step"
+            class="rank__step [display:flex] [align-items:center] [gap:10px] [opacity:0.4] [&.rank__step--reached]:[opacity:1]"
             :class="{ 'rank__step--reached': snapshot.points >= step.minPoints }"
           >
-            <span class="rank__step-emoji">{{ step.emoji }}</span>
-            <span class="rank__step-name">{{ step.name }}</span>
-            <span class="rank__step-rp data">{{ step.minPoints }}</span>
+            <span class="rank__step-emoji [font-size:15px] [line-height:1]">{{ step.emoji }}</span>
+            <span class="rank__step-name [flex:1] [font-size:13px] [font-weight:600] [color:var(--on-inverse)]">{{ step.name }}</span>
+            <span class="rank__step-rp data [font-size:11px] [color:var(--on-inverse-soft)]">{{ step.minPoints }}</span>
           </li>
         </ol>
       </AppCard>
@@ -89,11 +89,11 @@ const initials = (name: string) =>
 
       <!-- Streak -->
       <section class="rewards__streak">
-        <AppCard variant="raised" class="streak">
-          <span class="streak__icon"><AppIcon name="flame" :size="20" :stroke="2.2" /></span>
+        <AppCard variant="raised" class="streak [display:flex] [align-items:center] [gap:14px]">
+          <span class="streak__icon [width:44px] [height:44px] [border-radius:var(--radius-pill)] [background:var(--orange-16)] [color:var(--orange-text)] [display:grid] [place-items:center] [flex-shrink:0]"><AppIcon name="flame" :size="20" :stroke="2.2" /></span>
           <div>
-            <h2 class="streak__title">{{ snapshot.streakWeeks }}-week streak</h2>
-            <p class="streak__body">
+            <h2 class="streak__title [margin:0_0_3px] [font-family:var(--font-display)] [font-weight:900] [font-size:16px] [color:var(--ink)]">{{ snapshot.streakWeeks }}-week streak</h2>
+            <p class="streak__body [margin:0] [font-size:12.5px] [line-height:1.45] [color:var(--violet-45)]">
               One workout a week keeps it alive — finished sessions only, at
               least {{ QUALIFYING_SET_PERCENT }}% of the sets logged.
             </p>
@@ -103,400 +103,78 @@ const initials = (name: string) =>
     </div>
 
     <!-- Badges / leaderboard -->
-    <section class="rewards__panel">
-      <SegmentedTabs v-model="tab" :tabs="tabs" class="rewards__tabs" />
+    <!--
+      These two really are tab panels, so they use shadcn's Tabs rather than the
+      SegmentedTabs pill (which is a radio group). Reka wires `role="tablist"`,
+      arrow-key movement between the triggers, and an `aria-labelledby` link
+      from each panel back to the tab that opened it — none of which a pair of
+      `v-if` blocks behind two plain buttons could express.
+    -->
+    <Tabs
+      :model-value="tab"
+      class="rewards__panel lg:[grid-area:panel]"
+      @update:model-value="tab = $event as typeof tab"
+    >
+      <TabsList class="rewards__tabs [margin-bottom:16px]">
+        <TabsTrigger v-for="t in tabs" :key="t.id" :value="t.id">
+          {{ t.label }}
+        </TabsTrigger>
+      </TabsList>
 
-      <template v-if="tab === 'badges'">
-        <div class="rewards__panel-head">
+      <TabsContent value="badges">
+        <div class="rewards__panel-head [display:flex] [align-items:center] [justify-content:space-between] [margin-bottom:10px]">
           <EyebrowLabel tone="muted">Badges</EyebrowLabel>
-          <span class="rewards__count data">
+          <span class="rewards__count data [font-size:12px] [font-weight:700] [color:var(--rose)]">
             {{ snapshot.badgeCount }} of {{ snapshot.badgeTotal }}
           </span>
         </div>
-        <div class="badges">
+        <div class="badges [display:flex] [flex-direction:column] [gap:10px]">
           <article
             v-for="badge in badgeRows"
             :key="badge.id"
-            class="badge"
+            class="badge [display:flex] [align-items:center] [gap:12px] [padding:14px_16px] [border-radius:var(--radius-card)] [background:var(--paper-raised)] [border:1px_solid_var(--hairline)] [opacity:0.65] [&.badge--earned]:[opacity:1] [&.badge--earned]:[border-color:var(--rose-ring)]"
             :class="{ 'badge--earned': badge.earned }"
           >
-            <span class="badge__emoji">{{ badge.emoji }}</span>
-            <div class="badge__text">
-              <h3 class="badge__name">{{ badge.name }}</h3>
-              <p class="badge__desc">{{ badge.description }}</p>
+            <span class="badge__emoji [font-size:24px] [line-height:1] [flex-shrink:0]">{{ badge.emoji }}</span>
+            <div class="badge__text [flex:1] [min-width:0]">
+              <h3 class="badge__name [margin:0_0_2px] [font-family:var(--font-display)] [font-weight:900] [font-size:14.5px] [color:var(--ink)]">{{ badge.name }}</h3>
+              <p class="badge__desc [margin:0] [font-size:12.5px] [line-height:1.4] [color:var(--violet-45)]">{{ badge.description }}</p>
             </div>
-            <span v-if="badge.earned" class="badge__earned">Earned</span>
-            <span v-else class="badge__reward data">
+            <span v-if="badge.earned" class="badge__earned [flex-shrink:0] [font-family:var(--font-data)] [text-transform:uppercase] [letter-spacing:0.85px] [font-size:8.5px] [font-weight:700] [color:var(--rose)] [background:var(--rose-soft)] [padding:4px_8px] [border-radius:var(--radius-pill)]">Earned</span>
+            <span v-else class="badge__reward data [flex-shrink:0] [display:inline-flex] [align-items:center] [gap:5px] [font-size:11.5px] [font-weight:700] [color:var(--violet-45)]">
               +{{ badge.points }}
               <AppIcon name="lock" :size="13" />
             </span>
           </article>
         </div>
-      </template>
+      </TabsContent>
 
-      <template v-else>
-        <div class="rewards__panel-head">
+      <TabsContent value="leaderboard">
+        <div class="rewards__panel-head [display:flex] [align-items:center] [justify-content:space-between] [margin-bottom:10px]">
           <EyebrowLabel tone="muted">Sessions logged</EyebrowLabel>
-          <span class="rewards__count data">{{ leaderboard.length }} members</span>
+          <span class="rewards__count data [font-size:12px] [font-weight:700] [color:var(--rose)]">{{ leaderboard.length }} members</span>
         </div>
-        <ol class="board">
+        <ol class="board [list-style:none] [margin:0] [padding:0] [display:flex] [flex-direction:column] [gap:8px]">
           <li
             v-for="entry in leaderboard"
             :key="entry.memberId"
-            class="board__row"
+            class="board__row [display:flex] [align-items:center] [gap:12px] [padding:12px_14px] [border-radius:var(--radius-md)] [background:var(--paper-raised)] [&.board__row--self]:[background:var(--surface-inverse)] [&.board__row--self]:[color:var(--on-inverse)] [&.board__row--self_.board__rank]:[color:var(--on-inverse)] [&.board__row--self_.board__points]:[color:var(--on-inverse)]"
             :class="{ 'board__row--self': entry.isSelf }"
           >
-            <span class="board__rank data">{{ entry.position }}</span>
-            <img
-              v-if="entry.avatar"
-              :src="entry.avatar"
-              :alt="entry.name"
-              class="board__avatar"
-              loading="lazy"
-              decoding="async"
-            />
-            <span v-else class="board__avatar board__avatar--initials">
-              {{ initials(entry.name) }}
-            </span>
-            <span class="board__name">{{ entry.isSelf ? 'You' : entry.name }}</span>
-            <span class="board__points data">
+            <span class="board__rank data [width:20px] [font-size:12px] [font-weight:700] [color:var(--violet-45)]">{{ entry.position }}</span>
+            <Avatar size="sm" class="board__avatar [width:32px] [height:32px] [border-radius:50%] [object-fit:cover] [flex-shrink:0] [&.board__avatar--initials]:[display:grid] [&.board__avatar--initials]:[place-items:center] [&.board__avatar--initials]:[background:var(--rose-fill)] [&.board__avatar--initials]:[color:var(--on-rose)] [&.board__avatar--initials]:[font-family:var(--font-eyebrow)] [&.board__avatar--initials]:[font-size:11px] [&.board__avatar--initials]:[font-weight:700]">
+              <AvatarImage :src="entry.avatar ?? ''" :alt="entry.name" loading="lazy" />
+              <AvatarFallback class="font-eyebrow font-bold">
+                {{ initials(entry.name) }}
+              </AvatarFallback>
+            </Avatar>
+            <span class="board__name [flex:1] [font-size:13.5px] [font-weight:600]">{{ entry.isSelf ? 'You' : entry.name }}</span>
+            <span class="board__points data [font-size:12.5px] [font-weight:700] [color:var(--rose)]">
               {{ entry.sessions }} {{ entry.sessions === 1 ? 'session' : 'sessions' }}
             </span>
           </li>
         </ol>
-      </template>
-    </section>
+      </TabsContent>
+    </Tabs>
   </div>
 </template>
-
-<style scoped lang="scss">
-.rewards {
-  padding: var(--screen-pad-top) 20px 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-
-  // Transparent on mobile so the cards keep their single-column order.
-  &__left {
-    display: contents;
-  }
-
-  &__title {
-    margin: 8px 0 6px;
-  }
-
-  &__sub {
-    margin: 0;
-    font-size: 13.5px;
-    line-height: 1.45;
-    max-width: 320px;
-  }
-
-  &__tabs {
-    margin-bottom: 16px;
-  }
-
-  &__panel-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 10px;
-  }
-
-  &__count {
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--rose);
-  }
-}
-
-.rank {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-
-  &__top {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-  }
-
-  &__emoji {
-    font-size: 34px;
-    line-height: 1;
-  }
-
-  &__id {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  &__name {
-    font-family: var(--font-display);
-    font-weight: 900;
-    font-size: 18px;
-    color: var(--on-inverse);
-  }
-
-  &__points {
-    font-size: 26px;
-    font-weight: 700;
-    line-height: 1.1;
-    color: var(--on-inverse);
-  }
-
-  &__next {
-    margin: -4px 0 0;
-    font-size: 12.5px;
-    color: var(--on-inverse-soft);
-  }
-
-  &__ladder {
-    list-style: none;
-    margin: 6px 0 0;
-    padding: 12px 0 0;
-    border-top: 1px solid var(--hairline-inverse);
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  &__step {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    opacity: 0.4;
-
-    &--reached {
-      opacity: 1;
-    }
-  }
-
-  &__step-emoji {
-    font-size: 15px;
-    line-height: 1;
-  }
-
-  &__step-name {
-    flex: 1;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--on-inverse);
-  }
-
-  &__step-rp {
-    font-size: 11px;
-    color: var(--on-inverse-soft);
-  }
-}
-
-.streak {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-
-  &__icon {
-    width: 44px;
-    height: 44px;
-    border-radius: var(--radius-pill);
-    background: var(--orange-16);
-    color: var(--orange-text);
-    display: grid;
-    place-items: center;
-    flex-shrink: 0;
-  }
-
-  &__title {
-    margin: 0 0 3px;
-    font-family: var(--font-display);
-    font-weight: 900;
-    font-size: 16px;
-    color: var(--ink);
-  }
-
-  &__body {
-    margin: 0;
-    font-size: 12.5px;
-    line-height: 1.45;
-    color: var(--violet-45);
-  }
-}
-
-.badges {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.badge {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  border-radius: var(--radius-card);
-  background: var(--paper-raised);
-  border: 1px solid var(--hairline);
-  opacity: 0.65;
-
-  &--earned {
-    opacity: 1;
-    border-color: var(--rose-ring);
-  }
-
-  &__emoji {
-    font-size: 24px;
-    line-height: 1;
-    flex-shrink: 0;
-  }
-
-  &__text {
-    flex: 1;
-    min-width: 0;
-  }
-
-  &__name {
-    margin: 0 0 2px;
-    font-family: var(--font-display);
-    font-weight: 900;
-    font-size: 14.5px;
-    color: var(--ink);
-  }
-
-  &__desc {
-    margin: 0;
-    font-size: 12.5px;
-    line-height: 1.4;
-    color: var(--violet-45);
-  }
-
-  &__earned {
-    flex-shrink: 0;
-    font-family: var(--font-data);
-    text-transform: uppercase;
-    letter-spacing: 0.85px;
-    font-size: 8.5px;
-    font-weight: 700;
-    color: var(--rose);
-    background: var(--rose-soft);
-    padding: 4px 8px;
-    border-radius: var(--radius-pill);
-  }
-
-  // What it pays out, shown while it is still locked.
-  &__reward {
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    font-size: 11.5px;
-    font-weight: 700;
-    color: var(--violet-45);
-  }
-}
-
-.board {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-
-  &__row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 14px;
-    border-radius: var(--radius-md);
-    background: var(--paper-raised);
-
-    &--self {
-      background: var(--surface-inverse);
-      color: var(--on-inverse);
-
-      .board__rank,
-      .board__points {
-        color: var(--on-inverse);
-      }
-    }
-  }
-
-  &__rank {
-    width: 20px;
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--violet-45);
-  }
-
-  &__avatar {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    object-fit: cover;
-    flex-shrink: 0;
-
-    &--initials {
-      display: grid;
-      place-items: center;
-      background: var(--rose-fill);
-      color: var(--on-rose);
-      font-family: var(--font-eyebrow);
-      font-size: 11px;
-      font-weight: 700;
-    }
-  }
-
-  &__name {
-    flex: 1;
-    font-size: 13.5px;
-    font-weight: 600;
-  }
-
-  &__points {
-    font-size: 12.5px;
-    font-weight: 700;
-    color: var(--rose);
-  }
-}
-
-@media (min-width: 1024px) {
-  .rewards {
-    display: grid;
-    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
-    grid-template-areas:
-      'header header'
-      'left   panel';
-    align-content: start;
-    align-items: start;
-    column-gap: 24px;
-    row-gap: 18px;
-    padding: 0 0 8px;
-
-    &__header {
-      grid-area: header;
-    }
-
-    &__sub {
-      max-width: 520px;
-      font-size: 15px;
-    }
-
-    &__left {
-      grid-area: left;
-      display: flex;
-      flex-direction: column;
-      gap: 18px;
-      align-self: start;
-    }
-
-    &__panel {
-      grid-area: panel;
-    }
-  }
-
-  .rank__points {
-    font-size: 32px;
-  }
-}
-</style>

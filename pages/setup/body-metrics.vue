@@ -41,41 +41,16 @@ const next = async () => {
     :busy="busy"
     @continue="next"
   >
-    <AppCard variant="raised" class="form-card">
-      <div class="form-card__row">
+    <AppCard variant="raised" class="form-card [display:flex] [flex-direction:column] [gap:14px] [padding:19px]">
+      <div class="form-card__row [display:grid] [grid-template-columns:1fr_1fr] [gap:12px]">
         <TextField v-model.number="weightKg" label="Weight (kg)" type="number" placeholder="63" />
         <TextField v-model.number="heightCm" label="Height (cm)" type="number" placeholder="164" />
       </div>
 
-      <p class="form-card__tip">
+      <p class="form-card__tip [margin:0] [padding:13px_15px] [background:var(--paper)] [border-radius:var(--space-16)] [font-size:12.5px] [line-height:1.5] [color:var(--violet-28)]">
         These two numbers set your calorie and protein targets. Update them any time
         from Profile &amp; Settings, and your daily fuel recalculates itself.
       </p>
     </AppCard>
   </SetupStepShell>
 </template>
-
-<style scoped lang="scss">
-.form-card {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 19px;
-
-  &__row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-  }
-
-  &__tip {
-    margin: 0;
-    padding: 13px 15px;
-    background: var(--paper);
-    border-radius: var(--space-16);
-    font-size: 12.5px;
-    line-height: 1.5;
-    color: var(--violet-28);
-  }
-}
-</style>

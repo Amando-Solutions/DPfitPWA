@@ -46,39 +46,14 @@ const next = async () => {
     :busy="busy"
     @continue="next"
   >
-    <AppCard variant="raised" class="form-card">
+    <AppCard variant="raised" class="form-card [display:flex] [flex-direction:column] [gap:16px]">
       <TextField v-model="displayName" label="Display name" placeholder="Ada" />
       <TextField v-model.number="age" label="Age" type="number" placeholder="26" />
       <div>
-        <span class="form-card__label">Sex</span>
+        <span class="form-card__label [display:block] [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:1px] [font-size:10px] [font-weight:700] [color:var(--violet-45)] [margin-bottom:10px]">Sex</span>
         <SegmentedTabs v-model="sex" :tabs="sexes" />
-        <p class="form-card__hint">Used only to size your calorie baseline.</p>
+        <p class="form-card__hint [margin:10px_0_0] [font-size:12.5px] [color:var(--violet-45)]">Used only to size your calorie baseline.</p>
       </div>
     </AppCard>
   </SetupStepShell>
 </template>
-
-<style scoped lang="scss">
-.form-card {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-
-  &__label {
-    display: block;
-    font-family: var(--font-eyebrow);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    font-size: 10px;
-    font-weight: 700;
-    color: var(--violet-45);
-    margin-bottom: 10px;
-  }
-
-  &__hint {
-    margin: 10px 0 0;
-    font-size: 12.5px;
-    color: var(--violet-45);
-  }
-}
-</style>

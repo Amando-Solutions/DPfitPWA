@@ -11,30 +11,25 @@ const props = withDefaults(
   { max: 100, height: 6, tone: 'rose', flame: false },
 )
 
-const pct = computed(() =>
-  Math.max(0, Math.min(100, (props.value / props.max) * 100)),
-)
+// Height is data, not design, so it arrives as a custom property and the
+// Tailwind class below consumes it. The fill width is Reka's job.
+const vars = computed(() => ({ '--bar-h': `${props.height}px` }))
 
-// Height and fill width are data, not design, so they arrive as custom
-// properties and the Tailwind classes below consume them. That keeps every
-// styling decision in a class while the numbers stay dynamic.
-const vars = computed(() => ({
-  '--bar-h': `${props.height}px`,
-  '--bar-fill': `${pct.value}%`,
-}))
+const fill = computed(() =>
+  props.flame ? 'flame-gradient' : props.tone === 'orange' ? 'bg-orange' : 'bg-rose-fill',
+)
 </script>
 
 <template>
-  <div
-    class="h-(--bar-h) w-full overflow-hidden rounded-pill bg-fill-muted"
+  <!-- shadcn's Progress (Reka's ProgressRoot) publishes the full
+       `aria-valuemin`/`valuemax`/`valuenow` set plus a `data-state`; the
+       hand-rolled bar declared a role and a value but never a minimum, which
+       leaves the percentage ambiguous to a screen reader. -->
+  <Progress
+    :model-value="value"
+    :max="max"
     :style="vars"
-    role="progressbar"
-    :aria-valuenow="value"
-    :aria-valuemax="max"
-  >
-    <div
-      class="h-full w-(--bar-fill) rounded-pill transition-[width] duration-400 ease-out"
-      :class="flame ? 'flame-gradient' : tone === 'orange' ? 'bg-orange' : 'bg-rose-fill'"
-    />
-  </div>
+    class="h-(--bar-h)"
+    :indicator-class="fill"
+  />
 </template>

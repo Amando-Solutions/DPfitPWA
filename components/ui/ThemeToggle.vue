@@ -13,27 +13,25 @@ const OPTIONS: { value: ThemePreference; label: string; icon: string }[] = [
 </script>
 
 <template>
-  <div
-    class="flex gap-0.5 rounded-pill bg-fill-subtle p-0.75"
-    role="radiogroup"
+  <!-- shadcn's RadioGroup supplies the roving tabindex and arrow-key movement
+       the hand-written `role="radiogroup"` here never had: all three options
+       used to sit in the tab order and respond only to a click. -->
+  <RadioGroup
+    :model-value="preference"
+    orientation="horizontal"
     aria-label="Appearance"
+    class="flex gap-0.5 rounded-pill bg-fill-subtle p-0.75"
+    @update:model-value="set($event as ThemePreference)"
   >
-    <button
+    <RadioGroupItem
       v-for="option in OPTIONS"
       :key="option.value"
-      type="button"
-      role="radio"
-      :aria-checked="preference === option.value"
-      class="flex items-center gap-1.5 rounded-pill px-3 py-1.5 font-eyebrow text-[10px] font-bold tracking-[0.5px]"
-      :class="
-        preference === option.value
-          ? 'btn-raised bg-inverse text-on-inverse [--btn-face:var(--surface-inverse)]'
-          : 'text-muted transition-colors duration-150 hover:text-ink'
-      "
-      @click="set(option.value)"
+      :value="option.value"
+      variant="plain"
+      class="flex items-center gap-1.5 rounded-pill px-3 py-1.5 font-eyebrow text-[10px] font-bold tracking-[0.5px] text-muted transition-colors duration-150 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-ring data-[state=checked]:btn-raised data-[state=checked]:bg-inverse data-[state=checked]:text-on-inverse data-[state=checked]:[--btn-face:var(--surface-inverse)]"
     >
       <AppIcon :name="option.icon" :size="13" :stroke="2.2" />
       {{ option.label }}
-    </button>
-  </div>
+    </RadioGroupItem>
+  </RadioGroup>
 </template>

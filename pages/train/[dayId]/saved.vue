@@ -39,19 +39,19 @@ const back = () => router.push('/train')
 </script>
 
 <template>
-  <div class="saved">
-    <div class="saved__center">
-      <div class="saved__check">
+  <div class="saved [padding:var(--screen-pad-top)_20px_0] [min-height:100%] lg:[padding:0]">
+    <div class="saved__center [display:flex] [flex-direction:column] [align-items:center] [text-align:center] [gap:14px] [margin-top:32px] lg:[margin-top:24px] lg:[padding:48px_24px] lg:[background:var(--paper-raised)] lg:[border-radius:var(--radius-lg)] lg:[box-shadow:var(--shadow-card)]">
+      <div class="saved__check [width:96px] [height:96px] [border-radius:50%] [background:var(--rose-soft)] [color:var(--rose)] [display:grid] [place-items:center] [margin-bottom:6px]">
         <AppIcon name="check" :size="34" :stroke="2.6" />
       </div>
-      <h1 class="saved__title">Workout saved</h1>
-      <p v-if="log" class="saved__desc">
+      <h1 class="saved__title [margin:0] [font-family:var(--font-display)] [font-weight:900] [font-size:26px] [color:var(--ink)]">Workout saved</h1>
+      <p v-if="log" class="saved__desc [margin:0] [max-width:300px] [font-size:14px] [line-height:1.5] [color:var(--violet-45)] lg:[max-width:420px] lg:[font-size:15px]">
         {{ log.dayNumber ? `Day ${log.dayNumber}: ` : '' }}{{ log.label }}, done in
         {{ durationLabel }}.
         {{ log.proofPhoto ? 'Proof photo is with your coach.' : '' }}
       </p>
 
-      <div class="saved__chips">
+      <div class="saved__chips [display:flex] [gap:8px] [margin-top:2px]">
         <StatPill :value="`+${log?.rewardPoints ?? 0} RP`" variant="rose" />
         <StatPill
           :label="`${store.rewards.value.streakWeeks}-week streak`"
@@ -60,191 +60,42 @@ const back = () => router.push('/train')
         />
       </div>
 
-      <p v-if="!counted" class="saved__short">
+      <p v-if="!counted" class="saved__short [margin:0] [max-width:320px] [padding:10px_14px] [border-radius:var(--radius-md)] [background:var(--orange-16)] [font-size:12.5px] [line-height:1.45] [color:var(--orange-text)]">
         Saved for your coach, but under {{ QUALIFYING_SET_PERCENT }}% of the sets —
         so it earns no RP and doesn’t count toward badges, your streak or the
         leaderboard.
       </p>
 
-      <div class="saved__stats">
-        <div class="saved__stat">
-          <span class="saved__stat-value data">{{ log?.setsDone ?? 0 }}</span>
-          <span class="saved__stat-label">Sets logged</span>
+      <div class="saved__stats [display:grid] [grid-template-columns:repeat(3,_1fr)] [gap:10px] [width:100%] [max-width:340px] [margin:10px_0_4px]">
+        <div class="saved__stat [display:flex] [flex-direction:column] [gap:4px] [padding:14px_8px] [border-radius:var(--radius-md)] [background:var(--paper-raised)] [box-shadow:var(--shadow-card)]">
+          <span class="saved__stat-value data [font-size:18px] [font-weight:700] [color:var(--ink)]">{{ log?.setsDone ?? 0 }}</span>
+          <span class="saved__stat-label [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:0.5px] [font-size:8px] [font-weight:700] [color:var(--violet-45)]">Sets logged</span>
         </div>
-        <div class="saved__stat">
-          <span class="saved__stat-value data">
+        <div class="saved__stat [display:flex] [flex-direction:column] [gap:4px] [padding:14px_8px] [border-radius:var(--radius-md)] [background:var(--paper-raised)] [box-shadow:var(--shadow-card)]">
+          <span class="saved__stat-value data [font-size:18px] [font-weight:700] [color:var(--ink)]">
             {{ formatVolume(log?.volumeKg ?? 0, units) }}
           </span>
-          <span class="saved__stat-label">Volume {{ unitLabel(units) }}</span>
+          <span class="saved__stat-label [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:0.5px] [font-size:8px] [font-weight:700] [color:var(--violet-45)]">Volume {{ unitLabel(units) }}</span>
         </div>
-        <div class="saved__stat">
-          <span class="saved__stat-value data">{{ store.rewards.value.points }}</span>
-          <span class="saved__stat-label">Total RP</span>
+        <div class="saved__stat [display:flex] [flex-direction:column] [gap:4px] [padding:14px_8px] [border-radius:var(--radius-md)] [background:var(--paper-raised)] [box-shadow:var(--shadow-card)]">
+          <span class="saved__stat-value data [font-size:18px] [font-weight:700] [color:var(--ink)]">{{ store.rewards.value.points }}</span>
+          <span class="saved__stat-label [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:0.5px] [font-size:8px] [font-weight:700] [color:var(--violet-45)]">Total RP</span>
         </div>
       </div>
 
-      <div class="saved__actions">
+      <div class="saved__actions [width:100%] [max-width:340px] [display:flex] [flex-direction:column] [gap:4px] [margin-top:8px]">
         <AppButton glow @click="back">Back to workouts</AppButton>
         <AppButton variant="ghost" to="/rewards">See your rewards</AppButton>
       </div>
     </div>
 
     <BottomSheet v-model="showCelebration" title="Badge unlocked">
-      <div v-if="celebrated" class="celebrate">
-        <span class="celebrate__emoji">{{ celebrated.emoji }}</span>
-        <h2 class="celebrate__name">{{ celebrated.name }}</h2>
-        <p class="celebrate__desc">{{ celebrated.description }}</p>
+      <div v-if="celebrated" class="celebrate [display:flex] [flex-direction:column] [align-items:center] [text-align:center] [gap:10px]">
+        <span class="celebrate__emoji [font-size:56px] [line-height:1]">{{ celebrated.emoji }}</span>
+        <h2 class="celebrate__name [margin:0] [font-family:var(--font-display)] [font-weight:900] [font-size:22px] [color:var(--ink)]">{{ celebrated.name }}</h2>
+        <p class="celebrate__desc [margin:0_0_8px] [font-size:14px] [color:var(--violet-45)]">{{ celebrated.description }}</p>
         <AppButton glow @click="showCelebration = false">Nice</AppButton>
       </div>
     </BottomSheet>
   </div>
 </template>
-
-<style scoped lang="scss">
-.saved {
-  padding: var(--screen-pad-top) 20px 0;
-  min-height: 100%;
-
-  &__center {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    gap: 14px;
-    margin-top: 32px;
-  }
-
-  &__check {
-    width: 96px;
-    height: 96px;
-    border-radius: 50%;
-    background: var(--rose-soft);
-    color: var(--rose);
-    display: grid;
-    place-items: center;
-    margin-bottom: 6px;
-  }
-
-  &__title {
-    margin: 0;
-    font-family: var(--font-display);
-    font-weight: 900;
-    font-size: 26px;
-    color: var(--ink);
-  }
-
-  &__desc {
-    margin: 0;
-    max-width: 300px;
-    font-size: 14px;
-    line-height: 1.5;
-    color: var(--violet-45);
-  }
-
-  &__chips {
-    display: flex;
-    gap: 8px;
-    margin-top: 2px;
-  }
-
-  &__short {
-    margin: 0;
-    max-width: 320px;
-    padding: 10px 14px;
-    border-radius: var(--radius-md);
-    background: var(--orange-16);
-    font-size: 12.5px;
-    line-height: 1.45;
-    color: var(--orange-text);
-  }
-
-  &__stats {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
-    width: 100%;
-    max-width: 340px;
-    margin: 10px 0 4px;
-  }
-
-  &__stat {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 14px 8px;
-    border-radius: var(--radius-md);
-    background: var(--paper-raised);
-    box-shadow: var(--shadow-card);
-  }
-
-  &__stat-value {
-    font-size: 18px;
-    font-weight: 700;
-    color: var(--ink);
-  }
-
-  &__stat-label {
-    font-family: var(--font-eyebrow);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    font-size: 8px;
-    font-weight: 700;
-    color: var(--violet-45);
-  }
-
-  &__actions {
-    width: 100%;
-    max-width: 340px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    margin-top: 8px;
-  }
-}
-
-.celebrate {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 10px;
-
-  &__emoji {
-    font-size: 56px;
-    line-height: 1;
-  }
-
-  &__name {
-    margin: 0;
-    font-family: var(--font-display);
-    font-weight: 900;
-    font-size: 22px;
-    color: var(--ink);
-  }
-
-  &__desc {
-    margin: 0 0 8px;
-    font-size: 14px;
-    color: var(--violet-45);
-  }
-}
-
-@media (min-width: 1024px) {
-  .saved {
-    padding: 0;
-
-    &__center {
-      margin-top: 24px;
-      padding: 48px 24px;
-      background: var(--paper-raised);
-      border-radius: var(--radius-lg);
-      box-shadow: var(--shadow-card);
-    }
-
-    &__desc {
-      max-width: 420px;
-      font-size: 15px;
-    }
-  }
-}
-</style>

@@ -15,9 +15,9 @@
       `inline` matters: it makes each utility emit `var(--surface)` rather than a
       frozen copy of its value, which is what lets one class serve both themes.
 
-   Because the tokens are plain custom properties, the handful of screens and
-   shells that keep their own scoped CSS re-theme for free, since they already read
-   `var(--ink)`, `var(--paper)` and friends, which are kept below as aliases.
+   Because the tokens are plain custom properties, Tailwind's arbitrary-value
+   utilities can read `var(--ink)`, `var(--paper)` and friends directly. Those
+   original Figma names are kept below as aliases.
    ========================================================================== */
 
 /* Dark mode is driven by a `data-theme="dark"` attribute on <html> (set by
@@ -233,9 +233,9 @@
   --face-on-photo: color-mix(in srgb, var(--on-photo) 14%, var(--surface-photo));
 
   /* --- Legacy aliases ----------------------------------------------------
-     The screens and shells that keep their own scoped CSS still speak in the
-     original Figma vocabulary. Pointing those names at the semantic tokens is
-     what themes them without having to touch their stylesheets. */
+     Migrated utility classes still speak in parts of the original Figma
+     vocabulary. Pointing those names at the semantic tokens keeps them themed
+     while the markup moves incrementally toward the semantic utility names. */
   --ink: var(--text);
   --paper: var(--surface);
   --paper-raised: var(--surface-raised);
@@ -259,7 +259,7 @@
   --font-body: 'Schibsted Grotesk', system-ui, sans-serif;
   --font-data: 'Space Mono', ui-monospace, monospace;
 
-  /* --- Spacing aliases kept for the retained scoped styles ---------------- */
+  /* --- Spacing aliases used by migrated arbitrary-value utilities ---------- */
   --space-2: 2px;
   --space-4: 4px;
   --space-8: 8px;
@@ -793,5 +793,76 @@
     &::-webkit-scrollbar-track {
       background: transparent;
     }
+  }
+}
+
+/* Motion primitives referenced by Tailwind animation utilities in the dialog
+   and sheet components. Keeping only the keyframe definitions global lets the
+   component timing and state behavior remain visible in their class lists. */
+@keyframes sheet-in {
+  from { transform: translateY(100%); }
+}
+
+@keyframes sheet-out {
+  to { transform: translateY(100%); }
+}
+
+@keyframes sheet-in-top {
+  from { transform: translateY(-100%); }
+}
+
+@keyframes sheet-out-top {
+  to { transform: translateY(-100%); }
+}
+
+@keyframes sheet-in-left {
+  from { transform: translateX(-100%); }
+}
+
+@keyframes sheet-out-left {
+  to { transform: translateX(-100%); }
+}
+
+@keyframes sheet-in-right {
+  from { transform: translateX(100%); }
+}
+
+@keyframes sheet-out-right {
+  to { transform: translateX(100%); }
+}
+
+@keyframes sheet-scrim-in {
+  from { opacity: 0; }
+}
+
+@keyframes sheet-scrim-out {
+  to { opacity: 0; }
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.95);
+  }
+}
+
+@keyframes dialog-out {
+  to {
+    opacity: 0;
+    transform: translateY(12px) scale(0.95);
+  }
+}
+
+@keyframes dialog-content-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+}
+
+@keyframes dialog-content-out {
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
   }
 }

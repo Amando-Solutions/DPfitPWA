@@ -34,10 +34,10 @@ const react = async (payload: { messageId: string; emoji: string }) => {
 </script>
 
 <template>
-  <div class="chat-page">
+  <div class="chat-page [position:relative] [height:100%] [display:flex] [flex-direction:column] [background:var(--paper)] lg:[flex-direction:row]">
     <AppNav />
 
-    <div class="chat-page__main">
+    <div class="chat-page__main [flex:1] [min-height:0] [display:flex] [flex-direction:column] lg:[min-width:0] lg:[width:100%] lg:[max-width:var(--focus-max)] lg:[margin:0_auto] lg:[padding:32px_40px_0]">
       <ChatView
         :messages="messages"
         eyebrow="Private group"
@@ -52,34 +52,3 @@ const react = async (payload: { messageId: string; emoji: string }) => {
     </div>
   </div>
 </template>
-
-<style scoped lang="scss">
-.chat-page {
-  position: relative;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  background: var(--paper);
-
-  &__main {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-  }
-}
-
-@media (min-width: 1024px) {
-  .chat-page {
-    flex-direction: row;
-
-    &__main {
-      min-width: 0;
-      width: 100%;
-      max-width: var(--focus-max);
-      margin: 0 auto;
-      padding: 32px 40px 0;
-    }
-  }
-}
-</style>

@@ -70,43 +70,39 @@ const initials = computed(() =>
 </script>
 
 <template>
-  <div class="more">
+  <div class="more [padding:var(--screen-pad-top)_20px_0] [display:flex] [flex-direction:column] [gap:18px] [&_.more__title]:[margin:8px_0_0] lg:[display:grid] lg:[grid-template-columns:minmax(0,_1fr)_minmax(0,_1fr)] lg:[grid-template-areas:'header_header'_'profile_rewards'_'links_links'] lg:[align-content:start] lg:[align-items:start] lg:[column-gap:24px] lg:[row-gap:18px] lg:[padding:0_0_8px]">
     <ScreenIntro
       :eyebrow="`${cohort.name} · ${cohort.coach.name}`"
       title="More"
       :actions="false"
-      class="more__header"
+      class="more__header lg:[grid-area:header]"
     />
 
-    <section class="more__profile">
-      <AppCard variant="raised" class="more__profile-card">
-        <img
-          v-if="store.profile.value?.avatar"
-          :src="store.profile.value.avatar"
-          :alt="store.displayName.value"
-          class="more__avatar"
-          decoding="async"
-        />
-        <span v-else class="more__avatar more__avatar--initials">{{ initials }}</span>
-        <div class="more__profile-text">
-          <h2 class="more__name">{{ store.displayName.value }}</h2>
-          <p class="more__meta muted">
+    <section class="more__profile lg:[grid-area:profile]">
+      <AppCard variant="raised" class="more__profile-card [display:flex] [align-items:center] [gap:14px]">
+        <Avatar size="lg" class="more__avatar [width:52px] [height:52px] [border-radius:50%] [object-fit:cover] [flex-shrink:0] [&.more__avatar--initials]:[display:grid] [&.more__avatar--initials]:[place-items:center] [&.more__avatar--initials]:[background:var(--rose-fill)] [&.more__avatar--initials]:[color:var(--on-rose)] [&.more__avatar--initials]:[font-family:var(--font-display)] [&.more__avatar--initials]:[font-weight:900] [&.more__avatar--initials]:[font-size:18px]">
+          <AvatarImage :src="store.profile.value?.avatar ?? ''" :alt="store.displayName.value" />
+          <AvatarFallback>{{ initials }}</AvatarFallback>
+        </Avatar>
+        <div class="more__profile-text [flex:1] [min-width:0]">
+          <h2 class="more__name [margin:0_0_4px] [font-family:var(--font-display)] [font-weight:900] [font-size:17px] [color:var(--ink)]">{{ store.displayName.value }}</h2>
+          <p class="more__meta muted [margin:0] [font-size:12.5px]">
             Week {{ store.clock.value.week }} of {{ store.clock.value.totalWeeks }} ·
             {{ store.clock.value.title }}
           </p>
         </div>
-        <div class="more__profile-pills">
+        <div class="more__profile-pills [display:flex] [flex-direction:column] [gap:6px] [flex-shrink:0]">
           <StatPill icon="flame" :value="store.rewards.value.streakWeeks" variant="flame" />
           <StatPill icon="trophy" :value="store.rewards.value.badgeCount" variant="rose" />
         </div>
       </AppCard>
     </section>
 
-    <section class="more__rewards">
-      <AppCard variant="ink" class="more__rewards-card">
+    <section class="more__rewards lg:[grid-area:rewards] lg:[align-self:start]">
+      <AppCard variant="ink" class="more__rewards-card [display:flex] [flex-direction:column] [gap:8px]">
         <EyebrowLabel tone="rose-on-inverse">Reward points</EyebrowLabel>
-        <div class="more__points data">{{ store.rewards.value.points }}</div>
-        <p class="more__tier">
+        <div class="more__points data [font-size:40px] [font-weight:700] [line-height:1] [color:var(--on-inverse)]">{{ store.rewards.value.points }}</div>
+        <p class="more__tier [margin:0_0_4px] [font-size:13px] [color:var(--on-inverse-soft)]">
           {{ store.rewards.value.rank.emoji }} {{ store.rewards.value.rank.name }}
           <template v-if="store.rewards.value.nextRank">
             · {{ store.rewards.value.pointsToNextRank }} RP to
@@ -118,16 +114,16 @@ const initials = computed(() =>
       </AppCard>
     </section>
 
-    <section class="more__links">
-      <NuxtLink v-for="link in links" :key="link.to" :to="link.to" class="more__link">
-        <span class="more__link-icon">
+    <section class="more__links [display:flex] [flex-direction:column] [gap:10px] lg:[grid-area:links] lg:[display:grid] lg:[grid-template-columns:repeat(2,_minmax(0,_1fr))] lg:[gap:12px] lg:[margin-top:6px]">
+      <NuxtLink v-for="link in links" :key="link.to" :to="link.to" class="more__link [display:flex] [align-items:center] [gap:12px] [padding:14px_16px] [border-radius:var(--radius-card)] [background:var(--paper-raised)] [box-shadow:var(--shadow-card)] [color:var(--ink)] lg:[transition:transform_0.15s_ease,_box-shadow_0.15s_ease] lg:hover:[transform:translateY(-2px)] lg:hover:[box-shadow:var(--shadow-raised)]">
+        <span class="more__link-icon [display:grid] [place-items:center] [width:34px] [height:34px] [border-radius:50%] [background:var(--rose-soft)] [color:var(--rose)] [flex-shrink:0]">
           <AppIcon :name="link.icon" :size="18" />
         </span>
-        <span class="more__link-text">
+        <span class="more__link-text [flex:1] [min-width:0] [display:flex] [flex-direction:column] [gap:2px] [&_strong]:[font-size:14px] [&_strong]:[font-weight:600] [&_small]:[font-size:12px] [&_small]:[color:var(--violet-45)]">
           <strong>{{ link.label }}</strong>
           <small>{{ link.meta }}</small>
         </span>
-        <AppIcon name="chevronRight" :size="18" class="more__link-chev" />
+        <AppIcon name="chevronRight" :size="18" class="more__link-chev [color:var(--violet-45)] [flex-shrink:0]" />
       </NuxtLink>
 
       <!-- Only while installing is actually possible: already installed, or a
@@ -135,13 +131,13 @@ const initials = computed(() =>
       <button
         v-if="install.canInstall.value"
         type="button"
-        class="more__link more__link--action"
+        class="more__link more__link--action [display:flex] [align-items:center] [gap:12px] [padding:14px_16px] [border-radius:var(--radius-card)] [background:var(--paper-raised)] [box-shadow:var(--shadow-card)] [color:var(--ink)] lg:[transition:transform_0.15s_ease,_box-shadow_0.15s_ease] lg:hover:[transform:translateY(-2px)] lg:hover:[box-shadow:var(--shadow-raised)] [width:100%] [text-align:left]"
         @click="install.install()"
       >
-        <span class="more__link-icon">
+        <span class="more__link-icon [display:grid] [place-items:center] [width:34px] [height:34px] [border-radius:50%] [background:var(--rose-soft)] [color:var(--rose)] [flex-shrink:0]">
           <AppIcon name="download" :size="18" />
         </span>
-        <span class="more__link-text">
+        <span class="more__link-text [flex:1] [min-width:0] [display:flex] [flex-direction:column] [gap:2px] [&_strong]:[font-size:14px] [&_strong]:[font-weight:600] [&_small]:[font-size:12px] [&_small]:[color:var(--violet-45)]">
           <strong>Install the app</strong>
           <small>
             {{
@@ -151,195 +147,8 @@ const initials = computed(() =>
             }}
           </small>
         </span>
-        <AppIcon name="chevronRight" :size="18" class="more__link-chev" />
+        <AppIcon name="chevronRight" :size="18" class="more__link-chev [color:var(--violet-45)] [flex-shrink:0]" />
       </button>
     </section>
   </div>
 </template>
-
-<style scoped lang="scss">
-.more {
-  padding: var(--screen-pad-top) 20px 0;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-
-  &__title {
-    margin: 8px 0 0;
-  }
-
-  &__profile-card {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-  }
-
-  &__avatar {
-    width: 52px;
-    height: 52px;
-    border-radius: 50%;
-    object-fit: cover;
-    flex-shrink: 0;
-
-    &--initials {
-      display: grid;
-      place-items: center;
-      background: var(--rose-fill);
-      color: var(--on-rose);
-      font-family: var(--font-display);
-      font-weight: 900;
-      font-size: 18px;
-    }
-  }
-
-  &__profile-text {
-    flex: 1;
-    min-width: 0;
-  }
-
-  &__name {
-    margin: 0 0 4px;
-    font-family: var(--font-display);
-    font-weight: 900;
-    font-size: 17px;
-    color: var(--ink);
-  }
-
-  &__meta {
-    margin: 0;
-    font-size: 12.5px;
-  }
-
-  &__profile-pills {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    flex-shrink: 0;
-  }
-
-  &__rewards-card {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  &__points {
-    font-size: 40px;
-    font-weight: 700;
-    line-height: 1;
-    color: var(--on-inverse);
-  }
-
-  &__tier {
-    margin: 0 0 4px;
-    font-size: 13px;
-    color: var(--on-inverse-soft);
-  }
-
-  &__links {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  &__link {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 14px 16px;
-    border-radius: var(--radius-card);
-    background: var(--paper-raised);
-    box-shadow: var(--shadow-card);
-    color: var(--ink);
-  }
-
-  // The install row is a button rather than a link; these are the only two
-  // places where a button does not already inherit what an <a> gets.
-  &__link--action {
-    width: 100%;
-    text-align: left;
-  }
-
-  &__link-icon {
-    display: grid;
-    place-items: center;
-    width: 34px;
-    height: 34px;
-    border-radius: 50%;
-    background: var(--rose-soft);
-    color: var(--rose);
-    flex-shrink: 0;
-  }
-
-  &__link-text {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-
-    strong {
-      font-size: 14px;
-      font-weight: 600;
-    }
-    small {
-      font-size: 12px;
-      color: var(--violet-45);
-    }
-  }
-
-  &__link-chev {
-    color: var(--violet-45);
-    flex-shrink: 0;
-  }
-}
-
-// Desktop: profile + rewards side by side, links as a two-up list.
-@media (min-width: 1024px) {
-  .more {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-areas:
-      'header  header'
-      'profile rewards'
-      'links   links';
-    align-content: start;
-    align-items: start;
-    column-gap: 24px;
-    row-gap: 18px;
-    padding: 0 0 8px;
-
-    &__header {
-      grid-area: header;
-    }
-
-    &__profile {
-      grid-area: profile;
-    }
-
-    &__rewards {
-      grid-area: rewards;
-      align-self: start;
-    }
-
-    &__links {
-      grid-area: links;
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
-      margin-top: 6px;
-    }
-
-    &__link {
-      transition:
-        transform 0.15s ease,
-        box-shadow 0.15s ease;
-
-      &:hover {
-        transform: translateY(-2px);
-        box-shadow: var(--shadow-raised);
-      }
-    }
-  }
-}
-</style>

@@ -26,7 +26,7 @@ const rows = computed(() =>
 </script>
 
 <template>
-  <div class="guides">
+  <div class="guides [padding:var(--screen-pad-top)_20px_0] [&_.guides__title]:[margin:8px_0_6px] [&_.guides__sub]:[margin:0_0_16px] [&_.guides__sub]:[font-size:13.5px] lg:[padding:0] lg:[&_.guides__sub]:[font-size:15px]">
     <ScreenIntro
       eyebrow="Reference library"
       title="Program guides"
@@ -35,11 +35,11 @@ const rows = computed(() =>
       class="guides__header"
     />
 
-    <div class="guides__filters scroll-x">
+    <div class="guides__filters scroll-x [margin-top:16px] [display:flex] [gap:8px] [overflow-x:auto] [padding-bottom:4px] [margin-bottom:16px] [scrollbar-width:none] [&::-webkit-scrollbar]:[display:none]">
       <button
         v-for="category in guideCategories"
         :key="category"
-        class="chip btn-raised"
+        class="chip btn-raised [flex-shrink:0] [padding:8px_14px] [border-radius:var(--radius-pill)] [background:var(--paper-raised)] [--btn-face:var(--surface-raised)] [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:0.5px] [font-size:9.5px] [font-weight:700] [color:var(--violet-45)] [white-space:nowrap] [&.chip--on]:[background:var(--surface-inverse)] [&.chip--on]:[--btn-face:var(--surface-inverse)] [&.chip--on]:[color:var(--on-inverse)]"
         :class="{ 'chip--on': filter === category }"
         @click="filter = category"
       >
@@ -47,197 +47,31 @@ const rows = computed(() =>
       </button>
     </div>
 
-    <div class="guides__list">
+    <div class="guides__list [display:flex] [flex-direction:column] [gap:12px] lg:[display:grid] lg:[grid-template-columns:repeat(3,_minmax(0,_1fr))] lg:[align-items:start] lg:[gap:16px]">
       <component
         :is="guide.locked ? 'div' : NuxtLink"
         v-for="guide in rows"
         :key="guide.id"
         :to="guide.locked ? undefined : `/guides/${guide.id}`"
-        class="guide"
+        class="guide [display:block] [position:relative] [padding:16px] [border-radius:var(--radius-card)] [background:var(--paper-raised)] [box-shadow:var(--shadow-card)] [color:var(--ink)] [&.guide--locked]:[opacity:0.6] [&.guide--locked]:[box-shadow:inset_0_0_0_1.5px_var(--hairline)] [&.guide--locked]:[background:transparent] [&.guide--locked]:[cursor:default] lg:[&:not(.guide--locked)]:[transition:transform_0.15s_ease,_box-shadow_0.15s_ease] lg:[&:not(.guide--locked):hover]:[transform:translateY(-2px)] lg:[&:not(.guide--locked):hover]:[box-shadow:var(--shadow-raised)]"
         :class="{ 'guide--locked': guide.locked }"
       >
-        <div class="guide__top">
-          <span class="guide__meta data">{{ guide.steps }} steps · {{ guide.readMinutes }} min read</span>
-          <span v-if="guide.locked" class="guide__lock">
+        <div class="guide__top [display:flex] [align-items:center] [justify-content:space-between] [gap:10px] [margin-bottom:8px]">
+          <span class="guide__meta data [font-size:10px] [letter-spacing:0.45px] [color:var(--violet-45)]">{{ guide.steps }} steps · {{ guide.readMinutes }} min read</span>
+          <span v-if="guide.locked" class="guide__lock [display:inline-flex] [align-items:center] [gap:5px] [font-family:var(--font-data)] [text-transform:uppercase] [letter-spacing:0.85px] [font-size:8.5px] [font-weight:700] [color:var(--violet-45)]">
             <AppIcon name="lock" :size="12" />
             Unlocks in week {{ guide.unlockWeek }}
           </span>
-          <AppIcon v-else name="chevronRight" :size="16" class="guide__chev" />
+          <AppIcon v-else name="chevronRight" :size="16" class="guide__chev [color:var(--violet-45)]" />
         </div>
-        <h2 class="guide__title">{{ guide.title }}</h2>
-        <p class="guide__excerpt">{{ guide.excerpt }}</p>
-        <span class="guide__category">{{ guide.category }}</span>
+        <h2 class="guide__title [margin:0_0_6px] [font-family:var(--font-display)] [font-weight:900] [font-size:17px]">{{ guide.title }}</h2>
+        <p class="guide__excerpt [margin:0_0_10px] [font-size:13px] [line-height:1.5] [color:var(--violet-45)]">{{ guide.excerpt }}</p>
+        <span class="guide__category [display:inline-block] [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:0.5px] [font-size:8.5px] [font-weight:700] [color:var(--rose)] [background:var(--rose-soft)] [padding:4px_8px] [border-radius:var(--radius-pill)]">{{ guide.category }}</span>
       </component>
     </div>
 
-    <p v-if="!rows.length" class="guides__empty muted">
+    <p v-if="!rows.length" class="guides__empty muted [margin:24px_0] [text-align:center] [font-size:13.5px]">
       Nothing in this category yet.
     </p>
   </div>
 </template>
-
-<style scoped lang="scss">
-.guides {
-  padding: var(--screen-pad-top) 20px 0;
-
-  &__title {
-    margin: 8px 0 6px;
-  }
-
-  &__sub {
-    margin: 0 0 16px;
-    font-size: 13.5px;
-  }
-
-  &__filters {
-    margin-top: 16px;
-    display: flex;
-    gap: 8px;
-    overflow-x: auto;
-    padding-bottom: 4px;
-    margin-bottom: 16px;
-    scrollbar-width: none;
-
-    &::-webkit-scrollbar {
-      display: none;
-    }
-  }
-
-  &__list {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  &__empty {
-    margin: 24px 0;
-    text-align: center;
-    font-size: 13.5px;
-  }
-}
-
-.chip {
-  flex-shrink: 0;
-  padding: 8px 14px;
-  border-radius: var(--radius-pill);
-  background: var(--paper-raised);
-  /* The stroke, the cast and the inner edges all come from `btn-raised`; the
-     only thing this rule owes it is the face colour they are derived from. */
-  --btn-face: var(--surface-raised);
-  font-family: var(--font-eyebrow);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  font-size: 9.5px;
-  font-weight: 700;
-  color: var(--violet-45);
-  white-space: nowrap;
-
-  &--on {
-    background: var(--surface-inverse);
-    --btn-face: var(--surface-inverse);
-    color: var(--on-inverse);
-  }
-}
-
-.guide {
-  display: block;
-  position: relative;
-  padding: 16px;
-  border-radius: var(--radius-card);
-  background: var(--paper-raised);
-  box-shadow: var(--shadow-card);
-  color: var(--ink);
-
-  &--locked {
-    opacity: 0.6;
-    box-shadow: inset 0 0 0 1.5px var(--hairline);
-    background: transparent;
-    cursor: default;
-  }
-
-  &__top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    margin-bottom: 8px;
-  }
-
-  &__meta {
-    font-size: 10px;
-    letter-spacing: 0.45px;
-    color: var(--violet-45);
-  }
-
-  &__lock {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    font-family: var(--font-data);
-    text-transform: uppercase;
-    letter-spacing: 0.85px;
-    font-size: 8.5px;
-    font-weight: 700;
-    color: var(--violet-45);
-  }
-
-  &__chev {
-    color: var(--violet-45);
-  }
-
-  &__title {
-    margin: 0 0 6px;
-    font-family: var(--font-display);
-    font-weight: 900;
-    font-size: 17px;
-  }
-
-  &__excerpt {
-    margin: 0 0 10px;
-    font-size: 13px;
-    line-height: 1.5;
-    color: var(--violet-45);
-  }
-
-  &__category {
-    display: inline-block;
-    font-family: var(--font-eyebrow);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    font-size: 8.5px;
-    font-weight: 700;
-    color: var(--rose);
-    background: var(--rose-soft);
-    padding: 4px 8px;
-    border-radius: var(--radius-pill);
-  }
-}
-
-@media (min-width: 1024px) {
-  .guides {
-    padding: 0;
-
-    &__sub {
-      font-size: 15px;
-    }
-
-    &__list {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      align-items: start;
-      gap: 16px;
-    }
-  }
-
-  .guide:not(.guide--locked) {
-    transition:
-      transform 0.15s ease,
-      box-shadow 0.15s ease;
-
-    &:hover {
-      transform: translateY(-2px);
-      box-shadow: var(--shadow-raised);
-    }
-  }
-}
-</style>

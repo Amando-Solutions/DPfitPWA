@@ -26,43 +26,43 @@ const initials = computed(() =>
 </script>
 
 <template>
-  <aside class="sidenav">
-    <NuxtLink to="/home" class="sidenav__brand">
+  <aside class="sidenav [display:none] lg:[display:flex] lg:[flex-direction:column] lg:[gap:4px] lg:[width:var(--sidenav-width)] lg:[flex-shrink:0] lg:[padding:26px_18px_22px] lg:[background:var(--paper-raised)] lg:[border-right:1px_solid_var(--hairline)] lg:[overflow-y:auto]">
+    <NuxtLink to="/home" class="sidenav__brand lg:[padding:0_10px_22px]">
       <BrandWordmark size="sm" />
     </NuxtLink>
 
-    <nav class="sidenav__nav">
+    <nav class="sidenav__nav lg:[display:flex] lg:[flex-direction:column] lg:[gap:2px]">
       <NuxtLink
         v-for="item in primary"
         :key="item.key"
         :to="item.to"
-        class="sidenav__item"
+        class="sidenav__item lg:[position:relative] lg:[display:flex] lg:[align-items:center] lg:[gap:12px] lg:[padding:11px_12px] lg:[border-radius:var(--radius-md)] lg:[color:var(--violet-45)] lg:[font-size:14px] lg:[font-weight:600] lg:[transition:background_0.15s_ease,_color_0.15s_ease] lg:hover:[background:var(--fill-subtle)] lg:hover:[color:var(--ink)] lg:[&.sidenav__item--active]:[background:var(--surface-inverse)] lg:[&.sidenav__item--active]:[color:var(--on-inverse)] lg:[&.sidenav__item--active:hover]:[background:var(--surface-inverse)] lg:[&.sidenav__item--active:hover]:[color:var(--on-inverse)] lg:[&.sidenav__item--active_.sidenav__icon]:[color:var(--rose)]"
         :class="{ 'sidenav__item--active': isActive(item.to) }"
       >
-        <span class="sidenav__icon">
+        <span class="sidenav__icon lg:[display:grid] lg:[place-items:center] lg:[flex-shrink:0]">
           <AppIcon :name="item.icon" :size="20" :stroke="2" />
         </span>
         <span class="sidenav__label">{{ item.desktopLabel ?? item.label }}</span>
       </NuxtLink>
     </nav>
 
-    <div class="sidenav__divider" />
+    <div class="sidenav__divider lg:[height:1px] lg:[margin:16px_12px_12px] lg:[background:var(--fill-subtle)]" />
 
-    <nav class="sidenav__nav">
+    <nav class="sidenav__nav lg:[display:flex] lg:[flex-direction:column] lg:[gap:2px]">
       <NuxtLink
         v-for="item in secondary"
         :key="item.key"
         :to="item.to"
-        class="sidenav__item sidenav__item--secondary"
+        class="sidenav__item sidenav__item--secondary lg:[position:relative] lg:[display:flex] lg:[align-items:center] lg:[gap:12px] lg:[padding:11px_12px] lg:[border-radius:var(--radius-md)] lg:[color:var(--violet-45)] lg:[font-size:14px] lg:[font-weight:600] lg:[transition:background_0.15s_ease,_color_0.15s_ease] lg:hover:[background:var(--fill-subtle)] lg:hover:[color:var(--ink)] lg:[&.sidenav__item--active]:[background:var(--surface-inverse)] lg:[&.sidenav__item--active]:[color:var(--on-inverse)] lg:[&.sidenav__item--active:hover]:[background:var(--surface-inverse)] lg:[&.sidenav__item--active:hover]:[color:var(--on-inverse)] lg:[&.sidenav__item--active_.sidenav__icon]:[color:var(--rose)]"
         :class="{ 'sidenav__item--active': isActive(item.to) }"
       >
-        <span class="sidenav__icon">
+        <span class="sidenav__icon lg:[display:grid] lg:[place-items:center] lg:[flex-shrink:0]">
           <AppIcon :name="item.icon" :size="20" :stroke="2" />
         </span>
         <span class="sidenav__label">{{ item.label }}</span>
         <span
           v-if="item.key === 'check-in' && store.checkInDue.value"
-          class="sidenav__badge"
+          class="sidenav__badge lg:[width:7px] lg:[height:7px] lg:[border-radius:50%] lg:[background:var(--rose-fill)] lg:[margin-left:auto]"
         />
       </NuxtLink>
     </nav>
@@ -71,230 +71,37 @@ const initials = computed(() =>
          the screen that says when the next one opens. -->
     <NuxtLink
       :to="store.trainingLocked.value ? '/train' : `/train/${store.today.value?.id ?? ''}`"
-      class="sidenav__cta btn-raised btn-glow"
+      class="sidenav__cta btn-raised btn-glow lg:[margin-top:18px] lg:[display:flex] lg:[align-items:center] lg:[justify-content:center] lg:[gap:8px] lg:[padding:13px_14px] lg:[border-radius:var(--radius-md)] lg:[background:var(--rose-fill)] lg:[--btn-face:var(--rose-fill)] lg:[color:var(--on-rose)] lg:[font-size:13.5px] lg:[font-weight:700]"
     >
       <AppIcon :name="store.trainingLocked.value ? 'check' : 'play'" :size="16" fill />
       <span>{{ store.trainingLocked.value ? 'Today is logged' : "Start today's session" }}</span>
     </NuxtLink>
 
-    <div class="sidenav__spacer" />
+    <div class="sidenav__spacer lg:[flex:1] lg:[min-height:20px]" />
 
-    <NuxtLink to="/notifications" class="sidenav__inbox">
+    <NuxtLink to="/notifications" class="sidenav__inbox lg:[display:flex] lg:[align-items:center] lg:[gap:12px] lg:[padding:10px_12px] lg:[margin-bottom:6px] lg:[border-radius:var(--radius-md)] lg:[color:var(--violet-45)] lg:[font-size:13px] lg:[font-weight:600] lg:hover:[background:var(--fill-subtle)] lg:hover:[color:var(--ink)]">
       <AppIcon name="bell" :size="18" :stroke="2" />
       <span>Inbox</span>
-      <span v-if="store.unreadNotifications.value" class="sidenav__count data">
+      <span v-if="store.unreadNotifications.value" class="sidenav__count data lg:[margin-left:auto] lg:[min-width:20px] lg:[padding:2px_6px] lg:[border-radius:var(--radius-pill)] lg:[background:var(--rose-fill)] lg:[color:var(--on-rose)] lg:[font-size:10px] lg:[font-weight:700] lg:[text-align:center]">
         {{ store.unreadNotifications.value }}
       </span>
     </NuxtLink>
 
-    <NuxtLink to="/profile" class="sidenav__member">
-      <img
-        v-if="store.profile.value?.avatar"
-        :src="store.profile.value.avatar"
-        :alt="store.displayName.value"
-        class="sidenav__avatar"
-        loading="lazy"
-        decoding="async"
-      />
-      <span v-else class="sidenav__avatar sidenav__avatar--initials">{{ initials }}</span>
-      <span class="sidenav__member-text">
-        <span class="sidenav__member-name">{{ store.displayName.value }}</span>
-        <span class="sidenav__member-meta">
+    <NuxtLink to="/profile" class="sidenav__member lg:[display:flex] lg:[align-items:center] lg:[gap:10px] lg:[padding:10px] lg:[border-radius:var(--radius-md)] lg:[background:var(--paper)] lg:[transition:background_0.15s_ease] lg:hover:[background:var(--fill-subtle)]">
+      <Avatar size="md" class="sidenav__avatar lg:[width:36px] lg:[height:36px] lg:[border-radius:50%] lg:[object-fit:cover] lg:[flex-shrink:0] lg:[&.sidenav__avatar--initials]:[display:grid] lg:[&.sidenav__avatar--initials]:[place-items:center] lg:[&.sidenav__avatar--initials]:[background:var(--rose-fill)] lg:[&.sidenav__avatar--initials]:[color:var(--on-rose)] lg:[&.sidenav__avatar--initials]:[font-family:var(--font-display)] lg:[&.sidenav__avatar--initials]:[font-weight:900] lg:[&.sidenav__avatar--initials]:[font-size:13px]">
+        <AvatarImage
+          :src="store.profile.value?.avatar ?? ''"
+          :alt="store.displayName.value"
+          loading="lazy"
+        />
+        <AvatarFallback>{{ initials }}</AvatarFallback>
+      </Avatar>
+      <span class="sidenav__member-text lg:[display:flex] lg:[flex-direction:column] lg:[gap:2px] lg:[min-width:0]">
+        <span class="sidenav__member-name lg:[font-size:13.5px] lg:[font-weight:700] lg:[color:var(--ink)] lg:[white-space:nowrap] lg:[overflow:hidden] lg:[text-overflow:ellipsis]">{{ store.displayName.value }}</span>
+        <span class="sidenav__member-meta lg:[font-family:var(--font-eyebrow)] lg:[text-transform:uppercase] lg:[letter-spacing:0.5px] lg:[font-size:8.5px] lg:[font-weight:700] lg:[color:var(--violet-45)]">
           Week {{ store.clock.value.week }} · {{ store.clock.value.title }}
         </span>
       </span>
     </NuxtLink>
   </aside>
 </template>
-
-<style scoped lang="scss">
-.sidenav {
-  display: none;
-}
-
-@media (min-width: 1024px) {
-  .sidenav {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    width: var(--sidenav-width);
-    flex-shrink: 0;
-    padding: 26px 18px 22px;
-    background: var(--paper-raised);
-    border-right: 1px solid var(--hairline);
-    overflow-y: auto;
-  }
-
-  .sidenav__brand {
-    padding: 0 10px 22px;
-  }
-
-  .sidenav__nav {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .sidenav__item {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 11px 12px;
-    border-radius: var(--radius-md);
-    color: var(--violet-45);
-    font-size: 14px;
-    font-weight: 600;
-    transition:
-      background 0.15s ease,
-      color 0.15s ease;
-
-    &:hover {
-      background: var(--fill-subtle);
-      color: var(--ink);
-    }
-
-    &--active {
-      background: var(--surface-inverse);
-      color: var(--on-inverse);
-
-      &:hover {
-        background: var(--surface-inverse);
-        color: var(--on-inverse);
-      }
-
-      .sidenav__icon {
-        color: var(--rose);
-      }
-    }
-  }
-
-  .sidenav__icon {
-    display: grid;
-    place-items: center;
-    flex-shrink: 0;
-  }
-
-  .sidenav__badge {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--rose-fill);
-    margin-left: auto;
-  }
-
-  .sidenav__cta {
-    margin-top: 18px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 13px 14px;
-    border-radius: var(--radius-md);
-    background: var(--rose-fill);
-    /* The stroke, the rose cast, the hover lift and the press are all the
-       `btn-raised` recipe; this only names the face they come from. */
-    --btn-face: var(--rose-fill);
-    color: var(--on-rose);
-    font-size: 13.5px;
-    font-weight: 700;
-  }
-
-  .sidenav__divider {
-    height: 1px;
-    margin: 16px 12px 12px;
-    background: var(--fill-subtle);
-  }
-
-  .sidenav__spacer {
-    flex: 1;
-    min-height: 20px;
-  }
-
-  .sidenav__inbox {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 12px;
-    margin-bottom: 6px;
-    border-radius: var(--radius-md);
-    color: var(--violet-45);
-    font-size: 13px;
-    font-weight: 600;
-
-    &:hover {
-      background: var(--fill-subtle);
-      color: var(--ink);
-    }
-  }
-
-  .sidenav__count {
-    margin-left: auto;
-    min-width: 20px;
-    padding: 2px 6px;
-    border-radius: var(--radius-pill);
-    background: var(--rose-fill);
-    color: var(--on-rose);
-    font-size: 10px;
-    font-weight: 700;
-    text-align: center;
-  }
-
-  .sidenav__member {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px;
-    border-radius: var(--radius-md);
-    background: var(--paper);
-    transition: background 0.15s ease;
-
-    &:hover {
-      background: var(--fill-subtle);
-    }
-  }
-
-  .sidenav__avatar {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    object-fit: cover;
-    flex-shrink: 0;
-
-    &--initials {
-      display: grid;
-      place-items: center;
-      background: var(--rose-fill);
-      color: var(--on-rose);
-      font-family: var(--font-display);
-      font-weight: 900;
-      font-size: 13px;
-    }
-  }
-
-  .sidenav__member-text {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-  }
-
-  .sidenav__member-name {
-    font-size: 13.5px;
-    font-weight: 700;
-    color: var(--ink);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .sidenav__member-meta {
-    font-family: var(--font-eyebrow);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    font-size: 8.5px;
-    font-weight: 700;
-    color: var(--violet-45);
-  }
-}
-</style>
