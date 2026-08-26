@@ -5,7 +5,7 @@ import { basename, dirname } from 'node:path'
 
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
-  compatibilityDate: '2025-01-01',
+  compatibilityDate: '2025-07-15',
   devtools: { enabled: true },
 
   // Single-page app. Every screen is driven by member data held on the device,
@@ -67,10 +67,9 @@ export default defineNuxtConfig({
   // output drops in unchanged and explicit imports still work.
   components: [{ path: '~/components', pathPrefix: false, extensions: ['vue'] }],
 
-  // Nuxt only auto-detects `~/app/spa-loading-template.html`; this project keeps
-  // it at the root, so without an explicit path the boot splash is compiled in
-  // empty and the first paint is a blank page.
-  spaLoadingTemplate: 'spa-loading-template.html',
+  // The splash now sits at `app/spa-loading-template.html`, which is exactly
+  // where Nuxt 4 looks by default (`<srcDir>/spa-loading-template.html`), so the
+  // explicit path this used to need is gone.
 
   css: ['~/assets/styles/main.css'],
 
@@ -86,11 +85,30 @@ export default defineNuxtConfig({
   runtimeConfig: {
     public: {
       // NUXT_PUBLIC_USE_MOCK_DATA: serve every screen from `data/*.ts`.
-      useMockData: true,
-      // NUXT_PUBLIC_API_BASE: backend origin used when mock data is off.
-      apiBase: '',
+      useMockData: process.env.NUXT_PUBLIC_USE_MOCK_DATA !== 'false',
+      // NUXT_PUBLIC_API_BASE: backend origin used when mock data is off and
+      // the REST implementation is selected. See `lib/datasource/index.ts`.
+      apiBase: process.env.NUXT_PUBLIC_API_BASE || '',
       // NUXT_PUBLIC_APP_ENV: free-form label for the running environment.
-      appEnv: 'development',
+      appEnv: process.env.NUXT_PUBLIC_APP_ENV || 'development',
+      /**
+       * Firebase web config. Public by design — these identify the project,
+       * they do not authorise anything. What stops a stranger reading the
+       * database is the security rules, never the secrecy of these values.
+       *
+       * Nested rather than flat so `config.public.firebase` can be passed to
+       * `initializeApp` whole, which is how `plugins/firebase.client.ts` reads
+       * it.
+       */
+      firebase: {
+        apiKey: process.env.NUXT_PUBLIC_FIREBASE_API_KEY || '',
+        authDomain: process.env.NUXT_PUBLIC_FIREBASE_AUTH_DOMAIN || '',
+        projectId: process.env.NUXT_PUBLIC_FIREBASE_PROJECT_ID || '',
+        storageBucket: process.env.NUXT_PUBLIC_FIREBASE_STORAGE_BUCKET || '',
+        messagingSenderId: process.env.NUXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || '',
+        appId: process.env.NUXT_PUBLIC_FIREBASE_APP_ID || '',
+        measurementId: process.env.NUXT_PUBLIC_FIREBASE_MEASUREMENT_ID || '',
+      },
     },
   },
 

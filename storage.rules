@@ -1,0 +1,63 @@
+rules_version = '2';
+
+// =============================================================================
+// DP Fitness — Cloud Storage security rules
+//
+// Progress photos are the most sensitive thing this product holds. They are
+// private to the member who took them, full stop: not visible to the cohort,
+// and reachable by a coach only through the Admin SDK, which bypasses rules.
+//
+// A download URL is a bearer token — anyone holding the link can fetch the
+// object regardless of what is written here — so these rules govern who can
+// obtain one in the first place, and the app never puts a progress photo URL
+// anywhere a peer can read it.
+// =============================================================================
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    /** Images only, and small enough that a full-size camera dump is refused. */
+    function isImageUnder(mb) {
+      return request.resource.contentType.matches('image/.*')
+        && request.resource.size < mb * 1024 * 1024;
+    }
+
+    // --- The member's own photos ------------------------------------------
+    // `members/{uid}/progress/…` and `members/{uid}/proof/…`
+    //
+    // `processImage` downscales to a 900px edge before upload, so 4 MB is
+    // generous for anything the app itself sends and still rejects a raw
+    // 12 MP original pushed straight at the bucket.
+    match /members/{uid}/{folder}/{file} {
+      allow read: if isSelf(uid);
+      allow write: if isSelf(uid)
+        && folder in ['progress', 'proof']
+        && isImageUnder(4);
+      allow delete: if isSelf(uid);
+    }
+
+    // --- Chat attachments --------------------------------------------------
+    // `chat/{cohortId}/{uid}/…`
+    //
+    // Readable by anyone signed in, because a download URL is a bearer token
+    // and a message's recipients need to be able to open what they were sent.
+    // Writable only under your own uid, so nothing can be planted in somebody
+    // else's name.
+    //
+    // The size ceiling matches `MAX_FILE_BYTES` in `lib/attachments.ts`, with
+    // room for the base64 expansion an upload carries.
+    match /chat/{cohortId}/{uid}/{file} {
+      allow read: if signedIn();
+      allow write: if isSelf(uid) && request.resource.size < 2 * 1024 * 1024;
+      allow delete: if isSelf(uid);
+    }
+  }
+}
