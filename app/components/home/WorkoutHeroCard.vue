@@ -22,51 +22,60 @@ const setsPlanned = computed(() =>
 const NuxtLinkComponent = resolveComponent('NuxtLink')
 const tag = computed(() => (props.locked ? 'div' : NuxtLinkComponent))
 
+// Sentence case, because these read as a line of copy rather than a set of
+// labels. The only uppercase mono left on Home is the week/phase eyebrow.
 const eyebrow = computed(() => {
-  if (props.locked) return 'LOGGED TODAY'
-  return props.allDone ? 'WEEK COMPLETE' : `TODAY · DAY ${props.day.dayNumber}`
+  if (props.locked) return 'Logged today'
+  return props.allDone ? 'Week complete' : `Today · Day ${props.day.dayNumber}`
 })
 
 const cta = computed(() => {
   if (props.locked) return props.nextLabel ? `Next session ${props.nextLabel}` : 'Back tomorrow'
   return props.allDone ? 'Log an extra session' : 'Start today’s workout'
 })
-
-const CHIP =
-  'data rounded-pill bg-on-photo/12 px-2.75 py-1.25 text-[10.5px] tracking-[0.525px]'
 </script>
 
 <template>
-  <!-- A photographic hero: dark in both themes on purpose, see `--surface-photo`. -->
+  <!--
+    A photographic hero: dark in both themes on purpose, see `--surface-photo`.
+
+    The photograph is the workout day's own `heroImage`, authored by the coach
+    and served from Cloud Storage, so it changes with the block rather than
+    being a design asset baked into the bundle. It carries no visible credit
+    because it is the product's own image, not a borrowed one. When a day has no
+    art the gradient stands alone, which is a finished card either way — nothing
+    below depends on the photograph being there.
+  -->
   <component
     :is="tag"
     :to="locked ? undefined : `/train/${day.id}`"
     class="relative block min-h-58 overflow-hidden rounded-lg bg-photo text-on-photo lg:min-h-75"
   >
-    <div
-      class="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1517963879433-6ad2b056d712?w=712&q=70')] bg-cover bg-center opacity-50 mix-blend-luminosity"
+    <!--
+      `mix-blend-luminosity` is what keeps this from reading as stock: the photo
+      contributes its light and shade and the brand wash underneath supplies the
+      colour, so any image the coach uploads lands in the same palette as the
+      rest of the card.
+    -->
+    <img
+      v-if="day.heroImage"
+      :src="day.heroImage.downloadUrl"
+      alt=""
+      aria-hidden="true"
+      decoding="async"
+      fetchpriority="high"
+      class="absolute inset-0 size-full object-cover opacity-55 mix-blend-luminosity"
     />
-    <span
-      class="absolute top-0 left-0 bg-black/55 px-1.75 py-0.5 text-[10px] text-on-photo/85"
-    >
-      Photo by John Arano on Unsplash
-    </span>
     <div
-      class="absolute inset-0 bg-[radial-gradient(120%_80%_at_100%_0%,var(--rose-ring),transparent_55%),var(--photo-scrim)]"
+      class="absolute inset-0 bg-[var(--photo-floor),radial-gradient(120%_80%_at_100%_0%,var(--rose-ring),transparent_55%),var(--photo-scrim)]"
     />
 
     <div
       class="relative flex min-h-58 flex-col justify-end p-5 lg:min-h-75 lg:p-6"
     >
-      <div class="flex items-center justify-between gap-2.5">
-        <span
-          class="data rounded-pill bg-on-photo/14 px-2.75 py-1.25 text-[10.5px] tracking-[0.525px]"
-        >
-          {{ eyebrow }}
-        </span>
-        <span class="data text-[11px] text-on-photo/75">
-          ~{{ day.estimatedMinutes }} MIN
-        </span>
+      <div class="flex items-center justify-between gap-2.5 text-[12px] text-on-photo/75">
+        <span>{{ eyebrow }}</span>
+        <span>{{ day.estimatedMinutes }} min</span>
       </div>
 
       <h2
@@ -75,26 +84,20 @@ const CHIP =
         {{ locked ? 'Rest up. That’s the work done.' : day.label }}
       </h2>
 
-      <div v-if="!locked" class="mt-3.25 flex flex-wrap gap-1.75">
-        <span :class="CHIP">{{ day.exercises.length }} EXERCISES</span>
-        <span :class="CHIP">{{ setsPlanned }} SETS</span>
-        <span
-          class="data rounded-pill bg-orange-soft px-2.75 py-1.25 text-[10.5px] tracking-[0.525px] text-orange"
-        >
-          ~{{ day.estimatedKcal }} KCAL
-        </span>
-      </div>
+      <!-- One plain line rather than three chips. The calorie estimate that used
+           to sit here was a guess presented with the same weight as two counts
+           the plan actually knows, so it is gone rather than quietly wrong. -->
+      <p v-if="!locked" class="mt-2 mb-0 text-[13.5px] text-on-photo/80">
+        {{ day.exercises.length }} exercises · {{ setsPlanned }} sets
+      </p>
       <p v-else class="mt-3.25 mb-0 max-w-80 text-[13.5px] leading-[1.45] text-on-photo/80">
         One session a day is the plan. Day {{ day.dayNumber }} is waiting for you.
       </p>
 
+      <!-- Flat fill: no raised stack, no coloured halo. -->
       <span
         class="mt-4.5 flex items-center justify-center rounded-pill p-3.75 text-[14.5px] font-bold"
-        :class="
-          locked
-            ? 'bg-on-photo/14 text-on-photo/85'
-            : 'btn-raised bg-rose-fill text-on-rose [--btn-face:var(--rose-fill)]'
-        "
+        :class="locked ? 'bg-on-photo/14 text-on-photo/85' : 'bg-rose-fill text-on-rose'"
       >
         {{ cta }}
       </span>

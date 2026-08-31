@@ -1,6 +1,6 @@
 import { Timestamp } from 'firebase/firestore'
 
-import { useDataSourceClient } from '~/lib/datasource'
+import { DataSourceError, useDataSourceClient } from '~/lib/datasource'
 import type { ActiveSessionInput, CheckInInput } from '~/lib/datasource'
 import { defaultPreferences } from '~/lib/datasource/local'
 import { challengeClock } from '~/lib/domain/challenge'
@@ -69,6 +69,35 @@ interface AppState {
 }
 
 /**
+ * Everything the app knows before it knows anybody.
+ *
+ * A factory rather than a constant, because it is used twice for different
+ * reasons: to seed the store, and to reset it in `hydrate` for a visitor with
+ * no member document. Sharing one object between those would let the second
+ * hand back arrays the first is still rendering.
+ */
+/** A boot failure in the member's words. The data source has already logged it. */
+const readMessage = (cause: unknown): string =>
+  cause instanceof DataSourceError ? cause.message : 'Couldn’t load your account. Try again.'
+
+const emptyState = (): AppState => ({
+  hydrated: false,
+  nowMs: Date.now(),
+  authUser: null,
+  member: null,
+  sessions: [],
+  activeSession: null,
+  checkIns: [],
+  photos: [],
+  notifications: [],
+  notificationReads: {},
+  earnedBadges: {},
+  leaderboard: [],
+  prefs: defaultPreferences(),
+  pendingBadge: null,
+})
+
+/**
  * The app's single store.
  *
  * Everything a screen needs comes from here: state loaded through the data
@@ -78,32 +107,106 @@ interface AppState {
 const buildStore = () => {
   const data = useDataSourceClient()
 
-  const state = useState<AppState>('app-store', () => ({
-    hydrated: false,
-    nowMs: Date.now(),
-    authUser: null,
-    member: null,
-    sessions: [],
-    activeSession: null,
-    checkIns: [],
-    photos: [],
-    notifications: [],
-    notificationReads: {},
-    earnedBadges: {},
-    leaderboard: [],
-    prefs: defaultPreferences(),
-    pendingBadge: null,
-  }))
+  const state = useState<AppState>('app-store', emptyState)
+
+  /**
+   * Whatever went wrong before the app could ask the member anything.
+   *
+   * Two things land here, and neither has an `await` to be handed back to.
+   * A Google redirect finishes on a *different page load* from the one that
+   * started it. And a boot read that fails takes the whole of `hydrate` with
+   * it — which runs in a plugin, before the app mounts, so it is not an error
+   * message, it is a 500 page instead of an app.
+   *
+   * `/access-code` picks this up on mount, which is the screen a member in
+   * either state is looking at anyway.
+   */
+  const startupError = ref('')
+
+  /** `resumeSignIn` answers for the whole load, so it runs once per load. */
+  let resumed = false
 
   // --- Loading -------------------------------------------------------------
   const hydrate = async (force = false) => {
     if (state.value.hydrated && !force) return
+
+    // Before anything asks who is signed in. A load returning from a Google
+    // redirect carries its credentials in the URL, and they have to be
+    // consumed here or the reads below run as nobody and route middleware
+    // bounces a member who just signed in back to the door.
+    if (!resumed) {
+      resumed = true
+      try {
+        await data.resumeSignIn()
+      } catch (cause) {
+        startupError.value =
+          cause instanceof DataSourceError ? cause.message : 'Sign-in didn’t complete.'
+      }
+    }
+
     // Cheap and synchronous: the offset from the last session, so the first
     // paint already has the right date. The network sync lands later.
     restoreClock()
+
+    // Read behind a catch, all the way down. `plugins/store.client.ts` awaits
+    // this before the app mounts, so anything that escapes is not a message on
+    // a screen — there is no screen yet — it is the error page. A member whose
+    // ad blocker is refusing `firestore.googleapis.com`, or who is simply on a
+    // bad train, gets the sign-in screen and a reason; reloading recovers.
+    let authUser: AuthUser | null = null
+    let member: Member | null = null
+    try {
+      ;[authUser, member] = await Promise.all([data.getAuthUser(), data.getMember()])
+    } catch (cause) {
+      startupError.value = readMessage(cause)
+      state.value = { ...emptyState(), hydrated: true, nowMs: trustedNow().getTime() }
+      return
+    }
+
+    // Everything past this point hangs off the member document — their logs,
+    // their photos, their cohort's notifications and leaderboard — and every
+    // one of those reads resolves a path through it. Somebody who has not
+    // redeemed an access code yet has no such document, and asking anyway is
+    // not an empty answer: `FirestoreDataSource` throws "no membership on this
+    // account yet" for each. On the boot path that took the whole app down,
+    // sign-in screen included, which is the one screen a visitor in exactly
+    // that state needs. So the load stops here for them, with the rest of the
+    // state at its defaults and eight round trips not made.
+    if (!member) {
+      state.value = { ...emptyState(), hydrated: true, nowMs: trustedNow().getTime(), authUser }
+      return
+    }
+
+    let loaded
+    try {
+      loaded = await Promise.all([
+        data.listSessions(),
+        data.getActiveSession(),
+        data.listCheckIns(),
+        data.listPhotos(),
+        data.listNotifications(),
+        data.listNotificationReads(),
+        data.listEarnedBadges(),
+        data.listLeaderboard(),
+        data.getPreferences(),
+      ])
+    } catch (cause) {
+      // The member document was readable and the rest was not, so keep them:
+      // being signed in is a fact worth not throwing away over a failed read,
+      // and it is the difference between a reload fixing this and the member
+      // having to sign in again.
+      startupError.value = readMessage(cause)
+      state.value = {
+        ...emptyState(),
+        hydrated: true,
+        nowMs: trustedNow().getTime(),
+        authUser,
+        member,
+      }
+      return
+    }
+
     const [
-      authUser,
-      member,
       sessions,
       activeSession,
       checkIns,
@@ -113,19 +216,7 @@ const buildStore = () => {
       earnedBadges,
       leaderboard,
       prefs,
-    ] = await Promise.all([
-      data.getAuthUser(),
-      data.getMember(),
-      data.listSessions(),
-      data.getActiveSession(),
-      data.listCheckIns(),
-      data.listPhotos(),
-      data.listNotifications(),
-      data.listNotificationReads(),
-      data.listEarnedBadges(),
-      data.listLeaderboard(),
-      data.getPreferences(),
-    ])
+    ] = loaded
 
     state.value = {
       hydrated: true,
@@ -350,11 +441,42 @@ const buildStore = () => {
 
   // --- Actions: auth -------------------------------------------------------
   /**
-   * Start email-link sign-in. The flow resumes when they open the link, which
-   * may be minutes later and on a different device.
+   * Start sign-in for `email`.
+   *
+   * Normally that means emailing a link and resolving to `null`: the flow
+   * resumes when they open it, which may be minutes later and on a different
+   * device. On device there is no inbox, so the data source signs them in on
+   * the spot and hands back the user — the same state `completeSignInLink`
+   * would have reached, so it re-hydrates for the same reason.
    */
   const sendSignInLink = async (email: string) => {
-    await data.sendSignInLink(email)
+    const user = await data.sendSignInLink(email)
+    if (user) await hydrate(true)
+    return user
+  }
+
+  /** Whether `sendSignInLink` signs in outright instead of emailing a link. */
+  const instantSignIn = data.instantSignIn
+
+  /** Whether the Google button has anything behind it. */
+  const googleSignIn = data.googleSignIn
+
+  /**
+   * Sign in with Google.
+   *
+   * Resolves to `null` when the data source had to hand the page over to a
+   * full-page redirect: there is no user yet and this document is about to
+   * stop existing, so there is nothing to hydrate and nothing for the caller
+   * to do. The other branch is a popup that came back with a user, which is
+   * the same state `completeSignInLink` reaches and re-hydrates for the same
+   * reason — the member document and everything derived from it belong to
+   * whoever just signed in, and none of it was loaded for them.
+   */
+  const signInWithGoogle = async () => {
+    startupError.value = ''
+    const user = await data.signInWithGoogle()
+    if (user) await hydrate(true)
+    return user
   }
 
   const isSignInLink = (url: string) => data.isSignInLink(url)
@@ -646,6 +768,10 @@ const buildStore = () => {
     hydrate,
     tick,
     refreshClock,
+    instantSignIn,
+    googleSignIn,
+    signInWithGoogle,
+    startupError,
     sendSignInLink,
     isSignInLink,
     completeSignInLink,

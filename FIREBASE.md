@@ -98,6 +98,26 @@ firebase deploy --only firestore:rules,firestore:indexes,storage
 Indexes build in the background; queries needing one fail until it is ready, and
 the console shows progress.
 
+## Deploying the rules
+
+`firestore.rules` and `storage.rules` are source files. They do nothing until
+they are published to the project, and a Firestore created in production mode
+starts with `allow read, write: if false` — which denies every read, including
+a member reading their own document, with "Missing or insufficient
+permissions". That failure looks exactly like a rules bug and is not one.
+
+```bash
+npm i -g firebase-tools     # once
+firebase login              # once
+firebase deploy --only firestore:rules,storage
+```
+
+`.firebaserc` names the project, so there is no `firebase use` step.
+
+To see what is actually live: Firebase console → Firestore Database → **Rules**,
+which shows the published text and when it was last published. If that does not
+match this repo, the deploy has not happened.
+
 ## Running against the emulator
 
 Requires a JDK — the Firebase emulators are Java.
@@ -111,16 +131,93 @@ Then point the app at it by calling `connectFirestoreEmulator`,
 `app/lib/firebase/app.ts`, guarded on `appEnv === 'development'`. Not wired up
 yet.
 
-## Enabling email-link sign-in
+## Enabling sign-in
 
-1. Firebase console → Authentication → Sign-in method → **Email/Password**,
-   enable it, then enable **Email link (passwordless sign-in)** underneath.
-2. Authentication → Settings → **Authorised domains**: add the domain the app is
-   served from. The link will not complete from an unlisted origin.
-3. The redirect target is `${origin}/access-code` — see `actionCodeSettings` in
+There are two ways in and no password on either. Both have to be turned on in
+the console before the app can offer them — a provider that is merely coded for
+answers `auth/operation-not-allowed`, which `authError` reports as "that
+sign-in method isn't available right now".
+
+**Email link (magic link)**
+
+1. Authentication → Sign-in method → **Email/Password**, enable it, then enable
+   **Email link (passwordless sign-in)** underneath.
+2. The redirect target is `${origin}/access-code` — see `actionCodeSettings` in
    `app/lib/datasource/firestore.ts`. That route knows how to finish the flow,
    including the case where the link is opened on a different device from the
-   one that requested it.
+   one that requested it, which is the branch that has to ask for the address
+   again because nothing was parked in *that* browser's storage.
+
+**Google**
+
+3. Authentication → Sign-in method → **Google**, enable it, and set the
+   project support email.
+4. Nothing else. `signInWithGoogle` opens a popup, and falls back to a
+   full-page redirect when the popup is blocked or cannot exist. The redirect
+   finishes in `resumeSignIn`, which the store calls once per load *before*
+   route middleware runs — a load returning from Google carries its credentials
+   in the URL, and if they are not consumed first the middleware sees nobody
+   signed in and bounces a member who just signed in back to the door.
+
+**Both**
+
+5. Authentication → Settings → **Authorised domains**: add every domain the app
+   is served from. Neither flow completes from an unlisted origin; `localhost`
+   is listed by default.
+
+### `authDomain` and the installed app
+
+`NUXT_PUBLIC_FIREBASE_AUTH_DOMAIN` is `<project>.firebaseapp.com` out of the
+box, which is a *different* origin from wherever the app is actually served.
+That is fine for the popup, which is the path virtually every session takes.
+
+It is not fine for the redirect. The redirect leans on state stored against the
+auth domain, and Safari's ITP plus Chrome's third-party storage partitioning
+both treat that as cross-site — so the redirect is exactly the path that
+degrades, and it is also the only path an installed iOS home-screen app can use
+(there, `window.open` hands the URL to Safari, a separate app with no channel
+back, so `mustRedirect()` sends it straight to the redirect).
+
+The fix is to serve the auth helper from the app's own origin: set
+`authDomain` to the domain the PWA is hosted on. Firebase Hosting already
+serves `/__/auth/*` for the project from any of its domains, ahead of the
+catch-all rewrite in `firebase.json`, so on a Firebase-hosted deploy this needs
+no extra configuration — just the changed value and that domain in the
+authorised list.
+
+## Creating an access code by hand
+
+The console is the only way to make one until there is a seed script, and a
+code written by hand is the easiest document in the system to leave incomplete.
+
+Every field below must **exist**, including the ones whose value is null. A
+security rule that reads a field the document does not have errors rather than
+returning false, and an errored rule denies the write — so a code missing
+`expiresAt` or `issuedToEmail` fails the claim with a bare "permission denied",
+nowhere near anything that names the field. `redeemAccessCode` checks for them
+first and logs the missing names, but the document still has to be right.
+
+`accessCodes/{THE-CODE}` — the document id *is* the code, uppercase:
+
+| field | type | value |
+|---|---|---|
+| `code` | string | same as the document id |
+| `batchId` | string | anything; groups codes issued together |
+| `cohortId` | string | must match the cohort, e.g. `cohort-01` |
+| `cohortName` | string | e.g. `Cohort 01` |
+| `expiresAt` | timestamp | **a future date** — the rule refuses a past one |
+| `issuedToEmail` | string or null | the purchase email, or null for a generic code |
+| `status` | string | exactly `unused` |
+| `claimedByUid` | null | |
+| `claimedByName` | null | |
+| `claimedAt` | null | |
+| `revokedAt` | null | |
+| `createdAt` / `updatedAt` | timestamp | now |
+| `createdByUid` / `updatedByUid` | string | your uid |
+| `createdByEmail` / `updatedByEmail` | string | your email |
+
+`cohortId` has to match a real cohort: the member-create rule re-reads this
+document and refuses to write a member into a cohort the code does not name.
 
 ## Seeding
 

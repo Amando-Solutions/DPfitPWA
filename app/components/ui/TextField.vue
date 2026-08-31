@@ -11,6 +11,14 @@ withDefaults(
     icon?: string
     error?: string
     mono?: boolean
+    /**
+     * Forwarded to the input rather than left to fall through: this component's
+     * root is the <label>, so an unclaimed attribute would land there and the
+     * phone would still raise the wrong keyboard.
+     */
+    inputmode?: 'text' | 'decimal' | 'numeric' | 'tel' | 'email' | 'url' | 'search'
+    /** For a field whose visible label sits outside the component. */
+    ariaLabel?: string
   }>(),
   { type: 'text', mono: false },
 )
@@ -27,11 +35,10 @@ defineEmits<{
   <!-- min-w-0: grid/flex items default to min-width:auto, and a number input's
        intrinsic width is wide enough to burst a two-column row. -->
   <label class="block min-w-0">
-    <!-- Form labels across the design are Space Mono, not the Chivo Mono eyebrow. -->
-    <span
-      v-if="label"
-      class="mb-1.5 block font-data text-[9.5px] uppercase tracking-[0.9px] text-soft"
-    >
+    <!-- Sentence case in the body face, matching the labels that sit outside
+         this component on the same forms. The uppercase Space Mono these used
+         to be was a third font doing a label's job. -->
+    <span v-if="label" class="mb-1.5 block text-[13px] text-soft">
       {{ label }}
     </span>
 
@@ -48,6 +55,8 @@ defineEmits<{
         class="w-full min-w-0 flex-1 appearance-none border-none bg-transparent text-[15px] text-ink outline-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none"
         :class="mono && 'font-data tracking-[1px]'"
         :type="type"
+        :inputmode="inputmode"
+        :aria-label="ariaLabel"
         :value="modelValue ?? ''"
         :placeholder="placeholder"
         @input="

@@ -16,8 +16,10 @@ const goBack = () => {
   else router.push('/home')
 }
 
+/* Flat: a subtle fill and the icon, with a small press scale for feedback.
+   Matches AppButton, which dropped its raised stack for the same reason. */
 const BTN =
-  'btn-raised grid size-10 shrink-0 place-items-center rounded-pill bg-fill-subtle text-ink [--btn-face:var(--face-subtle)]'
+  'grid size-10 shrink-0 place-items-center rounded-pill bg-fill-subtle text-ink transition-[transform,background-color] duration-100 ease-out active:scale-[0.94] motion-reduce:transition-none motion-reduce:active:scale-100'
 </script>
 
 <template>

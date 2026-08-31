@@ -268,6 +268,16 @@ export interface WorkoutDayDoc extends Audited {
   label: string
   /** "Upper · Push" */
   focus: string
+  /**
+   * The photograph behind this day's card on Home.
+   *
+   * Authored with the day and uploaded to Cloud Storage like any other image
+   * the product holds, rather than bundled into the client: it is content the
+   * coach owns and swaps per block, not a design asset. `null` renders the
+   * brand gradient on its own, which is a complete card — nothing on it depends
+   * on the photograph being there.
+   */
+  heroImage: StoredImage | null
   estimatedMinutes: number
   estimatedKcal: number
   proofRequired: boolean
@@ -302,9 +312,19 @@ export type Guide = WithId<GuideDoc>
 // =============================================================================
 
 export type Units = 'kg' | 'lb'
+/**
+ * How height is *shown*. Like `Units`, it never changes what is stored:
+ * `MemberProfile.heightCm` is centimetres whichever way this is set.
+ */
+export type HeightUnits = 'cm' | 'ft'
 export type Goal = 'recomp' | 'fat-loss' | 'muscle-gain'
 export type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'very'
-export type Sex = 'female' | 'male' | 'other'
+/**
+ * Two values, because the calorie baseline has exactly two equations to pick
+ * between (see `lib/domain/nutrition`). A third option here would have to fall
+ * back to one of these anyway, which is a worse answer than asking.
+ */
+export type Sex = 'female' | 'male'
 
 /** Setup answers. Empty string and `null` both mean "not answered yet". */
 export interface MemberProfile {
@@ -317,15 +337,21 @@ export interface MemberProfile {
   activity: ActivityLevel | ''
   goal: Goal | ''
   trainingDaysPerWeek: number
-  allergies: string
+  /**
+   * Anything medical the coach should train around: conditions, medication,
+   * dietary restrictions. Replaced the narrower `allergies` field, which only
+   * ever collected a subset of what members actually needed to tell us.
+   */
+  healthConditions: string
   injuries: string
-  callSlot: string
   avatarUrl: string
 }
 
 /** Member-set preferences. Embedded: too small to justify its own read. */
 export interface MemberPreferences {
   units: Units
+  /** Set once during setup, alongside `units`. Display only. */
+  heightUnits: HeightUnits
   workoutReminders: boolean
   coachMessages: boolean
   weeklyCheckInReminder: boolean
@@ -509,7 +535,7 @@ export interface CheckInDoc {
   workoutsDone: number
   /** Self-rated nutrition adherence, 0 to 100. */
   nutritionPct: number
-  /** 1..5 */
+  /** 1..10 */
   energy: number | null
   trainingFeel: TrainingFeel | null
   pain: string
@@ -626,15 +652,34 @@ export interface MessageReactionDoc {
 // =============================================================================
 // Auth
 //
-// Email link ("magic link") sign-in. There is no password anywhere in the
-// system, so there is no password to leak.
+// Two ways in, no password on either: an email link ("magic link"), and Google.
+// There is no password anywhere in the system, so there is no password to leak.
+//
+// Both settle the same question — is this address yours — and neither is more
+// trusted than the other, so nothing downstream branches on which was used.
+// The provider is recorded because a member who signed in with Google and
+// later asks for a link is a support conversation, not a bug.
 // =============================================================================
+
+/** How this session proved the address. */
+export type AuthProvider = 'email-link' | 'google'
 
 /** The signed-in Firebase Auth user, before any member document is involved. */
 export interface AuthUser {
   uid: string
   email: string
   emailVerified: boolean
+  /**
+   * What the provider already knew about them.
+   *
+   * Google hands over a name and an avatar; an email link hands over nothing
+   * but the address, so both are empty strings on that path. `redeemAccessCode`
+   * seeds the new member's profile from these, which is the difference between
+   * arriving at setup with your name already in the field and typing it again.
+   */
+  displayName: string
+  photoUrl: string
+  provider: AuthProvider
 }
 
 export type SignInLinkStatus =

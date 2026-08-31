@@ -22,15 +22,20 @@
 /** Reachable while signed out. */
 const PUBLIC_ROUTES = ['/onboarding', '/access-code']
 
+/**
+ * Where setup begins. Declared before the list rather than read back out of it:
+ * `/access-code` sends a member here by name once they redeem, and an indexed
+ * read is `string | undefined`, which is not a route.
+ */
+export const FIRST_SETUP_STEP = '/setup/about-you'
+
 /** Reachable once signed in but before setup is finished. */
 const SETUP_ROUTES = [
-  '/setup/about-you',
+  FIRST_SETUP_STEP,
   '/setup/body-metrics',
   '/setup/activity-goal',
   '/setup/safety-call',
 ]
-
-export const FIRST_SETUP_STEP = SETUP_ROUTES[0]
 
 export default defineNuxtRouteMiddleware((to) => {
   // The entry route owns its own decision. See `pages/index.vue`.

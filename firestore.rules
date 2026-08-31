@@ -92,8 +92,16 @@ service cloud.firestore {
         && request.resource.data.claimedByUid == request.auth.uid
         && request.time < resource.data.expiresAt
         // A code issued against a purchase is redeemable only by that buyer.
+        // Compared case-insensitively, and it has to be: the address reaches
+        // this rule from three different places — lowercased by the email-link
+        // form, in whatever case the account was created with from Google, and
+        // typed by hand into the console when the code was issued. An exact
+        // match would cost a member their seat over a capital letter, and the
+        // client-side check in `redeemAccessCode` folds case the same way, so
+        // the two must agree or the transaction fails with a bare permission
+        // error after the friendly check has already passed.
         && (resource.data.issuedToEmail == null
-            || resource.data.issuedToEmail == request.auth.token.email)
+            || resource.data.issuedToEmail.lower() == request.auth.token.email.lower())
         // Nothing else moves. Without this, a claim could rewrite `cohortId`
         // and walk into a cohort the member never paid for.
         && changed().hasOnly([

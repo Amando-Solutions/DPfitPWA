@@ -30,7 +30,7 @@ defineEmits<{ (e: 'update:modelValue', v: string): void }>()
       :key="tab.id"
       :value="tab.id"
       variant="plain"
-      class="h-9.5 flex-1 rounded-pill font-eyebrow text-[11px] font-bold uppercase tracking-[0.5px] text-muted transition-colors duration-150 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-ring data-[state=checked]:btn-raised data-[state=checked]:bg-inverse data-[state=checked]:text-on-inverse data-[state=checked]:[--btn-face:var(--surface-inverse)]"
+      class="h-9.5 flex-1 rounded-pill text-[13px] text-muted transition-colors duration-150 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-ring data-[state=checked]:bg-inverse data-[state=checked]:font-semibold data-[state=checked]:text-on-inverse"
     >
       {{ tab.label }}
     </RadioGroupItem>

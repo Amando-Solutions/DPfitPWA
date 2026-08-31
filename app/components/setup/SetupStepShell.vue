@@ -58,7 +58,6 @@ const router = useRouter()
 
     <div class="pt-4">
       <AppButton
-        glow
         icon-right="arrowRight"
         :disabled="!canContinue || busy"
         @click="emit('continue')"

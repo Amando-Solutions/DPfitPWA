@@ -48,13 +48,13 @@ const nextUpId = computed(() => props.days.find((d) => d.status === 'locked')?.i
         <AppIcon v-if="day.status === 'completed'" name="check" :size="17" />
         <AppIcon v-else-if="day.status === 'today'" name="train" :size="22" />
         <AppIcon v-else-if="day.id === nextUpId" name="lock" :size="16" />
-        <span v-else class="data text-[13px] tracking-[-0.13px]">
+        <span v-else class="text-[13px] font-semibold tabular-nums">
           {{ day.dayNumber }}
         </span>
       </span>
 
       <span
-        class="font-data text-[9px] uppercase"
+        class="text-[11px]"
         :class="day.status === 'today' ? 'text-rose' : 'text-muted'"
       >
         {{

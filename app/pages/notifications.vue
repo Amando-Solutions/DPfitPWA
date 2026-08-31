@@ -17,44 +17,44 @@ const accentFor = (type: string) => (type === 'coach' ? 'orange' : 'rose')
 </script>
 
 <template>
-  <div class="inbox [padding:var(--screen-pad-top)_20px_0] [&_.inbox__title]:[margin:5px_0_0] [&_.inbox__title]:[font-family:var(--font-display)] [&_.inbox__title]:[font-weight:900] [&_.inbox__title]:[font-size:24px] [&_.inbox__title]:[line-height:1.08] [&_.inbox__title]:[letter-spacing:-0.48px] [&_.inbox__title]:[color:var(--ink)] [&_.inbox__sub]:[margin:3px_0_0] [&_.inbox__sub]:[font-size:13.5px] [&_.inbox__sub]:[line-height:1.45] [&_.inbox__sub]:[color:var(--violet-28)] lg:[padding:0] lg:[&_.inbox__title]:[font-size:30px] lg:[&_.inbox__sub]:[font-size:15px]">
+  <div class="inbox pt-(--screen-pad-top) px-5 pb-0 [&_.inbox__title]:mt-1.25 [&_.inbox__title]:mx-0 [&_.inbox__title]:mb-0 [&_.inbox__title]:font-display [&_.inbox__title]:font-black [&_.inbox__title]:text-[24px] [&_.inbox__title]:leading-[1.08] [&_.inbox__title]:tracking-[-0.48px] [&_.inbox__title]:text-ink [&_.inbox__sub]:mt-0.75 [&_.inbox__sub]:mx-0 [&_.inbox__sub]:mb-0 [&_.inbox__sub]:text-[13.5px] [&_.inbox__sub]:leading-[1.45] [&_.inbox__sub]:text-soft lg:p-0 lg:[&_.inbox__title]:text-[30px] lg:[&_.inbox__sub]:text-[15px]">
     <ScreenIntro
       eyebrow="Inbox"
       title="Notifications"
       subtitle="Announcements, calls and coach updates."
-      class="inbox__header [margin-bottom:12px]"
+      class="inbox__header mb-3"
     >
       <template v-if="hasUnread" #actions>
-        <button class="inbox__mark [flex-shrink:0] [padding:0] [font-size:12.5px] [font-weight:700] [color:var(--rose)]" @click="store.markAllNotificationsRead()">
+        <button class="inbox__mark shrink-0 p-0 text-[12.5px] font-bold text-rose" @click="store.markAllNotificationsRead()">
           Mark all read
         </button>
       </template>
     </ScreenIntro>
 
-    <div class="inbox__list [margin-top:12px] [display:flex] [flex-direction:column] [gap:10px] lg:[display:grid] lg:[grid-template-columns:repeat(2,_minmax(0,_1fr))] lg:[align-items:start] lg:[gap:14px]">
+    <div class="inbox__list mt-3 flex flex-col gap-2.5 lg:grid lg:grid-cols-2 lg:items-start lg:gap-3.5">
       <article
         v-for="item in store.notifications.value"
         :key="item.id"
-        class="note [display:flex] [gap:12px] [padding:16px] [background:var(--paper-raised)] [border:1px_solid_var(--hairline)] [border-radius:var(--radius-card)] [filter:var(--drop-md)] [&.note--unread]:[border-color:var(--orange-ring)]"
+        class="note flex gap-3 p-4 bg-raised border border-hairline rounded-card filter-(--drop-md) [&.note--unread]:border-orange-ring"
         :class="{ 'note--unread': !item.read }"
       >
-        <span class="note__icon [width:38px] [height:38px] [border-radius:var(--radius-pill)] [display:grid] [place-items:center] [flex-shrink:0] [&.note__icon--orange]:[background:var(--orange-soft)] [&.note__icon--orange]:[color:var(--orange-text)] [&.note__icon--rose]:[background:var(--rose-soft)] [&.note__icon--rose]:[color:var(--rose)]" :class="`note__icon--${accentFor(item.type)}`">
+        <span class="note__icon w-9.5 h-9.5 rounded-pill grid place-items-center shrink-0 [&.note__icon--orange]:bg-orange-soft [&.note__icon--orange]:text-orange-text [&.note__icon--rose]:bg-rose-soft [&.note__icon--rose]:text-rose" :class="`note__icon--${accentFor(item.type)}`">
           <AppIcon :name="item.icon" :size="17" :stroke="2" />
         </span>
-        <div class="note__body [flex:1] [min-width:0]">
-          <div class="note__top [display:flex] [align-items:center] [gap:7px]">
-            <span class="note__kind [font-family:var(--font-data)] [text-transform:uppercase] [letter-spacing:0.85px] [font-size:8.5px] [font-weight:700] [&.note__kind--orange]:[color:var(--orange-text)] [&.note__kind--rose]:[color:var(--rose)]" :class="`note__kind--${accentFor(item.type)}`">
+        <div class="note__body flex-1 min-w-0">
+          <div class="note__top flex items-center gap-1.75">
+            <span class="note__kind text-[11.5px] [&.note__kind--orange]:text-orange-text [&.note__kind--rose]:text-rose" :class="`note__kind--${accentFor(item.type)}`">
               {{ item.title }}
             </span>
-            <span v-if="!item.read" class="note__dot [width:6px] [height:6px] [border-radius:var(--radius-pill)] [background:var(--rose-fill)] [flex-shrink:0]" />
+            <span v-if="!item.read" class="note__dot w-1.5 h-1.5 rounded-pill bg-rose-fill shrink-0" />
           </div>
-          <p class="note__text [margin:4px_0_0] [font-size:13.5px] [line-height:1.45] [color:var(--ink)]">{{ item.body }}</p>
-          <span class="note__time data [display:block] [margin-top:6px] [font-size:9px] [letter-spacing:0.45px] [color:var(--violet-28)]">{{ item.timeLabel }}</span>
+          <p class="note__text mt-1 mx-0 mb-0 text-[13.5px] leading-[1.45] text-ink">{{ item.body }}</p>
+          <span class="note__time block mt-1.5 text-[11.5px] text-soft">{{ item.timeLabel }}</span>
         </div>
       </article>
     </div>
 
-    <NuxtLink to="/home/announcements" class="inbox__deck [display:flex] [align-items:center] [gap:8px] [margin-top:14px] [padding:14px_16px] [border-radius:var(--radius-card)] [box-shadow:inset_0_0_0_1.5px_var(--hairline)] [font-size:13.5px] [font-weight:600] [color:var(--ink)] [&_span]:[flex:1] lg:[max-width:420px] lg:[margin-top:18px]">
+    <NuxtLink to="/home/announcements" class="inbox__deck flex items-center gap-2 mt-3.5 py-3.5 px-4 rounded-card shadow-[inset_0_0_0_1.5px_var(--hairline)] text-[13.5px] font-semibold text-ink [&_span]:flex-1 lg:max-w-[420px] lg:mt-4.5">
       <AppIcon name="info" :size="16" />
       <span>See the full announcement deck</span>
       <AppIcon name="chevronRight" :size="16" />

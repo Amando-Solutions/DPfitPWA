@@ -2,7 +2,6 @@
 // 17 · Completion · Proof Required / 18 · Photo Attached / 20 · Discard Confirm
 definePageMeta({ layout: false })
 
-import type { Units } from '~/data/types'
 import { processImage } from '~/lib/image'
 import { QUALIFYING_SET_PERCENT, sessionQualifies } from '~/lib/domain/rewards'
 
@@ -10,9 +9,9 @@ const route = useRoute()
 const router = useRouter()
 const store = useAppStore()
 
-// Same preference the profile screen sets; weights stay stored in kilograms.
+// Read only, like the logging screen: the unit is a global preference set once
+// during setup, not something to re-ask on the way out of a workout.
 const units = computed(() => store.prefs.value.units)
-const setUnits = (value: Units) => store.savePreferences({ units: value })
 
 const dayId = computed(() => String(route.params.dayId))
 const day = computed(() => store.getDay(dayId.value))
@@ -113,9 +112,8 @@ const discard = async () => {
 </script>
 
 <template>
-  <div v-if="day && session" class="complete [position:relative] [height:100%] [display:flex] [flex-direction:column] [background:var(--paper)]">
+  <div v-if="day && session" class="complete relative h-full flex flex-col bg-surface">
     <SessionHeader
-      :eyebrow="`Log workout · Week ${store.clock.value.week}`"
       :title="day.dayNumber ? `Day ${day.dayNumber}: ${day.label}` : day.label"
       :duration="durationLabel"
       :volume="totals.volume"
@@ -124,28 +122,27 @@ const discard = async () => {
       :unit="units"
       action="Save"
       @action="save"
-      @unit="setUnits"
     />
 
-    <div class="complete__body scroll-y [flex:1] [min-height:0] [padding:20px_20px_110px] [display:flex] [flex-direction:column] [gap:14px] lg:[width:100%] lg:[max-width:var(--focus-max)] lg:[margin:0_auto] lg:[padding:28px_40px_140px]">
+    <div class="complete__body scroll-y flex-1 min-h-0 p-[20px_20px_110px] flex flex-col gap-3.5 lg:w-full lg:max-w-(--focus-max) lg:m-[0_auto] lg:p-[28px_40px_140px]">
       <!-- Proof dropzone -->
       <input
         ref="fileInput"
-        class="complete__file [display:none]"
+        class="complete__file hidden"
         type="file"
         accept="image/*"
         capture="environment"
         @change="onPhoto"
       />
       <button
-        class="dropzone [width:100%] [min-height:130px] [border-radius:var(--radius-card)] [border:2px_dashed_var(--hairline-strong)] [background:var(--paper-raised)] [display:flex] [flex-direction:column] [align-items:center] [justify-content:center] [gap:10px] [color:var(--violet-45)] [font-size:14px] [font-weight:600] [overflow:hidden] [padding:0] [&.dropzone--filled]:[border-style:solid] [&.dropzone--filled]:[border-color:var(--rose)] [&.dropzone--filled]:[min-height:180px] [&.dropzone--error]:[border-color:var(--rose)] lg:[min-height:200px] lg:[&.dropzone--filled]:[min-height:260px]"
+        class="dropzone w-full min-h-32.5 rounded-card border-2 border-dashed border-hairline-strong bg-raised flex flex-col items-center justify-center gap-2.5 text-(--violet-45) text-[14px] font-semibold overflow-hidden p-0 [&.dropzone--filled]:border-solid [&.dropzone--filled]:border-rose [&.dropzone--filled]:min-h-45 [&.dropzone--error]:border-rose lg:min-h-50 lg:[&.dropzone--filled]:min-h-65"
         :class="{ 'dropzone--filled': session.proofPhoto, 'dropzone--error': showError }"
         @click="pickPhoto"
       >
         <img
           v-if="session.proofPhoto"
           :src="session.proofPhoto.downloadUrl"
-          class="dropzone__img [width:100%] [height:180px] [object-fit:cover] lg:[height:260px]"
+          class="dropzone__img w-full h-45 object-cover lg:h-65"
           alt="Proof of workout"
           decoding="async"
         />
@@ -155,26 +152,26 @@ const discard = async () => {
         </template>
       </button>
 
-      <div class="complete__photo-actions [display:flex] [align-items:baseline] [justify-content:space-between] [gap:12px]">
-        <p class="complete__hint [margin:0] [font-size:12.5px] [color:var(--violet-45)]">
+      <div class="complete__photo-actions flex items-baseline justify-between gap-3">
+        <p class="complete__hint m-0 text-[12.5px] text-(--violet-45)">
           {{
             day.proofRequired
               ? 'Required. This is how your coach knows the session happened.'
               : 'Optional for the finisher. Add one if you want it on record.'
           }}
         </p>
-        <button v-if="session.proofPhoto" class="complete__retake [flex-shrink:0] [min-height:28px] [padding:4px_8px] [margin:-4px_-8px] [font-size:12.5px] [font-weight:700] [color:var(--rose)]" @click="clearPhoto">
+        <button v-if="session.proofPhoto" class="complete__retake shrink-0 min-h-7 p-[4px_8px] m-[-4px_-8px] text-[12.5px] font-bold text-rose" @click="clearPhoto">
           Retake
         </button>
       </div>
 
-      <p v-if="showError" class="complete__error [margin:-6px_0_0] [font-size:13px] [font-weight:700] [color:var(--rose)]">• Please add a photo before saving.</p>
-      <p v-if="photoError" class="complete__error [margin:-6px_0_0] [font-size:13px] [font-weight:700] [color:var(--rose)]">• {{ photoError }}</p>
+      <p v-if="showError" class="complete__error m-[-6px_0_0] text-[13px] font-bold text-rose">• Please add a photo before saving.</p>
+      <p v-if="photoError" class="complete__error m-[-6px_0_0] text-[13px] font-bold text-rose">• {{ photoError }}</p>
 
-      <div class="complete__notes [margin-top:6px] [display:flex] [flex-direction:column] [gap:10px]">
-        <EyebrowLabel tone="muted">Notes (optional)</EyebrowLabel>
+      <div class="complete__notes mt-1.5 flex flex-col gap-2.5">
+        <span class="text-[13px] text-muted">Notes (optional)</span>
         <textarea
-          class="complete__area [width:100%] [padding:14px_16px] [background:var(--paper-raised)] [border-radius:var(--radius-md)] [box-shadow:inset_0_0_0_1.5px_var(--hairline)] [font-size:14px] [color:var(--ink)] [border:none] [outline:none] [resize:none] [font-family:var(--font-body)] placeholder:[color:var(--text-placeholder)]"
+          class="complete__area w-full p-[14px_16px] bg-raised rounded-md shadow-[inset_0_0_0_1.5px_var(--hairline)] text-[14px] text-(--ink) border-none outline-none resize-none font-body placeholder:text-placeholder"
           rows="3"
           placeholder="How did this session feel? Leave a note for yourself…"
           :value="session.note"
@@ -182,34 +179,36 @@ const discard = async () => {
         />
       </div>
 
-      <p v-if="!willCount" class="complete__short [margin:0] [padding:12px_14px] [border-radius:var(--radius-md)] [background:var(--orange-16)] [font-size:12.5px] [line-height:1.45] [color:var(--orange-text)]">
+      <!-- Informational, not an error, so it reads in ink on a neutral well
+           rather than borrowing the gold this flow no longer uses. -->
+      <p v-if="!willCount" class="complete__short m-0 rounded-md bg-sunken p-[12px_14px] text-[12.5px] leading-[1.45] text-soft shadow-[inset_0_0_0_1px_var(--hairline)]">
         You’ve logged {{ totals.setsDone }} of {{ totals.setsPrescribed }} sets. Under
         {{ QUALIFYING_SET_PERCENT }}% this still saves for your coach, but it earns no RP
         and won’t count toward badges or your streak.
       </p>
 
-      <AppCard variant="raised" class="complete__logged [display:flex] [align-items:center] [gap:12px] [color:var(--violet-45)] [&_div]:[display:flex] [&_div]:[flex-direction:column] [&_div]:[gap:2px]">
+      <AppCard variant="raised" class="complete__logged flex items-center gap-3 text-(--violet-45) [&_div]:flex [&_div]:flex-col [&_div]:gap-0.5">
         <AppIcon name="calendar" :size="18" />
         <div>
-          <span class="complete__logged-label [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:0.5px] [font-size:8.5px] [font-weight:700] [color:var(--violet-45)]">Logged</span>
-          <span class="complete__logged-time [font-size:14px] [font-weight:600] [color:var(--ink)]">{{ loggedAt }}</span>
+          <span class="complete__logged-label text-[12px] text-muted">Logged</span>
+          <span class="complete__logged-time text-[14px] font-semibold text-ink tabular-nums">{{ loggedAt }}</span>
         </div>
       </AppCard>
 
-      <button class="complete__discard [align-self:center] [min-height:32px] [margin-top:6px] [padding:6px_14px] [color:var(--rose)] [font-weight:700] [font-size:14px]" @click="showDiscard = true">Discard workout</button>
+      <button class="complete__discard self-center min-h-8 mt-1.5 p-[6px_14px] text-rose font-bold text-[14px]" @click="showDiscard = true">Discard workout</button>
     </div>
 
-    <div class="complete__footer [position:absolute] [left:16px] [right:16px] [bottom:16px] lg:[left:50%] lg:[right:auto] lg:[transform:translateX(-50%)] lg:[width:min(var(--focus-max),_100%_-_80px)] lg:[bottom:24px]">
-      <AppButton glow icon-right="arrowRight" :disabled="saving" @click="save">
+    <div class="complete__footer absolute left-4 right-4 bottom-4 lg:left-1/2 lg:right-auto lg:transform-[translateX(-50%)] lg:w-[min(var(--focus-max),100%-80px)] lg:bottom-6">
+      <AppButton :disabled="saving" @click="save">
         {{ saving ? 'Saving…' : 'Save workout' }}
       </AppButton>
     </div>
 
     <BottomSheet v-model="showDiscard" title="Discard this workout?">
-      <p class="ds__body [margin:0_0_16px] [font-size:14px] [color:var(--violet-45)] [line-height:1.5]">
+      <p class="ds__body m-[0_0_16px] text-[14px] text-(--violet-45) leading-normal">
         All your logged sets for this session will be lost. This can’t be undone.
       </p>
-      <div class="ds__actions [display:grid] [grid-template-columns:1fr_1fr] [gap:12px]">
+      <div class="ds__actions grid grid-cols-2 gap-3">
         <AppButton variant="secondary" @click="showDiscard = false">Keep it</AppButton>
         <AppButton variant="danger" @click="discard">Discard workout</AppButton>
       </div>

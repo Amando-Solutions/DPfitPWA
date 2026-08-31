@@ -29,6 +29,32 @@ export default defineNuxtConfig({
     },
   },
 
+  /**
+   * Keep the handle on the sign-in popup.
+   *
+   * `signInWithPopup` opens a window, waits for it to post the credential
+   * back, and then closes it. `accounts.google.com` sets its own
+   * Cross-Origin-Opener-Policy, and against our default of `unsafe-none` the
+   * browser severs the opener relationship: the sign-in still completes, but
+   * the tidy-up afterwards cannot, so Chrome logs "Cross-Origin-Opener-Policy
+   * policy would block the window.close call" and the member is left staring
+   * at a stranded Google window over an app that has already signed them in.
+   *
+   * `same-origin-allow-popups` is the pairing Google's own docs ask for. It is
+   * *stricter* than the default in every direction except the one that matters
+   * — a window this page opened itself stays reachable — so nothing else on
+   * the origin loosens to buy it.
+   *
+   * Set here for `nuxt dev` and `nuxt preview`; the deployed copy is served by
+   * Firebase Hosting, which reads `firebase.json`, so the same header is
+   * declared there too and the two have to be changed together.
+   */
+  routeRules: {
+    '/**': {
+      headers: { 'Cross-Origin-Opener-Policy': 'same-origin-allow-popups' },
+    },
+  },
+
   modules: [
     '@vite-pwa/nuxt',
     // Nuxt's app manifest lives at `.nuxt/manifest/meta/<buildId>.json` and is
@@ -267,6 +293,28 @@ pwa: {
           expiration: {
             maxEntries: 60,
             maxAgeSeconds: 60 * 60 * 24 * 14,
+          },
+          cacheableResponse: {
+            statuses: [0, 200],
+          },
+        },
+      },
+
+      // Coach-authored imagery out of Cloud Storage: workout day heroes, and
+      // the member's own proof and progress photos read back. Cache-first,
+      // because a Storage object is immutable at its URL — a replaced hero is
+      // a new upload with a new token, so a cached copy can never go stale, and
+      // the alternative is Home's largest asset blocking on the network every
+      // morning. Without this the hero is the one thing on the screen that
+      // disappears offline, which is exactly when a gym has no signal.
+      {
+        urlPattern: /^https:\/\/firebasestorage\.googleapis\.com\//,
+        handler: 'CacheFirst',
+        options: {
+          cacheName: 'dpfit-storage-images',
+          expiration: {
+            maxEntries: 80,
+            maxAgeSeconds: 60 * 60 * 24 * 30,
           },
           cacheableResponse: {
             statuses: [0, 200],

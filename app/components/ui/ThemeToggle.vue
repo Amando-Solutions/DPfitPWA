@@ -28,7 +28,7 @@ const OPTIONS: { value: ThemePreference; label: string; icon: string }[] = [
       :key="option.value"
       :value="option.value"
       variant="plain"
-      class="flex items-center gap-1.5 rounded-pill px-3 py-1.5 font-eyebrow text-[10px] font-bold tracking-[0.5px] text-muted transition-colors duration-150 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-ring data-[state=checked]:btn-raised data-[state=checked]:bg-inverse data-[state=checked]:text-on-inverse data-[state=checked]:[--btn-face:var(--surface-inverse)]"
+      class="flex items-center gap-1.5 rounded-pill px-3 py-1.5 text-[12px] text-muted transition-colors duration-150 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-ring data-[state=checked]:bg-inverse data-[state=checked]:font-semibold data-[state=checked]:text-on-inverse"
     >
       <AppIcon :name="option.icon" :size="13" :stroke="2.2" />
       {{ option.label }}

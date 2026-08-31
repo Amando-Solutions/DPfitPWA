@@ -2,6 +2,7 @@
 // 06 · Setup · About You
 definePageMeta({ layout: 'default' })
 
+import { sexOptions } from '~/data/onboarding'
 import type { Sex } from '~/data/types'
 
 const router = useRouter()
@@ -11,12 +12,6 @@ const store = useAppStore()
 const displayName = ref(store.profile.value?.displayName ?? '')
 const age = ref<number | null>(store.profile.value?.age ?? null)
 const sex = ref<Sex | ''>(store.profile.value?.sex ?? '')
-
-const sexes: { id: Sex; label: string }[] = [
-  { id: 'female', label: 'Female' },
-  { id: 'male', label: 'Male' },
-  { id: 'other', label: 'Other' },
-]
 
 const canContinue = computed(
   () => displayName.value.trim().length > 1 && !!age.value && age.value > 12 && !!sex.value,
@@ -46,13 +41,13 @@ const next = async () => {
     :busy="busy"
     @continue="next"
   >
-    <AppCard variant="raised" class="form-card [display:flex] [flex-direction:column] [gap:16px]">
+    <AppCard variant="raised" class="form-card flex flex-col gap-4">
       <TextField v-model="displayName" label="Display name" placeholder="Ada" />
       <TextField v-model.number="age" label="Age" type="number" placeholder="26" />
       <div>
-        <span class="form-card__label [display:block] [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:1px] [font-size:10px] [font-weight:700] [color:var(--violet-45)] [margin-bottom:10px]">Sex</span>
-        <SegmentedTabs v-model="sex" :tabs="sexes" />
-        <p class="form-card__hint [margin:10px_0_0] [font-size:12.5px] [color:var(--violet-45)]">Used only to size your calorie baseline.</p>
+        <span class="form-card__label block font-eyebrow uppercase tracking-[1px] text-[10px] font-bold text-muted mb-2.5">Sex</span>
+        <SegmentedTabs v-model="sex" :tabs="sexOptions" />
+        <p class="form-card__hint mt-2.5 mx-0 mb-0 text-[12.5px] text-muted">Used only to size your calorie baseline.</p>
       </div>
     </AppCard>
   </SetupStepShell>

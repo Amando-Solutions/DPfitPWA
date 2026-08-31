@@ -2,7 +2,6 @@
 // 13 · Ready to Start / 14 · Active Session / 15 · Rest Timer / 16 · Exercise Menu
 definePageMeta({ layout: false })
 
-import type { Units } from '~/data/types'
 import { trustedTimestamp } from '~/lib/time'
 
 const route = useRoute()
@@ -235,11 +234,11 @@ const updateNote = async (exerciseIndex: number, value: string) => {
 }
 
 // --- Units -----------------------------------------------------------------
-// The header's KG/LB switch is the same preference the profile screen sets, so
-// the two can never disagree. Only the *display* changes: every weight is
-// stored in kilograms.
+// Read only. The member picked kilograms or pounds once, during setup, and can
+// change it in Profile & Settings; this screen used to ask a second time in its
+// own header, which is one preference with two places to disagree. Only the
+// *display* changes either way: every weight is stored in kilograms.
 const units = computed(() => store.prefs.value.units)
-const setUnits = (value: Units) => store.savePreferences({ units: value })
 
 // --- Leaving ---------------------------------------------------------------
 const showDiscard = ref(false)
@@ -252,26 +251,26 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
 </script>
 
 <template>
-  <div class="session [position:relative] [height:100%] [display:flex] [flex-direction:column] [background:var(--paper)]">
-    <div v-if="day && session" class="session__scroll scroll-y [flex:1] [min-height:0]">
+  <div class="session relative h-full flex flex-col bg-surface">
+    <div v-if="day && session" class="session__scroll scroll-y flex-1 min-h-0">
+      <!-- `action` only once the clock is running: before that there is no
+           workout to cancel. -->
       <SessionHeader
-        :eyebrow="`${session.running ? 'Logging' : 'Ready to start'} · Week ${store.clock.value.week}`"
         :title="day.dayNumber ? `Day ${day.dayNumber}: ${day.label}` : day.label"
         :duration="durationLabel"
         :volume="totals.volume"
         :sets-done="totals.setsDone"
         :sets-total="totals.setsTotal"
         :unit="units"
+        :action="session.running ? 'Cancel' : undefined"
         @action="showDiscard = true"
-        @unit="setUnits"
       />
 
-      <div class="session__body [padding:16px_20px_120px] [display:flex] [flex-direction:column] [gap:14px] lg:[width:100%] lg:[max-width:var(--focus-max)] lg:[margin:0_auto] lg:[padding:24px_40px_150px]">
+      <div class="session__body pt-4 px-5 pb-[120px] flex flex-col gap-3.5 lg:w-full lg:max-w-(--focus-max) lg:my-0 lg:mx-auto lg:pt-6 lg:px-10 lg:pb-[150px]">
         <ExerciseLogCard
           v-for="(exercise, i) in session.exercises"
           :key="exercise.id"
           :name="exercise.name"
-          :muscle-group="exercise.muscleGroup"
           :rest-seconds="exercise.restSeconds"
           :note="exercise.note"
           :sets="exercise.sets"
@@ -287,7 +286,7 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
     </div>
 
     <!-- Docked footer: rest timer (when running) + primary CTA -->
-    <div class="session__footer [position:absolute] [left:16px] [right:16px] [bottom:16px] [display:flex] [flex-direction:column] [gap:10px] lg:[left:50%] lg:[right:auto] lg:[transform:translateX(-50%)] lg:[width:min(var(--focus-max),_100%_-_80px)] lg:[bottom:24px]">
+    <div class="session__footer absolute left-4 right-4 bottom-4 flex flex-col gap-2.5 lg:left-1/2 lg:right-auto lg:-translate-x-1/2 lg:w-[min(var(--focus-max),_100%_-_80px)] lg:bottom-6">
       <RestTimerBar
         v-if="restActive"
         :seconds="restRemaining"
@@ -296,29 +295,22 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
       />
       <AppButton
         v-if="!session?.running"
-        glow
         icon="play"
         @click="startWorkout"
       >
         Start workout
       </AppButton>
-      <AppButton
-        v-else
-        glow
-        :variant="allDone ? 'primary' : 'dark'"
-        icon-right="arrowRight"
-        @click="finish"
-      >
+      <AppButton v-else :variant="allDone ? 'primary' : 'dark'" @click="finish">
         {{ allDone ? 'Finish workout' : `Finish (${totals.setsDone}/${totals.setsTotal} sets)` }}
       </AppButton>
     </div>
 
     <BottomSheet v-model="showDiscard" title="Discard this workout?">
-      <p class="discard__body [margin:0_0_16px] [font-size:14px] [color:var(--violet-45)] [line-height:1.5]">
+      <p class="discard__body mt-0 mx-0 mb-4 text-[14px] text-muted leading-[1.5]">
         You’ve logged {{ totals.setsDone }} of {{ totals.setsTotal }} sets. This can’t be
         undone.
       </p>
-      <div class="discard__actions [display:grid] [grid-template-columns:1fr_1fr] [gap:12px]">
+      <div class="discard__actions grid grid-cols-[1fr_1fr] gap-3">
         <AppButton variant="secondary" @click="showDiscard = false">Keep going</AppButton>
         <AppButton variant="danger" @click="confirmDiscard">Discard workout</AppButton>
       </div>

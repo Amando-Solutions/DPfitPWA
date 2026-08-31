@@ -27,6 +27,7 @@ import type {
   Program,
   Rank,
   RewardConfig,
+  StoredImage,
   RewardValues,
   LeaderboardEntry,
   TrainingFeel,
@@ -108,6 +109,42 @@ export const weekThemes: [WeekTheme, ...WeekTheme[]] = [
   { weekNumber: 5, title: 'Refine', subtitle: 'Sharpen weak points' },
   { weekNumber: 6, title: 'Prove It', subtitle: 'Final push & photos' },
 ]
+
+/**
+ * The weekly live call.
+ *
+ * One time for the whole cohort, set by the coach. Deliberately not
+ * personalised: there are no slots to assign, no per-member attendance state
+ * and nothing to mark as done, so the Home prompt renders the same for every
+ * member every week whether or not they turned up last time.
+ */
+export const liveCall = {
+  /** As it reads on the card. Admin-authored, so it carries its own zone. */
+  when: 'Tuesday, 7:00 PM WAT',
+  joinUrl: 'https://meet.google.com/dpf-recomp-live',
+} as const
+
+/**
+ * Whether the cohort leaderboard is visible to members yet.
+ *
+ * Off for the opening weeks on purpose. Ranking people before they have a
+ * couple of weeks of habit behind them turns "did I show up" into "am I
+ * winning", which is the motivation we are trying not to build. The board is
+ * computed and written the whole time regardless (see `refreshLeaderboard`), so
+ * flipping this on later reveals a full history rather than starting from zero.
+ *
+ * While it is off the tab switcher is not rendered at all. A greyed-out or
+ * padlocked tab would advertise the thing we are choosing not to show, which
+ * reintroduces exactly the anticipation the delay is meant to avoid.
+ */
+export const leaderboardVisible = false
+
+/**
+ * The week the board is meant to appear in, used only for the reveal notice on
+ * Rewards. Past Foundation and into Overload, so it lands as a bonus for people
+ * already in the habit rather than a hook for people still deciding.
+ */
+export const leaderboardRevealWeek = 3
 
 /** Access codes that redeem into this cohort. */
 export const accessCodes = ['DP-RECOMP-01']
@@ -484,6 +521,24 @@ export const coreCardioExercises: Exercise[] = [
  * `useAppStore`. Storing it here would mean one member's progress was written
  * into content every member reads.
  */
+/**
+ * Stand-in hero art for mock mode.
+ *
+ * In production this field is a real Cloud Storage object: the coach uploads a
+ * photograph with the workout day and `heroImage` carries its path and download
+ * URL, exactly like a proof photo or a chat attachment. There is no bucket
+ * here, so the file is served from `public/` and the storage path is a
+ * plausible-looking stand-in — the same shape `local.ts` fakes everywhere else,
+ * so the card cannot tell the difference and neither can the code that reads it.
+ */
+const seedHero = (dayId: string): StoredImage => ({
+  storagePath: `programs/${PROGRAM_ID}/workoutDays/${dayId}/hero.jpg`,
+  downloadUrl: '/hero/day-default.jpg',
+  width: 1280,
+  height: 720,
+  bytes: 124699,
+})
+
 /** Non-empty by construction: the plan always has a day one. */
 export const planDays: [WorkoutDay, ...WorkoutDay[]] = [
   {
@@ -491,6 +546,7 @@ export const planDays: [WorkoutDay, ...WorkoutDay[]] = [
     dayNumber: 1,
     label: 'Lower (Quad Focus)',
     focus: 'Lower',
+    heroImage: seedHero('day-1'),
     estimatedMinutes: 45,
     estimatedKcal: 160,
     proofRequired: true,
@@ -503,6 +559,7 @@ export const planDays: [WorkoutDay, ...WorkoutDay[]] = [
     dayNumber: 2,
     label: 'Upper (Push Focus)',
     focus: 'Upper · Push',
+    heroImage: seedHero('day-2'),
     estimatedMinutes: 40,
     estimatedKcal: 140,
     proofRequired: true,
@@ -515,6 +572,7 @@ export const planDays: [WorkoutDay, ...WorkoutDay[]] = [
     dayNumber: 3,
     label: 'Lower (Posterior Focus)',
     focus: 'Lower · Posterior',
+    heroImage: seedHero('day-3'),
     estimatedMinutes: 42,
     estimatedKcal: 150,
     proofRequired: true,
@@ -527,6 +585,7 @@ export const planDays: [WorkoutDay, ...WorkoutDay[]] = [
     dayNumber: 4,
     label: 'Upper (Pull Focus)',
     focus: 'Upper · Pull',
+    heroImage: seedHero('day-4'),
     estimatedMinutes: 48,
     estimatedKcal: 175,
     proofRequired: true,
@@ -542,6 +601,9 @@ export const coreCardioDay: WorkoutDay = {
   dayNumber: 5,
   label: 'Core & Cardio',
   focus: 'Finisher',
+  // The finisher is the one day with no art of its own; the card renders the
+  // gradient alone, which is what `null` is there to mean.
+  heroImage: null,
   estimatedMinutes: 20,
   estimatedKcal: 90,
   proofRequired: false,

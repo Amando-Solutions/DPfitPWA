@@ -35,8 +35,10 @@ import type { ProcessedImage } from '~/lib/image'
  *
  * Three responsibilities live behind this seam that used not to:
  *
- *   - **Auth.** Sign-in is an email link, so it is a two-step flow with a
- *     round trip through the member's inbox in the middle.
+ *   - **Auth.** Passwordless, either way in. Google settles inside a single
+ *     gesture; the email link is a two-step flow with a round trip through the
+ *     member's inbox in the middle — except on device, where there is no inbox
+ *     and `instantSignIn` says so.
  *   - **Uploads.** Documents cap at 1 MiB, so anything binary goes to Cloud
  *     Storage first and the document holds the reference. Callers hand over a
  *     `ProcessedImage` and get back a `StoredImage`; where that actually lands
@@ -47,19 +49,74 @@ import type { ProcessedImage } from '~/lib/image'
  */
 export interface DataSource {
   // =========================================================================
-  // Auth — Firebase Auth, email link ("magic link")
+  // Auth — Firebase Auth: email link ("magic link") and Google
   //
   // No passwords anywhere in the system. Signing in and being a cohort member
   // are separate facts: a valid `AuthUser` with no member document is somebody
   // who opened their link but has not redeemed an access code yet, which is
   // what `MemberGate` distinguishes.
+  //
+  // The two providers differ only in how long they take. Google settles inside
+  // one gesture; the email link leaves the app entirely and comes back through
+  // an inbox, possibly on another device. Everything after the `AuthUser` is
+  // identical, so nothing downstream asks which one was used.
   // =========================================================================
 
   /**
-   * Email a sign-in link. Resolves once it is away; the flow continues when
-   * the member opens it, which may be on another device.
+   * Whether this implementation can sign a member in without an inbox.
+   *
+   * Only the on-device one can: it has no email to send, so it signs in on the
+   * spot instead. Screens read this to know which half of the flow they are
+   * about to run — whether the button says "email me a link" and is followed
+   * by a wait, or says "continue" and lands straight on the access code.
    */
-  sendSignInLink(email: string): Promise<void>
+  readonly instantSignIn: boolean
+
+  /**
+   * Whether Google is on offer at all.
+   *
+   * A provider has to be enabled in the Firebase console before it exists, and
+   * an implementation with no Firebase behind it has no provider to offer, so
+   * the button is drawn from this rather than assumed. Offering a sign-in
+   * method that answers `auth/operation-not-allowed` is worse than not
+   * offering it.
+   */
+  readonly googleSignIn: boolean
+
+  /**
+   * Sign in with Google.
+   *
+   * Resolves to the signed-in user on the popup path, which is the normal one.
+   * Resolves to `null` when the implementation had to fall back to a full-page
+   * redirect: the document is being torn down as it returns, there is no user
+   * to hand back yet, and the flow finishes in `resumeSignIn` after the load
+   * that comes back. Callers should treat `null` as "nothing to do here", not
+   * as a failure.
+   */
+  signInWithGoogle(): Promise<AuthUser | null>
+
+  /**
+   * Finish a sign-in that survived a full-page navigation.
+   *
+   * Called once on boot, before anything asks who is signed in. Almost every
+   * load answers `null` — nothing was pending — and the one that does not is
+   * the load returning from a Google redirect, where the credentials arrive in
+   * the URL and have to be consumed before route middleware can decide where
+   * this member belongs. Throws the same user-facing errors `signInWithGoogle`
+   * does, because from the member's side it is the same attempt.
+   */
+  resumeSignIn(): Promise<AuthUser | null>
+
+  /**
+   * Email a sign-in link.
+   *
+   * Resolves to `null` once the link is away; the flow then continues when the
+   * member opens it, which may be minutes later and on another device. An
+   * implementation with `instantSignIn` set has no inbox to route through and
+   * resolves to the signed-in user instead, so the caller has nothing to wait
+   * for. Either way the *next* thing outstanding is the access code.
+   */
+  sendSignInLink(email: string): Promise<AuthUser | null>
 
   /** Whether `url` is a sign-in link this app issued. Cheap, synchronous-ish. */
   isSignInLink(url: string): Promise<boolean>
@@ -267,6 +324,12 @@ export class DataSourceError extends Error {
       /** The link was opened on a device that never requested it. */
       | 'needs-email'
       | 'expired-link'
+      /** The member closed the provider window themselves. Not an error to shout about. */
+      | 'popup-cancelled'
+      /** The provider is not enabled for this project, or there is no provider at all. */
+      | 'provider-disabled'
+      /** This address is already held by a different sign-in method. */
+      | 'account-exists'
       | 'unknown' = 'unknown',
   ) {
     super(message)

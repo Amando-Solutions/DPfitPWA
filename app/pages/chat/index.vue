@@ -63,17 +63,16 @@ const react = async (payload: { messageId: string; emoji: string }) => {
 </script>
 
 <template>
-  <div class="chat-page [position:relative] [height:100%] [display:flex] [flex-direction:column] [background:var(--paper)] lg:[flex-direction:row]">
+  <div class="chat-page relative h-full flex flex-col bg-surface lg:flex-row">
     <AppNav />
 
-    <div class="chat-page__main [flex:1] [min-height:0] [display:flex] [flex-direction:column] lg:[min-width:0] lg:[width:100%] lg:[max-width:var(--focus-max)] lg:[margin:0_auto] lg:[padding:32px_40px_0]">
+    <div class="chat-page__main flex-1 min-h-0 flex flex-col lg:min-w-0 lg:w-full lg:max-w-(--focus-max) lg:my-0 lg:mx-auto lg:pt-8 lg:px-10 lg:pb-0">
       <ChatView
         :messages="messages"
         eyebrow="Private group"
         :title="cohort.name"
         :subtitle="`Coach and ${cohort.memberCount - 1} members`"
         placeholder="Say something to the group…"
-        dm-link
         :storage-full="storageFull"
         @send="send"
         @react="react"

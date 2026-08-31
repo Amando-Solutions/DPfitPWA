@@ -28,6 +28,7 @@ import { weekOf } from '~/lib/domain/challenge'
 import type { ProcessedImage } from '~/lib/image'
 import type {
   ActiveSessionDoc,
+  AuthProvider,
   AuthUser,
   BadgeRuleId,
   ChatAttachment,
@@ -52,8 +53,6 @@ import type {
 // Storage keys, one per collection, mirroring the Firestore paths.
 const KEY = {
   authUser: 'auth-user',
-  /** Address a sign-in link was requested for, awaiting the link being opened. */
-  pendingEmail: 'auth-pending-email',
   member: 'member',
   sessions: 'sessions',
   activeSession: 'active-session',
@@ -71,17 +70,16 @@ const uid = (prefix: string) =>
   `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
 
 /**
- * The fake sign-in link this implementation "emails".
+ * The fake sign-in link this implementation understands.
  *
- * Firebase would send a real one and hand the opened URL back through
- * `completeSignInLink`. Mock mode has no inbox, so the link is written to the
- * console and the address is parked in storage — enough to exercise both
- * branches of the flow, including the same-device / other-device split that is
- * the only genuinely awkward part of email-link auth.
+ * Nothing issues one any more — `sendSignInLink` signs in on the spot, because
+ * mock mode has no inbox to route a link through and waiting on an email that
+ * will never arrive is not a flow anybody can develop against. The parsing
+ * stays so the opened-link path can still be rehearsed by hand: visit
+ * `/access-code?mockSignIn=you@example.com` in a browser that never asked for
+ * it and you get the other-device branch, which is the one genuinely awkward
+ * corner of email-link auth.
  */
-const signInLinkFor = (email: string) =>
-  `${typeof window === 'undefined' ? '' : window.location.origin}/access-code?mockSignIn=${encodeURIComponent(email)}`
-
 const emailFromLink = (url: string): string | null => {
   try {
     return new URL(url, 'http://localhost').searchParams.get('mockSignIn')
@@ -89,6 +87,18 @@ const emailFromLink = (url: string): string | null => {
     return null
   }
 }
+
+/**
+ * The account the mock Google button signs in as.
+ *
+ * A fixed identity rather than a random one, so a developer who signs out and
+ * back in lands on the same member instead of a fresh empty account each time.
+ */
+const MOCK_GOOGLE = {
+  email: 'demo@dpfitness.app',
+  displayName: 'Demo Member',
+  photoUrl: '',
+} as const
 
 export const emptyProfile = (): MemberProfile => ({
   displayName: '',
@@ -100,14 +110,14 @@ export const emptyProfile = (): MemberProfile => ({
   activity: '',
   goal: '',
   trainingDaysPerWeek: 4,
-  allergies: '',
+  healthConditions: '',
   injuries: '',
-  callSlot: '',
   avatarUrl: '',
 })
 
 export const defaultPreferences = (): MemberPreferences => ({
   units: 'kg',
+  heightUnits: 'cm',
   workoutReminders: true,
   coachMessages: true,
   weeklyCheckInReminder: true,
@@ -173,14 +183,47 @@ export class LocalDataSource implements DataSource {
   // =========================================================================
   // Auth
   // =========================================================================
-  async sendSignInLink(email: string): Promise<void> {
+
+  /** No inbox here, so the round trip through one is skipped. See below. */
+  readonly instantSignIn = true
+
+  /**
+   * Sign in, there and then.
+   *
+   * There is no email to send: this implementation is the whole backend, so a
+   * link it "sent" could only be one it also read back, and the wait in the
+   * middle would be theatre. The address is taken at face value — proving the
+   * inbox is yours is exactly the part a mock cannot do — and the member lands
+   * on the access-code half of the screen, which is the step that still means
+   * something on device.
+   */
+  async sendSignInLink(email: string): Promise<AuthUser> {
     const normalised = email.trim().toLowerCase()
     if (!normalised.includes('@')) {
       throw new DataSourceError('Enter the email address you paid with.', 'invalid-code')
     }
-    storage.write(KEY.pendingEmail, normalised)
-    // Stands in for the email. The real one is sent by Firebase.
-    console.info('[auth] sign-in link:', signInLinkFor(normalised))
+    return this.signIn(normalised, 'email-link')
+  }
+
+  /**
+   * Offered on device too, so the button is never missing while developing.
+   *
+   * It cannot talk to Google — there is no Firebase here — so it stands in a
+   * plausible Google account instead. The point of drawing it is that the
+   * screen either side of the button is the real one.
+   */
+  readonly googleSignIn = true
+
+  async signInWithGoogle(): Promise<AuthUser> {
+    return this.signIn(MOCK_GOOGLE.email, 'google', MOCK_GOOGLE)
+  }
+
+  /**
+   * Nothing here ever leaves the page, so nothing is ever mid-flight across a
+   * load. The real implementation finishes a Google redirect here.
+   */
+  async resumeSignIn(): Promise<null> {
+    return null
   }
 
   async isSignInLink(url: string): Promise<boolean> {
@@ -191,9 +234,10 @@ export class LocalDataSource implements DataSource {
     const fromLink = emailFromLink(url)
     if (!fromLink) throw new DataSourceError('That sign-in link is not valid.', 'expired-link')
 
-    // Same device: the address was parked when the link was requested. Another
-    // device has no such record, which is the one case the caller must ask.
-    const known = email?.trim().toLowerCase() ?? storage.read<string | null>(KEY.pendingEmail, null)
+    // Nothing parks a pending address here, because nothing here sends a link:
+    // a hand-crafted one is by definition opened on a device that never asked
+    // for it, which is the case the caller has to confirm.
+    const known = email?.trim().toLowerCase()
     if (!known) {
       throw new DataSourceError(
         'Confirm the email address this link was sent to.',
@@ -201,9 +245,24 @@ export class LocalDataSource implements DataSource {
       )
     }
 
-    const user: AuthUser = { uid: uid('uid'), email: known, emailVerified: true }
+    return this.signIn(known)
+  }
+
+  /** The signed-in state every route in above converges on. */
+  private signIn(
+    email: string,
+    provider: AuthProvider = 'email-link',
+    profile: { displayName?: string; photoUrl?: string } = {},
+  ): AuthUser {
+    const user: AuthUser = {
+      uid: uid('uid'),
+      email,
+      emailVerified: true,
+      displayName: profile.displayName ?? '',
+      photoUrl: profile.photoUrl ?? '',
+      provider,
+    }
     storage.write(KEY.authUser, user)
-    storage.remove(KEY.pendingEmail)
     return user
   }
 
@@ -249,7 +308,13 @@ export class LocalDataSource implements DataSource {
       programVersion: PROGRAM_VERSION,
       accessCode: normalised,
       joinedAt: now,
-      profile: emptyProfile(),
+      // Mirrors the Firestore path: whatever the provider already knew is
+      // carried into the profile so setup doesn't ask for it twice.
+      profile: {
+        ...emptyProfile(),
+        displayName: user.displayName,
+        avatarUrl: user.photoUrl,
+      },
       prefs: defaultPreferences(),
       stats: emptyStats(),
       createdAt: now,

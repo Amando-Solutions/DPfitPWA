@@ -1,27 +1,53 @@
 <script setup lang="ts">
-// 29 · Profile & Settings (+ 31 · Confirm Sign Out)
+// 29 · Profile & Settings
 definePageMeta({ layout: 'app' })
 
-import { activityOptions, callSlots, goalOptions } from '~/data/onboarding'
-import { cohort } from '~/data/program'
-import { formatWeight } from '~/lib/domain/nutrition'
-import type { ActivityLevel, Goal, Units } from '~/data/types'
+import { activityOptions } from '~/data/onboarding'
+import {
+  cmToFeetInches,
+  feetInchesToCm,
+  formatHeight,
+  formatWeight,
+  fromDisplayWeight,
+  toDisplayWeight,
+} from '~/lib/domain/nutrition'
+import type { ActivityLevel, HeightUnits, Units } from '~/data/types'
 
-const router = useRouter()
 const store = useAppStore()
 
-const UNIT_OPTIONS: Units[] = ['kg', 'lb']
+/*
+  This screen mirrors setup, field for field, because it is where every setup
+  answer goes to be changed. So the same four edits land here:
+
+    · sex is asked at setup and not re-asked here, now that it is two values
+      feeding one equation
+    · the goal dropdown is gone — it moved off this screen with the rest of the
+      plan choices, which the coach owns
+    · allergies became health conditions
+    · the preferred-call radio is gone; the live call is one time for everyone
+    · both unit toggles are here, on the fields they govern
+
+  Sign out moved to the More menu. It was the single destructive control at the
+  bottom of a form people open to change their weight.
+*/
+const WEIGHT_UNITS = [
+  { id: 'kg', label: 'kg' },
+  { id: 'lb', label: 'lbs' },
+]
+const HEIGHT_UNITS = [
+  { id: 'cm', label: 'cm' },
+  { id: 'ft', label: 'ft / in' },
+]
 
 const profile = computed(() => store.profile.value)
 
 // --- Editable fields (saved on blur so nothing needs a "save" button) -------
 const displayName = ref(profile.value?.displayName ?? '')
 const weightKg = ref<number | null>(profile.value?.weightKg ?? null)
+const heightCm = ref<number | null>(profile.value?.heightCm ?? null)
 const activity = ref<ActivityLevel | ''>(profile.value?.activity ?? '')
-const goal = ref<Goal | ''>(profile.value?.goal ?? '')
-const allergies = ref(profile.value?.allergies ?? '')
+const healthConditions = ref(profile.value?.healthConditions ?? '')
 const injuries = ref(profile.value?.injuries ?? '')
-const callSlot = ref(profile.value?.callSlot ?? '')
 
 const saved = ref(false)
 let savedTimer: ReturnType<typeof setTimeout> | null = null
@@ -37,17 +63,52 @@ const persist = async () => {
   await store.saveProfile({
     displayName: displayName.value.trim(),
     weightKg: weightKg.value,
+    heightCm: heightCm.value,
     activity: (activity.value || undefined) as ActivityLevel,
-    goal: (goal.value || undefined) as Goal,
-    allergies: allergies.value.trim(),
+    healthConditions: healthConditions.value.trim(),
     injuries: injuries.value.trim(),
-    callSlot: callSlot.value,
   })
   flashSaved()
 }
 
+// --- Units -----------------------------------------------------------------
+// The same two preferences setup writes and the Train screen reads.
 const units = computed(() => store.prefs.value.units)
-const setUnits = (value: Units) => store.savePreferences({ units: value })
+const heightUnits = computed(() => store.prefs.value.heightUnits)
+
+const setUnits = (value: string) => store.savePreferences({ units: value as Units })
+const setHeightUnits = (value: string) =>
+  store.savePreferences({ heightUnits: value as HeightUnits })
+
+const weightShown = computed(() =>
+  weightKg.value === null ? null : toDisplayWeight(weightKg.value, units.value),
+)
+
+const onWeight = (raw: string | number | null) => {
+  const value = Number(raw)
+  weightKg.value =
+    raw === '' || raw === null || !Number.isFinite(value)
+      ? null
+      : fromDisplayWeight(value, units.value)
+}
+
+const feetInches = computed(() =>
+  heightCm.value === null ? { feet: null, inches: null } : cmToFeetInches(heightCm.value),
+)
+
+const onHeightCm = (raw: string | number | null) => {
+  const value = Number(raw)
+  heightCm.value = raw === '' || raw === null || !Number.isFinite(value) ? null : value
+}
+
+const onFeetInches = (part: 'feet' | 'inches', raw: string | number | null) => {
+  const value = Number(raw)
+  const next = Number.isFinite(value) && raw !== '' && raw !== null ? value : 0
+  const current = feetInches.value
+  const feet = part === 'feet' ? next : (current.feet ?? 0)
+  const inches = part === 'inches' ? next : (current.inches ?? 0)
+  heightCm.value = feet === 0 && inches === 0 ? null : feetInchesToCm(feet, inches)
+}
 
 const toggles = computed(() => [
   { key: 'workoutReminders' as const, label: 'Workout reminders', value: store.prefs.value.workoutReminders },
@@ -61,18 +122,27 @@ const change = computed(() => {
   return weightKg.value - startWeight.value
 })
 
-// --- Sign out --------------------------------------------------------------
-const showSignOut = ref(false)
-const signOut = async () => {
-  await store.signOut()
-  await router.push('/access-code')
-}
+const changeLabel = computed(() => {
+  if (change.value === null) return '-'
+  const shown = toDisplayWeight(Math.abs(change.value), units.value)
+  return `${change.value > 0 ? '+' : change.value < 0 ? '−' : ''}${shown}${units.value}`
+})
+
+const SECTION = 'flex flex-col gap-2.5'
+const SECTION_LABEL = 'text-[13px] text-muted'
+const FIELD_HEAD = 'mb-1.5 flex items-center justify-between gap-2'
+const FIELD_LABEL = 'text-[13px] text-soft'
+const AREA =
+  'w-full resize-none rounded-md border-none bg-sunken p-[12px_14px] font-body text-[14px] text-ink shadow-[inset_0_0_0_1.5px_var(--hairline)] outline-none'
+const ROW = 'flex flex-wrap items-center justify-between gap-x-3 gap-y-2.5'
+const ROW_LABEL = 'text-[14px] font-semibold text-ink'
+const SNAPSHOT_LABEL = 'text-[12px] text-on-inverse-muted'
+const SNAPSHOT_VALUE = 'text-[17px] font-bold text-on-inverse tabular-nums'
 </script>
 
 <template>
-  <div class="profile [padding:var(--screen-pad-top)_20px_0] [display:flex] [flex-direction:column] [gap:18px] [&_.profile__title]:[margin:8px_0_6px] [&_.profile__sub]:[margin:0] [&_.profile__sub]:[font-size:13.5px] [&_.profile__sub]:[line-height:1.45] [&_.switch]:[width:46px] [&_.switch]:[height:27px] [&_.switch]:[border-radius:var(--radius-pill)] [&_.switch]:[background:var(--hairline-strong)] [&_.switch]:[padding:3px] [&_.switch]:[display:flex] [&_.switch]:[transition:background_0.18s_ease] [&_.switch--on]:[background:var(--rose-fill)] [&_.switch--on]:[justify-content:flex-end] [&_.switch__knob]:[width:21px] [&_.switch__knob]:[height:21px] [&_.switch__knob]:[border-radius:50%] [&_.switch__knob]:[background:var(--paper-raised)] [&_.switch__knob]:[box-shadow:var(--shadow-knob)] [&_.fade-enter-active]:[transition:opacity_0.2s_ease] [&_.fade-leave-active]:[transition:opacity_0.2s_ease] [&_.fade-enter-from]:[opacity:0] [&_.fade-leave-to]:[opacity:0] lg:[padding:0] lg:[display:grid] lg:[grid-template-columns:minmax(0,_1fr)_minmax(0,_1fr)] lg:[grid-template-areas:'header_header'_'snapshot_snapshot'_'details_right'_'danger_danger'] lg:[align-content:start] lg:[align-items:start] lg:[column-gap:24px] lg:[row-gap:18px] lg:[&_.profile__sub]:[font-size:15px] lg:[&_.profile__sub]:[max-width:560px]">
+  <div class="profile pt-(--screen-pad-top) px-5 pb-0 flex flex-col gap-4.5 [&_.fade-enter-active]:transition-opacity [&_.fade-enter-active]:duration-200 [&_.fade-enter-active]:ease-[ease] [&_.fade-leave-active]:transition-opacity [&_.fade-leave-active]:duration-200 [&_.fade-leave-active]:ease-[ease] [&_.fade-enter-from]:opacity-0 [&_.fade-leave-to]:opacity-0 lg:p-0 lg:grid lg:grid-cols-2 lg:[grid-template-areas:'header_header'_'snapshot_snapshot'_'details_right'] lg:content-start lg:items-start lg:gap-x-6 lg:gap-y-4.5">
     <ScreenIntro
-      :eyebrow="cohort.name"
       title="Profile & settings"
       subtitle="Change these any time. Your fuel targets recalculate straight away."
       :actions="false"
@@ -81,45 +151,104 @@ const signOut = async () => {
 
     <!-- Snapshot -->
     <section class="profile__snapshot lg:[grid-area:snapshot]">
-      <AppCard variant="ink" class="snapshot [display:grid] [grid-template-columns:repeat(3,_1fr)] [gap:12px]">
-        <div class="snapshot__cell [display:flex] [flex-direction:column] [gap:5px]">
-          <span class="snapshot__label [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:0.5px] [font-size:8.5px] [font-weight:700] [color:var(--on-inverse-muted)]">Started at</span>
-          <span class="snapshot__value data [font-size:17px] [font-weight:700] [color:var(--on-inverse)]">{{ formatWeight(startWeight, units) }}</span>
+      <AppCard variant="ink" class="grid grid-cols-4 gap-3">
+        <div class="flex flex-col gap-1.25">
+          <span :class="SNAPSHOT_LABEL">Started at</span>
+          <span :class="SNAPSHOT_VALUE">{{ formatWeight(startWeight, units) }}</span>
         </div>
-        <div class="snapshot__cell [display:flex] [flex-direction:column] [gap:5px]">
-          <span class="snapshot__label [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:0.5px] [font-size:8.5px] [font-weight:700] [color:var(--on-inverse-muted)]">Now</span>
-          <span class="snapshot__value data [font-size:17px] [font-weight:700] [color:var(--on-inverse)]">{{ formatWeight(weightKg, units) }}</span>
+        <div class="flex flex-col gap-1.25">
+          <span :class="SNAPSHOT_LABEL">Now</span>
+          <span :class="SNAPSHOT_VALUE">{{ formatWeight(weightKg, units) }}</span>
         </div>
-        <div class="snapshot__cell [display:flex] [flex-direction:column] [gap:5px]">
-          <span class="snapshot__label [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:0.5px] [font-size:8.5px] [font-weight:700] [color:var(--on-inverse-muted)]">Change</span>
-          <span class="snapshot__value snapshot__value--accent data [font-size:17px] [font-weight:700] [color:var(--on-inverse)] [color:var(--orange)]">
-            {{ change === null ? '-' : `${change > 0 ? '+' : ''}${change.toFixed(1)}kg` }}
-          </span>
+        <div class="flex flex-col gap-1.25">
+          <span :class="SNAPSHOT_LABEL">Change</span>
+          <span :class="SNAPSHOT_VALUE" class="text-rose-on-inverse">{{ changeLabel }}</span>
+        </div>
+        <div class="flex flex-col gap-1.25">
+          <span :class="SNAPSHOT_LABEL">Height</span>
+          <span :class="SNAPSHOT_VALUE">{{ formatHeight(heightCm, heightUnits) }}</span>
         </div>
       </AppCard>
     </section>
 
     <!-- Your details -->
-    <section class="profile__section [display:flex] [flex-direction:column] [gap:10px] lg:[&:nth-of-type(2)]:[grid-area:details]">
-      <div class="profile__section-head [display:flex] [align-items:center] [justify-content:space-between]">
-        <EyebrowLabel tone="muted">Your details</EyebrowLabel>
+    <section :class="SECTION" class="lg:[grid-area:details]">
+      <div class="flex items-center justify-between">
+        <span :class="SECTION_LABEL">Your details</span>
         <Transition name="fade">
-          <span v-if="saved" class="profile__saved [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:1px] [font-size:9px] [font-weight:700] [color:var(--rose)]">Saved</span>
+          <span v-if="saved" class="text-[12px] text-rose">Saved</span>
         </Transition>
       </div>
-      <AppCard variant="raised" class="profile__card [display:flex] [flex-direction:column] [gap:16px]">
+
+      <AppCard variant="raised" class="flex flex-col gap-4.5">
         <TextField v-model="displayName" label="Display name" @blur="persist" />
-        <TextField
-          v-model.number="weightKg"
-          label="Current weight"
-          type="number"
-          suffix="kg"
-          @blur="persist"
-        />
+
+        <!-- Weight, with the unit switch on the field it governs. -->
+        <div>
+          <div :class="FIELD_HEAD">
+            <span :class="FIELD_LABEL">Current weight</span>
+            <UnitToggle
+              :model-value="units"
+              :options="WEIGHT_UNITS"
+              label="Weight unit"
+              @update:model-value="setUnits"
+            />
+          </div>
+          <TextField
+            :model-value="weightShown"
+            type="number"
+            inputmode="decimal"
+            :suffix="units"
+            @update:model-value="onWeight"
+            @blur="persist"
+          />
+        </div>
+
+        <!-- Height. Feet is two fields, never a decimal. -->
+        <div>
+          <div :class="FIELD_HEAD">
+            <span :class="FIELD_LABEL">Height</span>
+            <UnitToggle
+              :model-value="heightUnits"
+              :options="HEIGHT_UNITS"
+              label="Height unit"
+              @update:model-value="setHeightUnits"
+            />
+          </div>
+          <TextField
+            v-if="heightUnits === 'cm'"
+            :model-value="heightCm"
+            type="number"
+            inputmode="numeric"
+            suffix="cm"
+            @update:model-value="onHeightCm"
+            @blur="persist"
+          />
+          <div v-else class="grid grid-cols-2 gap-3">
+            <TextField
+              :model-value="feetInches.feet"
+              type="number"
+              inputmode="numeric"
+              suffix="ft"
+              aria-label="Height in feet"
+              @update:model-value="(v) => onFeetInches('feet', v)"
+              @blur="persist"
+            />
+            <TextField
+              :model-value="feetInches.inches"
+              type="number"
+              inputmode="numeric"
+              suffix="in"
+              aria-label="Height in inches"
+              @update:model-value="(v) => onFeetInches('inches', v)"
+              @blur="persist"
+            />
+          </div>
+        </div>
 
         <div>
-          <span class="profile__label [display:block] [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:1px] [font-size:10px] [font-weight:700] [color:var(--violet-45)] [margin-bottom:10px]">Activity level</span>
-          <div class="profile__options [display:flex] [flex-direction:column] [gap:8px]">
+          <span class="mb-2.5 block text-[13px] text-soft">Activity level</span>
+          <div class="flex flex-col gap-2">
             <OptionCard
               v-for="option in activityOptions"
               :key="option.id"
@@ -135,125 +264,66 @@ const signOut = async () => {
             />
           </div>
         </div>
+      </AppCard>
+    </section>
 
-        <div>
-          <span class="profile__label [display:block] [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:1px] [font-size:10px] [font-weight:700] [color:var(--violet-45)] [margin-bottom:10px]">Goal</span>
-          <div class="profile__options [display:flex] [flex-direction:column] [gap:8px]">
-            <OptionCard
-              v-for="option in goalOptions"
-              :key="option.id"
-              :label="option.label"
-              :icon="option.icon"
-              compact
-              :selected="goal === option.id"
-              @click="
-                () => {
-                  goal = option.id
-                  persist()
-                }
-              "
+    <div class="profile__right contents lg:[grid-area:right] lg:flex lg:flex-col lg:gap-4.5 lg:self-start">
+      <!-- Coach only -->
+      <section :class="SECTION">
+        <span :class="SECTION_LABEL">Coach only</span>
+        <AppCard variant="raised" class="flex flex-col gap-4.5">
+          <div>
+            <label class="mb-2.5 block text-[13px] text-soft" for="health">
+              Health conditions
+            </label>
+            <textarea
+              id="health"
+              v-model="healthConditions"
+              :class="AREA"
+              rows="2"
+              placeholder="e.g. asthma, lactose intolerance"
+              @blur="persist"
             />
           </div>
-        </div>
-      </AppCard>
-    </section>
-
-    <div class="profile__right [display:contents] lg:[grid-area:right] lg:[display:flex] lg:[flex-direction:column] lg:[gap:18px] lg:[align-self:start]">
-      <!-- Coach only -->
-      <section class="profile__section [display:flex] [flex-direction:column] [gap:10px] lg:[&:nth-of-type(2)]:[grid-area:details]">
-      <EyebrowLabel tone="muted">Coach only</EyebrowLabel>
-      <AppCard variant="raised" class="profile__card [display:flex] [flex-direction:column] [gap:16px]">
-        <div>
-          <span class="profile__label [display:block] [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:1px] [font-size:10px] [font-weight:700] [color:var(--violet-45)] [margin-bottom:10px]">Allergies / restrictions</span>
-          <textarea v-model="allergies" class="profile__area [width:100%] [padding:12px_14px] [background:var(--paper)] [border-radius:var(--radius-md)] [box-shadow:inset_0_0_0_1.5px_var(--hairline)] [font-family:var(--font-body)] [font-size:14px] [color:var(--ink)] [border:none] [outline:none] [resize:none]" rows="2" @blur="persist" />
-        </div>
-        <div>
-          <span class="profile__label [display:block] [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:1px] [font-size:10px] [font-weight:700] [color:var(--violet-45)] [margin-bottom:10px]">Injuries / limitations</span>
-          <textarea v-model="injuries" class="profile__area [width:100%] [padding:12px_14px] [background:var(--paper)] [border-radius:var(--radius-md)] [box-shadow:inset_0_0_0_1.5px_var(--hairline)] [font-family:var(--font-body)] [font-size:14px] [color:var(--ink)] [border:none] [outline:none] [resize:none]" rows="2" @blur="persist" />
-        </div>
-        <div>
-          <span class="profile__label [display:block] [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:1px] [font-size:10px] [font-weight:700] [color:var(--violet-45)] [margin-bottom:10px]">Preferred live call</span>
-          <div class="profile__slots [display:grid] [grid-template-columns:1fr_1fr] [gap:12px]">
-            <button
-              v-for="slot in callSlots"
-              :key="slot.id"
-              class="profile__slot [height:48px] [border-radius:var(--radius-md)] [background:var(--paper)] [box-shadow:inset_0_0_0_1.5px_var(--hairline)] [font-weight:700] [font-size:14px] [color:var(--ink)] [&.profile__slot--on]:[background:var(--rose-softer)] [&.profile__slot--on]:[box-shadow:inset_0_0_0_1.5px_var(--rose)] [&.profile__slot--on]:[color:var(--rose)]"
-              :class="{ 'profile__slot--on': callSlot === slot.id }"
-              @click="
-                () => {
-                  callSlot = slot.id
-                  persist()
-                }
-              "
-            >
-              {{ slot.label }}
-            </button>
+          <div>
+            <label class="mb-2.5 block text-[13px] text-soft" for="injuries">
+              Injuries or limitations
+            </label>
+            <textarea
+              id="injuries"
+              v-model="injuries"
+              :class="AREA"
+              rows="2"
+              placeholder="e.g. slight knee tenderness"
+              @blur="persist"
+            />
           </div>
-        </div>
-      </AppCard>
-    </section>
+        </AppCard>
+      </section>
 
-    <!-- Preferences -->
-    <section class="profile__section [display:flex] [flex-direction:column] [gap:10px] lg:[&:nth-of-type(2)]:[grid-area:details]">
-      <EyebrowLabel tone="muted">Preferences</EyebrowLabel>
-      <AppCard variant="raised" class="profile__card [display:flex] [flex-direction:column] [gap:16px]">
-        <div class="profile__row [display:flex] [align-items:center] [justify-content:space-between] [gap:12px] [flex-wrap:wrap] [row-gap:10px]">
-          <span class="profile__row-label [font-size:14px] [font-weight:600] [color:var(--ink)]">Appearance</span>
-          <ThemeToggle />
-        </div>
+      <!-- Preferences -->
+      <section :class="SECTION">
+        <span :class="SECTION_LABEL">Preferences</span>
+        <AppCard variant="raised" class="flex flex-col gap-4.5">
+          <div :class="ROW">
+            <span :class="ROW_LABEL">Appearance</span>
+            <ThemeToggle />
+          </div>
 
-        <div class="profile__row [display:flex] [align-items:center] [justify-content:space-between] [gap:12px] [flex-wrap:wrap] [row-gap:10px]">
-          <span class="profile__row-label [font-size:14px] [font-weight:600] [color:var(--ink)]">Weight unit</span>
-          <RadioGroup
-            :model-value="units"
-            orientation="horizontal"
-            aria-label="Weight unit"
-            class="profile__units [display:flex] [gap:2px] [padding:3px] [background:var(--fill-subtle)] [border-radius:var(--radius-pill)]"
-            @update:model-value="setUnits($event as Units)"
+          <div
+            v-for="toggle in toggles"
+            :key="toggle.key"
+            :class="ROW"
           >
-            <RadioGroupItem
-              v-for="option in UNIT_OPTIONS"
-              :key="option"
-              :value="option"
-              variant="plain"
-              class="profile__unit [padding:6px_14px] [border-radius:var(--radius-pill)] [font-family:var(--font-eyebrow)] [letter-spacing:0.5px] [font-size:10px] [font-weight:700] [color:var(--violet-45)] data-[state=checked]:btn-raised data-[state=checked]:[background:var(--surface-inverse)] data-[state=checked]:[--btn-face:var(--surface-inverse)] data-[state=checked]:[color:var(--on-inverse)]"
-            >
-              {{ option.toUpperCase() }}
-            </RadioGroupItem>
-          </RadioGroup>
-        </div>
-
-        <div v-for="toggle in toggles" :key="toggle.key" class="profile__row [display:flex] [align-items:center] [justify-content:space-between] [gap:12px] [flex-wrap:wrap] [row-gap:10px]">
-          <span class="profile__row-label [font-size:14px] [font-weight:600] [color:var(--ink)]">{{ toggle.label }}</span>
-          <Switch
-            :model-value="toggle.value"
-            :aria-label="toggle.label"
-            @update:model-value="store.savePreferences({ [toggle.key]: $event })"
-          />
-        </div>
-      </AppCard>
-    </section>
-
+            <span :class="ROW_LABEL">{{ toggle.label }}</span>
+            <Switch
+              :model-value="toggle.value"
+              :aria-label="toggle.label"
+              @update:model-value="store.savePreferences({ [toggle.key]: $event })"
+            />
+          </div>
+        </AppCard>
+      </section>
     </div>
-
-    <section class="profile__section profile__section--danger [display:flex] [flex-direction:column] [gap:10px] lg:[&:nth-of-type(2)]:[grid-area:details] lg:[grid-area:danger] lg:[max-width:420px]">
-      <AppButton variant="danger" @click="showSignOut = true">Sign out</AppButton>
-      <p class="profile__danger-note [margin:0] [font-size:12px] [line-height:1.45] [color:var(--violet-45)] [text-align:center]">
-        Signing out clears everything stored on this device: logs, photos and
-        check-ins included.
-      </p>
-    </section>
-
-    <!-- 31 · Confirm Sign Out -->
-    <BottomSheet v-model="showSignOut" title="Sign out?">
-      <p class="signout__body [margin:0_0_16px] [font-size:14px] [line-height:1.5] [color:var(--violet-45)]">
-        This device is where your challenge lives. Signing out erases your logged
-        sessions, photos and check-ins.
-      </p>
-      <div class="signout__actions [display:grid] [grid-template-columns:1fr_1fr] [gap:12px]">
-        <AppButton variant="secondary" @click="showSignOut = false">Stay</AppButton>
-        <AppButton variant="danger" @click="signOut">Sign out</AppButton>
-      </div>
-    </BottomSheet>
   </div>
 </template>

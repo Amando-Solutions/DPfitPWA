@@ -15,22 +15,22 @@ import { formatTime } from '~/lib/time'
 const props = withDefaults(
   defineProps<{
     messages: ChatMessageView[]
-    eyebrow: string
+    eyebrow?: string
     title: string
     subtitle: string
     placeholder?: string
-    /** Show the shortcut through to the coach DM (cohort thread only). */
-    dmLink?: boolean
     /** The device store is full, so anything sent now is session-only. */
     storageFull?: boolean
   }>(),
-  { placeholder: 'Say something…', dmLink: false, storageFull: false },
+  { placeholder: 'Say something…', storageFull: false },
 )
 
 const emit = defineEmits<{
   (e: 'send', payload: { text: string; attachments: PendingAttachment[] }): void
   (e: 'react', payload: { messageId: string; emoji: string }): void
 }>()
+
+const store = useAppStore()
 
 const draft = ref('')
 const scroller = ref<HTMLElement | null>(null)
@@ -325,18 +325,25 @@ const TOOL =
     <header
       class="chat__header flex shrink-0 items-start justify-between gap-3 px-5 pt-(--screen-pad-top) pb-3 lg:px-0 lg:pt-1"
     >
-      <div>
-        <EyebrowLabel>{{ eyebrow }}</EyebrowLabel>
+      <div class="min-w-0">
+        <EyebrowLabel v-if="eyebrow">{{ eyebrow }}</EyebrowLabel>
         <h1 class="display-md mt-1.5 mb-1">{{ title }}</h1>
         <p class="muted m-0 text-[13px]">{{ subtitle }}</p>
       </div>
+
+      <!-- The same inbox icon every other top-level screen carries, so Chat
+           isn't the one place the bell disappears. The streak/badge pill that
+           used to sit beside it is gone everywhere. -->
       <NuxtLink
-        v-if="dmLink"
-        to="/chat/coach"
-        class="grid size-10.5 shrink-0 place-items-center rounded-full bg-raised text-ink shadow-card"
-        aria-label="Message coach"
+        to="/notifications"
+        class="relative grid size-10.5 shrink-0 place-items-center rounded-full border border-hairline bg-raised text-ink"
+        aria-label="Notifications"
       >
-        <AppIcon name="user" :size="18" />
+        <AppIcon name="bell" :size="18" />
+        <span
+          v-if="store.unreadNotifications.value"
+          class="absolute top-2 right-2 size-2 rounded-full border-[1.5px] border-[var(--paper-raised)] bg-rose-fill"
+        />
       </NuxtLink>
     </header>
 
@@ -548,7 +555,7 @@ const TOOL =
         </div>
 
         <button
-          class="btn-raised btn-glow grid size-12 shrink-0 place-items-center rounded-full bg-rose-fill text-on-rose [--btn-face:var(--rose-fill)]"
+          class="grid size-12 shrink-0 place-items-center rounded-full bg-rose-fill text-on-rose transition-[transform,opacity,background-color] duration-100 ease-out active:scale-[0.94] motion-reduce:transition-none motion-reduce:active:scale-100"
           :class="!canSend && 'opacity-45'"
           aria-label="Send"
           @click="send"

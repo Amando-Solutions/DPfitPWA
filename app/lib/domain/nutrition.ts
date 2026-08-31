@@ -1,6 +1,7 @@
 import type {
   ActivityLevel,
   Goal,
+  HeightUnits,
   MemberProfile,
   NutritionTargets,
   Units,
@@ -42,7 +43,17 @@ export const goalApproach: Record<Goal, string> = {
 const PLATE_STRUCTURE =
   'A palm of protein, a cupped hand of carbs, half a thumb of fat, and vegetables to fill the rest.'
 
-/** Mifflin-St Jeor. Falls back to the female equation when sex is unset. */
+/**
+ * Mifflin-St Jeor.
+ *
+ * Two branches, because the equation has two: the shared term plus +5 for male
+ * and -161 for female. Sex is a two-value union now, so there is no third case
+ * to write and no "unset" branch that would have had to pick one of these
+ * anyway — setup will not let a member past the step without answering.
+ *
+ * Always runs on metric. Anything the member typed in pounds or feet was
+ * converted before it was stored, so nothing here has to know how it was shown.
+ */
 export const basalRate = (profile: MemberProfile): number => {
   const weight = profile.weightKg ?? 70
   const height = profile.heightCm ?? 168
@@ -118,3 +129,48 @@ export const formatVolume = (kg: number, units: Units): string =>
 export const weightStep = (units: Units): number => (units === 'kg' ? 0.5 : 1)
 
 export const round1 = (n: number) => Math.round(n * 10) / 10
+
+// --- Height ----------------------------------------------------------------
+// Same contract as weight: `heightCm` is what is stored, always, and
+// `HeightUnits` only decides how it is shown. Imperial height is two fields
+// rather than a decimal, because 5'7" is how people know their own height and
+// 5.58ft is how nobody does.
+
+const CM_PER_INCH = 2.54
+const INCHES_PER_FOOT = 12
+
+export interface FeetInches {
+  feet: number
+  inches: number
+}
+
+/**
+ * Centimetres to whole feet and inches.
+ *
+ * The rounding happens on total inches before the split, so 179.9cm reads as
+ * 5'11" rather than 5'10.8"; and 11.5 inches rolling up to 12 becomes the next
+ * foot instead of the impossible 5'12".
+ */
+export const cmToFeetInches = (cm: number): FeetInches => {
+  const totalInches = Math.round(cm / CM_PER_INCH)
+  return {
+    feet: Math.floor(totalInches / INCHES_PER_FOOT),
+    inches: totalInches % INCHES_PER_FOOT,
+  }
+}
+
+export const feetInchesToCm = (feet: number, inches: number): number =>
+  round1((feet * INCHES_PER_FOOT + inches) * CM_PER_INCH)
+
+export const heightUnitLabel = (units: HeightUnits): string =>
+  units === 'cm' ? 'cm' : 'ft / in'
+
+export const formatHeight = (
+  cm: number | null | undefined,
+  units: HeightUnits,
+): string => {
+  if (cm === null || cm === undefined) return '-'
+  if (units === 'cm') return `${Math.round(cm)}cm`
+  const { feet, inches } = cmToFeetInches(cm)
+  return `${feet}'${inches}"`
+}

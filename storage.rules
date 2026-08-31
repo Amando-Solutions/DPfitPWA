@@ -44,6 +44,20 @@ service firebase.storage {
       allow delete: if isSelf(uid);
     }
 
+    // --- Program artwork ---------------------------------------------------
+    // `programs/{programId}/workoutDays/{dayId}/hero.jpg` and friends.
+    //
+    // Coach-authored content every member of every cohort renders, so it is
+    // readable by anyone signed in. Nothing here is writable from the client:
+    // program content is authored through the admin tools, which use the Admin
+    // SDK and bypass these rules entirely. Saying so explicitly beats leaving
+    // the path unmatched, because an unmatched path denies by default for a
+    // reason nobody reading this file can see.
+    match /programs/{programId}/{allPaths=**} {
+      allow read: if signedIn();
+      allow write, delete: if false;
+    }
+
     // --- Chat attachments --------------------------------------------------
     // `chat/{cohortId}/{uid}/…`
     //

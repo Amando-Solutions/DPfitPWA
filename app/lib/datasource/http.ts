@@ -111,8 +111,34 @@ export class HttpDataSource implements DataSource {
   }
 
   // --- Auth ----------------------------------------------------------------
+  /** A backend sends a real email, so the wait for it is real too. */
+  readonly instantSignIn = false
+
+  /**
+   * Off, because Google sign-in is a client-SDK flow and this implementation
+   * has no client SDK behind it.
+   *
+   * The popup and the redirect both settle against Firebase directly and hand
+   * back a credential the browser holds; there is nothing here for a REST
+   * backend to stand in for. A deployment that wants Google runs the Firestore
+   * implementation, which is the one that has it.
+   */
+  readonly googleSignIn = false
+
+  async signInWithGoogle(): Promise<never> {
+    throw new DataSourceError(
+      'Google sign-in isn’t available on this backend.',
+      'provider-disabled',
+    )
+  }
+
+  async resumeSignIn(): Promise<null> {
+    return null
+  }
+
   async sendSignInLink(email: string) {
     await this.send('/auth/sign-in-link', 'POST', { email })
+    return null
   }
 
   async isSignInLink(url: string) {

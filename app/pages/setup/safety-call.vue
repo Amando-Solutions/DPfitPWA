@@ -1,28 +1,28 @@
 <script setup lang="ts">
-// 09 · Setup · Safety & Call: the last step, which opens the app.
+// 09 · Setup · Safety: the last step, which opens the app.
 definePageMeta({ layout: 'default' })
-
-import { callSlots } from '~/data/onboarding'
 
 const router = useRouter()
 const store = useAppStore()
 
-const allergies = ref(store.profile.value?.allergies ?? '')
+const healthConditions = ref(store.profile.value?.healthConditions ?? '')
 const injuries = ref(store.profile.value?.injuries ?? '')
-const callSlot = ref(store.profile.value?.callSlot ?? '')
 
 const busy = ref(false)
 const finish = async () => {
   busy.value = true
   await store.saveProfile({
-    allergies: allergies.value.trim(),
+    healthConditions: healthConditions.value.trim(),
     injuries: injuries.value.trim(),
-    callSlot: callSlot.value,
   })
   await store.completeSetup()
   busy.value = false
   await router.push('/home')
 }
+
+const LABEL = 'mb-2.5 block text-[13px] text-soft'
+const AREA =
+  'w-full resize-none rounded-2xl border border-hairline bg-sunken p-[14px_16px] font-body text-[15px] text-ink outline-none focus:border-rose placeholder:text-placeholder'
 </script>
 
 <template>
@@ -31,45 +31,32 @@ const finish = async () => {
     :total="4"
     eyebrow="Personalise"
     title="Anything we should know?"
-    subtitle="Allergies shape your food swaps. Injuries go straight to your coach, privately."
+    subtitle="Health conditions shape your food swaps. Injuries go straight to your coach, privately."
     cta="Save & enter app"
     :busy="busy"
     @continue="finish"
   >
-    <AppCard variant="raised" class="form-card [display:flex] [flex-direction:column] [gap:20px]">
+    <AppCard variant="raised" class="flex flex-col gap-5">
       <div>
-        <span class="form-card__label [display:block] [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:1px] [font-size:10px] [font-weight:700] [color:var(--violet-45)] [margin-bottom:10px]">Allergies / restrictions</span>
+        <label :class="LABEL" for="health">Health conditions</label>
         <textarea
-          v-model="allergies"
-          class="area [width:100%] [padding:14px_16px] [background:var(--paper)] [border:1px_solid_var(--hairline)] [border-radius:var(--space-16)] [font-size:15px] [color:var(--ink)] [outline:none] [resize:none] [font-family:var(--font-body)] placeholder:[color:var(--text-placeholder)]"
-          placeholder="e.g. dairy, shellfish"
+          id="health"
+          v-model="healthConditions"
+          :class="AREA"
+          placeholder="e.g. asthma, lactose intolerance, iron deficiency"
           rows="2"
         />
       </div>
 
       <div>
-        <span class="form-card__label [display:block] [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:1px] [font-size:10px] [font-weight:700] [color:var(--violet-45)] [margin-bottom:10px]">Injuries / limitations · coach only</span>
+        <label :class="LABEL" for="injuries">Injuries or limitations · coach only</label>
         <textarea
+          id="injuries"
           v-model="injuries"
-          class="area [width:100%] [padding:14px_16px] [background:var(--paper)] [border:1px_solid_var(--hairline)] [border-radius:var(--space-16)] [font-size:15px] [color:var(--ink)] [outline:none] [resize:none] [font-family:var(--font-body)] placeholder:[color:var(--text-placeholder)]"
+          :class="AREA"
           placeholder="e.g. slight knee tenderness"
           rows="2"
         />
-      </div>
-
-      <div>
-        <span class="form-card__label [display:block] [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:1px] [font-size:10px] [font-weight:700] [color:var(--violet-45)] [margin-bottom:10px]">Preferred live call</span>
-        <div class="slots [display:grid] [grid-template-columns:1fr_1fr] [gap:12px]">
-          <button
-            v-for="slot in callSlots"
-            :key="slot.id"
-            class="slot [height:52px] [border-radius:var(--space-16)] [background:var(--paper)] [box-shadow:inset_0_0_0_1px_var(--hairline)] [font-weight:700] [font-size:14px] [color:var(--ink)] [&.slot--active]:[background:var(--rose-softer)] [&.slot--active]:[box-shadow:inset_0_0_0_1.5px_var(--rose)] [&.slot--active]:[color:var(--rose)]"
-            :class="{ 'slot--active': callSlot === slot.id }"
-            @click="callSlot = slot.id"
-          >
-            {{ slot.label }}
-          </button>
-        </div>
       </div>
     </AppCard>
   </SetupStepShell>

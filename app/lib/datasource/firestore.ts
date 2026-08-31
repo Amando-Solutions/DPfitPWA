@@ -1,7 +1,11 @@
 import {
+  GoogleAuthProvider,
+  getRedirectResult,
   isSignInWithEmailLink,
   sendSignInLinkToEmail,
   signInWithEmailLink,
+  signInWithPopup,
+  signInWithRedirect,
   signOut as firebaseSignOut,
   type User,
 } from 'firebase/auth'
@@ -54,6 +58,7 @@ import {
 } from './types'
 import type {
   ActiveSessionDoc,
+  AuthProvider,
   AuthUser,
   ChatAttachment,
   ChatMessageView,
@@ -79,6 +84,25 @@ import type {
 /** Where the pending sign-in address is parked between the two halves of the flow. */
 const PENDING_EMAIL_KEY = 'auth-pending-email'
 
+/**
+ * Set while a Google sign-in is away on a full-page redirect.
+ *
+ * It is the only thing that survives the navigation to say the load coming
+ * back was expected. See `resumeSignIn`.
+ */
+const REDIRECT_PENDING_KEY = 'auth-redirect-pending'
+
+const normaliseEmail = (email: string): string => email.trim().toLowerCase()
+
+/**
+ * Enough of a check to catch a typo before it costs a round trip.
+ *
+ * Deliberately not a full RFC 5322 grammar: the only thing that can really
+ * validate an address is sending to it, which is exactly what the next line
+ * does. This just stops "sarah@" reaching the network.
+ */
+const isEmail = (value: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+
 /** The single document under `members/{uid}/state` holding the live workout. */
 const ACTIVE_SESSION_ID = 'activeSession'
 
@@ -88,10 +112,30 @@ const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice
 const withId = <T>(snap: QueryDocumentSnapshot<DocumentData>): T =>
   ({ id: snap.id, ...snap.data() }) as T
 
+/**
+ * Which provider actually signed this session in.
+ *
+ * `providerData` is the authoritative list — an account can accumulate more
+ * than one provider for the same address, and Firebase links them onto one
+ * user rather than creating a second. Google is the interesting one because it
+ * carries a name and an avatar; everything else here is the email link.
+ */
+const providerOf = (user: User): AuthProvider =>
+  user.providerData.some((p) => p.providerId === GoogleAuthProvider.PROVIDER_ID)
+    ? 'google'
+    : 'email-link'
+
 const toAuthUser = (user: User): AuthUser => ({
   uid: user.uid,
   email: user.email ?? '',
-  emailVerified: user.emailVerified,
+  // A Google account has verified the address as a condition of existing, and
+  // an opened sign-in link has just proved the same thing. Firebase does not
+  // always mark the latter immediately, so it is treated as verified when the
+  // provider itself is the proof.
+  emailVerified: user.emailVerified || providerOf(user) === 'google',
+  displayName: user.displayName ?? '',
+  photoUrl: user.photoURL ?? '',
+  provider: providerOf(user),
 })
 
 // A member's starting state is a property of the schema rather than of wherever
@@ -106,14 +150,28 @@ const emptyProfile = (): MemberProfile => ({
   activity: '',
   goal: '',
   trainingDaysPerWeek: 4,
-  allergies: '',
+  healthConditions: '',
   injuries: '',
-  callSlot: '',
   avatarUrl: '',
+})
+
+/**
+ * The profile a brand-new member starts with.
+ *
+ * Google hands over a name and a picture as part of signing in, and asking for
+ * them again on the very next screen is asking somebody to retype what they
+ * just agreed to share. The email link knows nothing but the address, so that
+ * path starts empty and the setup form asks — which is what it is for.
+ */
+const initialProfile = (user: User): MemberProfile => ({
+  ...emptyProfile(),
+  displayName: user.displayName ?? '',
+  avatarUrl: user.photoURL ?? '',
 })
 
 const defaultPreferences = (): MemberPreferences => ({
   units: 'kg',
+  heightUnits: 'cm',
   workoutReminders: true,
   coachMessages: true,
   weeklyCheckInReminder: true,
@@ -158,7 +216,12 @@ export class FirestoreDataSource implements DataSource {
   private programCache: Program | null = null
 
   // =========================================================================
-  // Auth — email link
+  // Auth — email link and Google
+  //
+  // Two doors, one destination. Google settles inside a single gesture and
+  // arrives carrying a name and an avatar; the link leaves the app entirely
+  // and comes back through an inbox, possibly on another device. Everything
+  // past `toAuthUser` treats them identically.
   // =========================================================================
   /**
    * Where Firebase sends people back to.
@@ -171,19 +234,120 @@ export class FirestoreDataSource implements DataSource {
     return { url: `${window.location.origin}/access-code`, handleCodeInApp: true }
   }
 
-  async sendSignInLink(email: string): Promise<void> {
-    const normalised = email.trim().toLowerCase()
-    if (!normalised.includes('@')) {
+  /** The inbox is the whole point: proving the address is theirs. */
+  readonly instantSignIn = false
+
+  /** Enabled in the Firebase console under Authentication → Sign-in method. */
+  readonly googleSignIn = true
+
+  // --- Google ---------------------------------------------------------------
+
+  /**
+   * A popup can't come back, so don't open one.
+   *
+   * On an iOS home-screen app `window.open` hands the URL to Safari, a
+   * separate app with no channel back to the one that asked. The popup runs,
+   * the member signs in, and the PWA sits on a promise that never settles.
+   * `navigator.standalone` is the precise signal for that context — it is iOS
+   * Safari's own flag and true only for an installed app — and every other
+   * environment, installed Android PWAs included, keeps the popup, which is
+   * the path that survives third-party storage partitioning.
+   */
+  private mustRedirect(): boolean {
+    return (navigator as Navigator & { standalone?: boolean }).standalone === true
+  }
+
+  private googleProvider(): GoogleAuthProvider {
+    const provider = new GoogleAuthProvider()
+    // Without this, a browser with one Google session signs that account in
+    // silently — which is wrong here, because the account has to be the one the
+    // access code was issued to and the member is the only one who knows that.
+    provider.setCustomParameters({ prompt: 'select_account' })
+    return provider
+  }
+
+  async signInWithGoogle(): Promise<AuthUser | null> {
+    const auth = firebaseAuth()
+    const provider = this.googleProvider()
+
+    if (this.mustRedirect()) return this.startRedirect(provider)
+
+    try {
+      const credential = await signInWithPopup(auth, provider)
+      this.memberCache = null
+      return toAuthUser(credential.user)
+    } catch (cause) {
+      const code = (cause as { code?: string }).code ?? ''
+      // The popup never opened: a blocker, or an environment that has no such
+      // thing. Neither is the member's doing, and the redirect works in both.
+      if (
+        code === 'auth/popup-blocked' ||
+        code === 'auth/operation-not-supported-in-this-environment'
+      ) {
+        return this.startRedirect(provider)
+      }
+      throw this.authError(cause)
+    }
+  }
+
+  /**
+   * Hand the whole document over to Google and return nothing.
+   *
+   * The write below is what makes the return trip legible. `getRedirectResult`
+   * answers `null` both for "no redirect was ever started" and for "one was
+   * started and the member backed out of it", and those deserve different
+   * screens: silence for the ordinary load, an explanation for the member who
+   * just watched themselves get bounced somewhere and back for nothing.
+   */
+  private async startRedirect(provider: GoogleAuthProvider): Promise<null> {
+    webStorage.write(REDIRECT_PENDING_KEY, true)
+    try {
+      await signInWithRedirect(firebaseAuth(), provider)
+    } catch (cause) {
+      webStorage.remove(REDIRECT_PENDING_KEY)
+      throw this.authError(cause)
+    }
+    return null
+  }
+
+  async resumeSignIn(): Promise<AuthUser | null> {
+    const pending = webStorage.read<boolean>(REDIRECT_PENDING_KEY, false)
+
+    let credential
+    try {
+      credential = await getRedirectResult(firebaseAuth())
+    } catch (cause) {
+      webStorage.remove(REDIRECT_PENDING_KEY)
+      throw this.authError(cause)
+    }
+
+    webStorage.remove(REDIRECT_PENDING_KEY)
+    if (credential) {
+      this.memberCache = null
+      return toAuthUser(credential.user)
+    }
+    if (pending) {
+      throw new DataSourceError('Google sign-in didn’t complete.', 'popup-cancelled')
+    }
+    return null
+  }
+
+  // --- Email link -----------------------------------------------------------
+
+  async sendSignInLink(email: string): Promise<null> {
+    const normalised = normaliseEmail(email)
+    if (!isEmail(normalised)) {
       throw new DataSourceError('Enter the email address you paid with.', 'invalid-code')
     }
     try {
       await sendSignInLinkToEmail(firebaseAuth(), normalised, this.actionCodeSettings())
     } catch (cause) {
-      throw new DataSourceError(this.authMessage(cause), 'unknown')
+      throw this.authError(cause)
     }
     // Parked so the same browser can finish without asking again. Another
     // device has no such record, which is what `needs-email` is for.
     webStorage.write(PENDING_EMAIL_KEY, normalised)
+    return null
   }
 
   async isSignInLink(url: string): Promise<boolean> {
@@ -191,8 +355,8 @@ export class FirestoreDataSource implements DataSource {
   }
 
   async completeSignInLink(url: string, email?: string): Promise<AuthUser> {
-    const known =
-      email?.trim().toLowerCase() ?? webStorage.read<string | null>(PENDING_EMAIL_KEY, null)
+    const supplied = email === undefined ? null : normaliseEmail(email)
+    const known = supplied ?? webStorage.read<string | null>(PENDING_EMAIL_KEY, null)
     if (!known) {
       throw new DataSourceError(
         'Confirm the email address this link was sent to.',
@@ -208,12 +372,27 @@ export class FirestoreDataSource implements DataSource {
     } catch (cause) {
       const code = (cause as { code?: string }).code
       if (code === 'auth/invalid-action-code' || code === 'auth/expired-action-code') {
+        // Single-use and time-limited, and an already-consumed link reports the
+        // same way as an expired one. There is nothing to salvage either way.
+        webStorage.remove(PENDING_EMAIL_KEY)
         throw new DataSourceError(
-          'That sign-in link has expired. Ask for a new one.',
+          'That sign-in link has expired or has already been used. Ask for a new one.',
           'expired-link',
         )
       }
-      throw new DataSourceError(this.authMessage(cause), 'unknown')
+      // On *this* call `auth/invalid-email` means the address didn't match the
+      // one the link was issued to, not that it was malformed — the endpoint
+      // checks the pair. That happens with a stale parked address, or when the
+      // member confirms the wrong inbox on another device. Drop the bad record
+      // and ask, rather than failing at somebody who can still get this right.
+      if (code === 'auth/invalid-email') {
+        webStorage.remove(PENDING_EMAIL_KEY)
+        throw new DataSourceError(
+          'That link was sent to a different email address. Enter the one you asked from.',
+          'needs-email',
+        )
+      }
+      throw this.authError(cause)
     }
   }
 
@@ -270,18 +449,65 @@ export class FirestoreDataSource implements DataSource {
       }
       const codeData = codeSnap.data()
 
+      // Every field the claim rule reads has to exist before anything else is
+      // worth checking.
+      //
+      // A security rule that reads a field the document does not have does not
+      // evaluate to false — it errors, and an errored rule is a denied write.
+      // So `status`, `expiresAt` and `issuedToEmail` must be *present*, even
+      // where their value may be null. The friendly checks below are all
+      // written as `codeData.x && …`, which a missing field sails straight
+      // through, so without this a code typed by hand into the console passes
+      // every check in this file and then dies in the transaction with nothing
+      // but "permission-denied" — several layers below anything that could say
+      // which field was missing. See `AccessCodeDoc` for the full shape and
+      // `firestore.rules` for the rule this mirrors.
+      const missing = (['status', 'expiresAt', 'issuedToEmail', 'cohortId'] as const).filter(
+        (field) => !(field in codeData),
+      )
+      if (missing.length) {
+        console.error(
+          `[datasource] accessCodes/${normalised} is missing: ${missing.join(', ')}. ` +
+            'The claim rule reads each of these, and a rule that reads an absent field ' +
+            'errors, which denies the write. `issuedToEmail` may be null but must exist.',
+        )
+        throw new DataSourceError(
+          'That code isn’t set up correctly. Contact support.',
+          'invalid-code',
+        )
+      }
+
       if (codeData.status === 'revoked') {
         throw new DataSourceError('That code has been revoked. Contact support.', 'invalid-code')
       }
       if (codeData.status === 'claimed') {
         throw new DataSourceError('That code has already been used.', 'code-claimed')
       }
-      if (codeData.expiresAt && codeData.expiresAt.toMillis() < Date.now()) {
+      // Anything else is not a state the rule will claim from: it requires
+      // `status == 'unused'` exactly, so a typo denies the write in silence.
+      if (codeData.status !== 'unused') {
+        console.error(
+          `[datasource] accessCodes/${normalised} has status "${codeData.status}". ` +
+            'The claim rule requires exactly "unused".',
+        )
+        throw new DataSourceError(
+          'That code isn’t set up correctly. Contact support.',
+          'invalid-code',
+        )
+      }
+      if (codeData.expiresAt.toMillis() < Date.now()) {
         throw new DataSourceError('That code has expired. Contact support.', 'code-expired')
       }
       // A code issued against a purchase can only be redeemed by that buyer,
-      // which is the whole reason both flows turn on an email address.
-      if (codeData.issuedToEmail && codeData.issuedToEmail !== user.email) {
+      // which is the whole reason both ways in turn on an email address.
+      // Compared case-insensitively: the email-link path lowercases what the
+      // member typed, Google returns whatever case the account was created
+      // with, and an admin types the address into the console by hand. Three
+      // sources, one address, and a capital letter must not cost a seat.
+      if (
+        codeData.issuedToEmail &&
+        normaliseEmail(codeData.issuedToEmail) !== normaliseEmail(user.email ?? '')
+      ) {
         throw new DataSourceError(
           'That code was issued to a different email address.',
           'code-wrong-email',
@@ -302,7 +528,7 @@ export class FirestoreDataSource implements DataSource {
         programVersion: codeData.programVersion ?? 1,
         accessCode: normalised,
         joinedAt: now,
-        profile: emptyProfile(),
+        profile: initialProfile(user),
         prefs: defaultPreferences(),
         stats: emptyStats(),
         createdAt: now,
@@ -315,7 +541,9 @@ export class FirestoreDataSource implements DataSource {
       tx.update(codeRef, {
         status: 'claimed',
         claimedByUid: user.uid,
-        claimedByName: user.email ?? '',
+        // The console shows this beside the claimed code, so it takes the real
+        // name when the provider gave one and falls back to the address.
+        claimedByName: user.displayName || user.email || '',
         claimedAt: now,
         updatedAt: now,
         updatedByUid: user.uid,
@@ -333,9 +561,16 @@ export class FirestoreDataSource implements DataSource {
   async getMember(): Promise<Member | null> {
     const user = await currentUser()
     if (!user) return null
-    const snap = await getDoc(doc(firebaseDb(), 'members', user.uid))
-    this.memberCache = snap.exists() ? ({ id: snap.id, ...snap.data() } as Member) : null
-    return this.memberCache
+    try {
+      const snap = await getDoc(doc(firebaseDb(), 'members', user.uid))
+      this.memberCache = snap.exists() ? ({ id: snap.id, ...snap.data() } as Member) : null
+      return this.memberCache
+    } catch (cause) {
+      // This is the first Firestore read on the sign-in path, so it is where a
+      // database that cannot be reached at all first shows up — and it shows up
+      // *after* the provider has already succeeded, which is the confusing part.
+      throw this.readError(cause)
+    }
   }
 
   async updateMember(patch: Partial<MemberDoc>): Promise<Member> {
@@ -1027,11 +1262,143 @@ export class FirestoreDataSource implements DataSource {
     }
   }
 
-  private authMessage(cause: unknown): string {
+  /**
+   * A failed Firestore read, translated.
+   *
+   * `unavailable` is the one worth naming. It means the SDK could not reach
+   * Firestore at all, and on a developer's own machine the reason is very
+   * often not the network: an ad blocker or privacy extension refusing
+   * `firestore.googleapis.com`, which the browser reports as
+   * ERR_BLOCKED_BY_CLIENT and the SDK reports, misleadingly, as the client
+   * being offline. Somebody who has just signed in successfully and is then
+   * told "something went wrong" has no route from that to the extension in
+   * their own toolbar.
+   */
+  private readError(cause: unknown): DataSourceError {
     const code = (cause as { code?: string }).code ?? ''
-    if (code === 'auth/invalid-email') return 'That email address doesn’t look right.'
-    if (code === 'auth/too-many-requests') return 'Too many attempts. Try again in a few minutes.'
-    if (code === 'auth/network-request-failed') return 'No connection. Check your network.'
-    return 'Something went wrong. Try again.'
+
+    if (code === 'permission-denied') {
+      console.error(
+        '[datasource] Firestore refused the read. Check `firestore.rules` against ' +
+          'the document path, and that the signed-in uid owns it.',
+        cause,
+      )
+      return new DataSourceError(
+        'Your account isn’t allowed to read that. Contact support.',
+        'unauthenticated',
+      )
+    }
+
+    if (code === 'unavailable') {
+      console.error(
+        '[datasource] Could not reach Firestore. If the network is fine, check the ' +
+          'browser console for ERR_BLOCKED_BY_CLIENT on firestore.googleapis.com — ' +
+          'an ad blocker or privacy extension will block it, and the SDK reports that ' +
+          'as being offline.',
+        cause,
+      )
+      return new DataSourceError(
+        'Can’t reach your account right now. Check your connection — an ad blocker or ' +
+          'privacy extension can block it too.',
+        'unknown',
+      )
+    }
+
+    console.error('[datasource] unhandled read failure', cause)
+    return new DataSourceError('Something went wrong. Try again.', 'unknown')
+  }
+
+  /**
+   * A Firebase Auth failure, translated once.
+   *
+   * Every auth path funnels through here so the member reads one voice rather
+   * than a `auth/…` string, and so the three codes that are really *our*
+   * misconfiguration — a provider left disabled, a domain never authorised —
+   * say so plainly instead of hiding inside "something went wrong". Those are
+   * the ones that only ever appear on a deploy nobody finished setting up, and
+   * the console log beside them names the fix.
+   */
+  private authError(cause: unknown): DataSourceError {
+    const code = (cause as { code?: string }).code ?? ''
+
+    switch (code) {
+      case 'auth/invalid-email':
+        return new DataSourceError('That email address doesn’t look right.', 'invalid-code')
+      case 'auth/too-many-requests':
+        return new DataSourceError(
+          'Too many attempts. Try again in a few minutes.',
+          'unknown',
+        )
+      case 'auth/network-request-failed':
+        return new DataSourceError('No connection. Check your network.', 'unknown')
+      case 'auth/user-disabled':
+        return new DataSourceError(
+          'That account has been disabled. Contact support.',
+          'unauthenticated',
+        )
+
+      // The member shut the Google window, or opened a second one over the
+      // first. Both are a decision, not a fault, so the screen says nothing.
+      case 'auth/popup-closed-by-user':
+      case 'auth/cancelled-popup-request':
+      case 'auth/user-cancelled':
+        return new DataSourceError('Google sign-in was cancelled.', 'popup-cancelled')
+
+      // The address already belongs to a user created by the other provider.
+      // Firebase will link them, but only after this account proves itself —
+      // and the link they already have is the proof.
+      case 'auth/account-exists-with-different-credential':
+        return new DataSourceError(
+          'That email is already set up with a sign-in link. Use “Email me a link” instead.',
+          'account-exists',
+        )
+
+      case 'auth/operation-not-allowed':
+        console.error(
+          '[auth] This sign-in provider is not enabled for the project. ' +
+            'Firebase console → Authentication → Sign-in method.',
+          cause,
+        )
+        return new DataSourceError(
+          'That sign-in method isn’t available right now.',
+          'provider-disabled',
+        )
+
+      // `ADMIN_ONLY_OPERATION` underneath, and it means one thing: the project
+      // will not let this call create an account. Worth naming the setting,
+      // because the failure lands *after* the provider has already succeeded —
+      // Google hands back a complete, verified identity and Firebase then
+      // refuses to make a user out of it — so it reads like a broken sign-in
+      // rather than a switch somebody turned off.
+      case 'auth/admin-restricted-operation':
+        console.error(
+          '[auth] The project is refusing to create accounts from the client, so no ' +
+            'first-time member can sign in with any provider. Firebase console → ' +
+            'Authentication → Settings → User actions → tick "Enable create (sign-up)". ' +
+            'If only the email link fails, it is the other one: Sign-in method → ' +
+            'Email/Password → "Email link (passwordless sign-in)".',
+          cause,
+        )
+        return new DataSourceError(
+          'Sign-in isn’t available right now. Contact support.',
+          'provider-disabled',
+        )
+
+      case 'auth/unauthorized-domain':
+      case 'auth/unauthorized-continue-uri':
+        console.error(
+          `[auth] ${window.location.origin} is not an authorised domain for this ` +
+            'Firebase project. Console → Authentication → Settings → Authorised domains.',
+          cause,
+        )
+        return new DataSourceError(
+          'Sign-in isn’t available from this address.',
+          'provider-disabled',
+        )
+
+      default:
+        console.error('[auth] unhandled sign-in failure', cause)
+        return new DataSourceError('Something went wrong. Try again.', 'unknown')
+    }
   }
 }

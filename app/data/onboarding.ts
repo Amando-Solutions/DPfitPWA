@@ -1,4 +1,4 @@
-import type { ActivityLevel, Goal } from './types'
+import type { ActivityLevel, Goal, Sex } from './types'
 
 // Content for the intro carousel + access-code screens.
 export interface OnboardingSlide {
@@ -67,7 +67,13 @@ export const activityOptions: { id: ActivityLevel; label: string; desc: string }
 
 export const trainingDayOptions = [2, 3, 4, 5, 6]
 
-export const callSlots = [
-  { id: 'tue-7pm', label: 'Tue · 7PM' },
-  { id: 'sat-10am', label: 'Sat · 10AM' },
+/**
+ * The two the calorie baseline can actually distinguish between.
+ *
+ * Mifflin-St Jeor has one equation per sex and no third form, so a third option
+ * here could only ever be shown and then quietly resolved to one of these.
+ */
+export const sexOptions: { id: Sex; label: string }[] = [
+  { id: 'female', label: 'Female' },
+  { id: 'male', label: 'Male' },
 ]

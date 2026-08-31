@@ -43,32 +43,38 @@ const submit = async () => {
 </script>
 
 <template>
-  <div class="checkin [padding:var(--screen-pad-top)_20px_0] [&_.checkin__title]:[margin:5px_0_0] [&_.checkin__title]:[font-family:var(--font-display)] [&_.checkin__title]:[font-weight:900] [&_.checkin__title]:[font-size:24px] [&_.checkin__title]:[line-height:1.08] [&_.checkin__title]:[letter-spacing:-0.48px] [&_.checkin__title]:[color:var(--ink)] [&_.checkin__sub]:[margin:3px_0_0] [&_.checkin__sub]:[font-size:13.5px] [&_.checkin__sub]:[line-height:1.45] [&_.checkin__sub]:[color:var(--violet-28)] lg:[padding:0] lg:[max-width:640px] lg:[&_.checkin__title]:[font-size:30px] lg:[&_.checkin__sub]:[font-size:15px]">
+  <div class="checkin pt-(--screen-pad-top) px-5 pb-0 [&_.checkin__title]:mt-1.25 [&_.checkin__title]:mx-0 [&_.checkin__title]:mb-0 [&_.checkin__title]:font-display [&_.checkin__title]:font-black [&_.checkin__title]:text-[24px] [&_.checkin__title]:leading-[1.08] [&_.checkin__title]:tracking-[-0.48px] [&_.checkin__title]:text-ink [&_.checkin__sub]:mt-0.75 [&_.checkin__sub]:mx-0 [&_.checkin__sub]:mb-0 [&_.checkin__sub]:text-[13.5px] [&_.checkin__sub]:leading-[1.45] [&_.checkin__sub]:text-soft lg:p-0 lg:max-w-[640px] lg:[&_.checkin__title]:text-[30px] lg:[&_.checkin__sub]:text-[15px]">
+    <!-- No berry eyebrow: the week is already in the line below the title, and
+         a pink label above every heading stops meaning anything. -->
     <ScreenIntro
-      :eyebrow="`Week ${store.clock.value.week} · check-in`"
       title="How was your week?"
-      subtitle="One quick form covers how the week went and how training felt."
+      :subtitle="`Week ${store.clock.value.week}. One quick form covers how the week went and how training felt.`"
       :actions="false"
       class="checkin__header"
     />
 
-    <span class="checkin__stamp data [display:inline-block] [margin:12px_0_14px] [padding:8px_13px] [border:1px_dashed_var(--hairline-strong)] [border-radius:var(--radius-pill)] [background:var(--paper)] [text-transform:uppercase] [letter-spacing:0.855px] [font-size:9.5px] [font-weight:700] [color:var(--violet-28)]">
-      Stamped automatically · W{{ store.clock.value.week }}
+    <span class="checkin__stamp inline-block my-3.5 mx-0 py-2 px-3.25 border border-dashed border-hairline-strong rounded-pill bg-surface text-[12px] text-soft">
+      Stamped automatically · week {{ store.clock.value.week }}
     </span>
 
-    <form class="checkin__card [display:flex] [flex-direction:column] [gap:12px] [padding:18px] [background:var(--paper-raised)] [border:1px_solid_var(--hairline)] [border-radius:var(--radius-card)] [filter:var(--drop-md)] lg:[padding:24px] lg:[gap:16px]" @submit.prevent="submit">
-      <div class="checkin__row [display:grid] [grid-template-columns:1fr_1fr] [gap:12px]">
+    <form class="checkin__card flex flex-col gap-3 p-4.5 bg-raised border border-hairline rounded-card filter-(--drop-md) lg:p-6 lg:gap-4" @submit.prevent="submit">
+      <div class="checkin__row grid grid-cols-[1fr_1fr] gap-3">
         <NumberStepper v-model="workoutsDone" label="Workouts done" :max="14" />
         <NumberStepper v-model="nutritionPct" label="Nutrition (%)" :max="100" :step="5" />
       </div>
 
-      <ScaleField v-model="energy" label="Energy this week" />
+      <ScaleField
+        v-model="energy"
+        label="Energy this week"
+        low-label="Running on empty"
+        high-label="Full tank"
+      />
 
-      <div class="checkin__field [display:flex] [flex-direction:column]">
-        <span class="checkin__label [font-family:var(--font-data)] [text-transform:uppercase] [letter-spacing:0.81px] [font-size:9px] [color:var(--violet-28)] [padding-bottom:6px]">How did training feel?</span>
+      <div class="checkin__field flex flex-col">
+        <span class="checkin__label text-[13px] text-soft pb-2">How did training feel?</span>
         <button
           type="button"
-          class="checkin__select [width:100%] [height:50px] [padding:0_15px] [display:flex] [align-items:center] [justify-content:space-between] [gap:10px] [background:var(--paper)] [border:1px_solid_var(--hairline)] [border-radius:var(--space-16)] [font-family:var(--font-body)] [font-size:15px] [color:var(--ink)] [text-align:left] [&.checkin__select--empty]:[color:var(--text-placeholder)]"
+          class="checkin__select w-full h-12.5 py-0 px-3.75 flex items-center justify-between gap-2.5 bg-surface border border-hairline rounded-(--space-16) font-body text-[15px] text-ink text-left [&.checkin__select--empty]:text-placeholder"
           :class="{ 'checkin__select--empty': !trainingFeel }"
           @click="showFeel = true"
         >
@@ -77,32 +83,35 @@ const submit = async () => {
         </button>
       </div>
 
-      <div class="checkin__field [display:flex] [flex-direction:column]">
-        <label class="checkin__label [font-family:var(--font-data)] [text-transform:uppercase] [letter-spacing:0.81px] [font-size:9px] [color:var(--violet-28)] [padding-bottom:6px]" for="pain">Pain or discomfort</label>
-        <textarea id="pain" v-model="pain" class="checkin__area [width:100%] [padding:14px_15px] [background:var(--paper)] [border:1px_solid_var(--hairline)] [border-radius:var(--space-16)] [font-family:var(--font-body)] [font-size:13.5px] [line-height:1.45] [color:var(--ink)] [outline:none] [resize:none] placeholder:[color:var(--text-placeholder)] focus:[border-color:var(--rose)]" placeholder="none" rows="2" />
+      <div class="checkin__field flex flex-col">
+        <label class="checkin__label text-[13px] text-soft pb-2" for="pain">Pain or discomfort</label>
+        <textarea id="pain" v-model="pain" class="checkin__area w-full py-3.5 px-3.75 bg-surface border border-hairline rounded-(--space-16) font-body text-[13.5px] leading-[1.45] text-ink outline-none resize-none placeholder:text-placeholder focus:border-rose" placeholder="none" rows="2" />
       </div>
 
-      <div class="checkin__field [display:flex] [flex-direction:column]">
-        <label class="checkin__label [font-family:var(--font-data)] [text-transform:uppercase] [letter-spacing:0.81px] [font-size:9px] [color:var(--violet-28)] [padding-bottom:6px]" for="note">Anything else for Coach (optional)</label>
+      <div class="checkin__field flex flex-col">
+        <label class="checkin__label text-[13px] text-soft pb-2" for="note">Anything else for Coach (optional)</label>
         <textarea
           id="note"
           v-model="note"
-          class="checkin__area [width:100%] [padding:14px_15px] [background:var(--paper)] [border:1px_solid_var(--hairline)] [border-radius:var(--space-16)] [font-family:var(--font-body)] [font-size:13.5px] [line-height:1.45] [color:var(--ink)] [outline:none] [resize:none] placeholder:[color:var(--text-placeholder)] focus:[border-color:var(--rose)]"
+          class="checkin__area w-full py-3.5 px-3.75 bg-surface border border-hairline rounded-(--space-16) font-body text-[13.5px] leading-[1.45] text-ink outline-none resize-none placeholder:text-placeholder focus:border-rose"
           placeholder="Say something"
           rows="2"
         />
       </div>
 
-      <AppButton glow :disabled="!canSubmit || saving" @click="submit">
+      <!-- `type="submit"`, and no `@click`: this is inside a form whose
+           `@submit.prevent` already calls `submit`, and a button carrying both
+           ran it twice on every click. -->
+      <AppButton type="submit" :disabled="!canSubmit || saving">
         {{ saving ? 'Submitting…' : existing ? 'Update check-in' : 'Submit check-in' }}
       </AppButton>
-      <p v-if="!canSubmit" class="checkin__hint [margin:0] [text-align:center] [font-size:12px] [color:var(--violet-45)]">
+      <p v-if="!canSubmit" class="checkin__hint m-0 text-center text-[12px] text-muted">
         Rate your energy and how training felt to submit.
       </p>
     </form>
 
     <BottomSheet v-model="showFeel" title="How did training feel?">
-      <div class="checkin__options [display:flex] [flex-direction:column] [gap:10px]">
+      <div class="checkin__options flex flex-col gap-2.5">
         <OptionCard
           v-for="option in trainingFeelOptions"
           :key="option.id"

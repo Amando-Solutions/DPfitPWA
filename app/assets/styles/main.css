@@ -148,6 +148,18 @@
     rgba(36, 27, 46, 0.15) 0%,
     rgba(36, 27, 46, 0.82) 72%
   );
+  /* A floor under the type on a photographic card.
+     `--photo-scrim` grades the whole frame, which is enough when the art is
+     dark where the words are. Hero art is authored by the coach and could be
+     anything — a bright gym, a white wall — so the block the title and CTA
+     actually sit in gets its own guaranteed darkness rather than trusting the
+     upload. Layered above the scrim and below the content. */
+  --photo-floor: linear-gradient(
+    0deg,
+    rgba(36, 27, 46, 0.9) 0%,
+    rgba(36, 27, 46, 0.72) 34%,
+    transparent 68%
+  );
   --photo-wash: radial-gradient(
     90% 60% at 100% 0%,
     rgba(200, 30, 92, 0.28),
@@ -248,6 +260,11 @@
 
   /* --- Radii ------------------------------------------------------------- */
   --radius-sm: 5px;
+  /* Inputs, checkmarks, small wells. Sits deliberately between `sm` and `md`:
+     at a 32px control `--radius-md` is indistinguishable from a pill, and a row
+     of pills reads as a row of buttons rather than a row of fields. True pills
+     are reserved for things you press. */
+  --radius-field: 10px;
   --radius-md: 18px;
   --radius-card: 22px;
   --radius-lg: 26px;
@@ -471,6 +488,7 @@
   --color-flame-core: var(--flame-core);
 
   --radius-sm: var(--radius-sm);
+  --radius-field: var(--radius-field);
   --radius-md: var(--radius-md);
   --radius-card: var(--radius-card);
   --radius-lg: var(--radius-lg);
@@ -564,6 +582,9 @@
   select {
     font-family: inherit;
     color: inherit;
+    /* The caret is the accent, not the text ink: a field being typed in reads
+       as active at a glance, and it matches the rose focus border. */
+    caret-color: var(--rose);
   }
 
   /* Keyboard users get a visible ring; pointer users never see it. */
@@ -576,7 +597,11 @@
     color: var(--text-placeholder);
   }
 
-  ::selection {
+  /* Form controls don't reliably inherit the page's ::selection, so they're
+     named explicitly rather than left to the platform's default blue. */
+  ::selection,
+  input::selection,
+  textarea::selection {
     background: var(--rose-ring);
     color: var(--text);
   }

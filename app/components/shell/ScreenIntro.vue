@@ -1,13 +1,18 @@
 <script setup lang="ts">
-// The header every top-level screen shares in the design: eyebrow + title on
-// the left, the streak/badge pill and the inbox button on the right, and the
-// subtitle on its own full-width line underneath.
+// The header every top-level screen shares: eyebrow + title on the left, the
+// inbox button on the right, and an optional subtitle underneath.
+//
+// The streak/badge stat pill that used to sit beside the bell is gone. It was
+// two counters repeated on every screen, both of which have a home of their own
+// on Rewards, and on Home it sat directly above a hero card already saying the
+// same thing. Notifications stay, as an icon at the top of the screen rather
+// than a row buried in More.
 withDefaults(
   defineProps<{
-    eyebrow: string
+    eyebrow?: string
     title: string
     subtitle?: string
-    /** Hide the stat pill + bell on screens the design doesn't give them to. */
+    /** Hide the inbox button on screens the design doesn't give it to. */
     actions?: boolean
   }>(),
   { actions: true },
@@ -18,49 +23,28 @@ const store = useAppStore()
 
 <template>
   <header class="intro">
-    <div class="intro__row [display:flex] [align-items:flex-start] [justify-content:space-between] [gap:10px]">
-      <div class="intro__identity [min-width:0]">
-        <EyebrowLabel>{{ eyebrow }}</EyebrowLabel>
-        <h1 class="intro__title [margin:5px_0_0] [font-family:var(--font-display)] [font-weight:900] [font-size:24px] [line-height:1.08] [letter-spacing:-0.48px] [color:var(--ink)] lg:[font-size:32px]">{{ title }}</h1>
+    <div class="intro__row flex items-start justify-between gap-2.5">
+      <div class="intro__identity min-w-0">
+        <EyebrowLabel v-if="eyebrow">{{ eyebrow }}</EyebrowLabel>
+        <h1 class="intro__title mt-1.25 mx-0 mb-0 font-display font-black text-[24px] leading-[1.08] tracking-[-0.48px] text-ink lg:text-[32px]">{{ title }}</h1>
       </div>
 
-      <div v-if="$slots.actions" class="intro__actions [display:flex] [align-items:center] [gap:7px] [flex-shrink:0]">
+      <div v-if="$slots.actions" class="intro__actions flex items-center gap-1.75 shrink-0">
         <slot name="actions" />
       </div>
 
-      <div v-else-if="actions" class="intro__actions [display:flex] [align-items:center] [gap:7px] [flex-shrink:0]">
-        <div class="statpill [display:flex] [align-items:center] [height:42px] [padding:0_7px] [border-radius:var(--radius-pill)] [background:var(--paper-raised)] [border:1px_solid_var(--hairline)] [filter:var(--drop-sm)]">
-          <NuxtLink
-            to="/rewards?tab=streak"
-            class="statpill__half [display:flex] [align-items:center] [gap:5px] [color:inherit]"
-            :aria-label="`${store.rewards.value.streakWeeks} week streak, see rewards`"
-          >
-            <span class="statpill__chip statpill__chip--flame [width:28px] [height:28px] [border-radius:var(--radius-pill)] [display:grid] [place-items:center] [flex-shrink:0] [background:var(--orange-soft)]">
-              <AppIcon name="flame" :size="14" />
-            </span>
-            <span class="statpill__value data [font-size:12px] [font-weight:700] [letter-spacing:-0.12px] [color:var(--ink)]">{{ store.rewards.value.streakWeeks }}</span>
-          </NuxtLink>
-          <span class="statpill__divider [width:1px] [height:18px] [background:var(--fill-muted)] [margin:0_3px]" />
-          <NuxtLink
-            to="/rewards?tab=badges"
-            class="statpill__half [display:flex] [align-items:center] [gap:5px] [color:inherit]"
-            :aria-label="`${store.rewards.value.badgeCount} badges earned, see rewards`"
-          >
-            <span class="statpill__chip statpill__chip--rose [width:28px] [height:28px] [border-radius:var(--radius-pill)] [display:grid] [place-items:center] [flex-shrink:0] [background:var(--rose-soft)] [color:var(--rose)]">
-              <AppIcon name="trophy" :size="14" />
-            </span>
-            <span class="statpill__value data [font-size:12px] [font-weight:700] [letter-spacing:-0.12px] [color:var(--ink)]">{{ store.rewards.value.badgeCount }}</span>
-          </NuxtLink>
-        </div>
-
-        <NuxtLink to="/notifications" class="intro__bell [position:relative] [width:42px] [height:42px] [border-radius:var(--radius-pill)] [background:var(--paper-raised)] [border:1px_solid_var(--hairline)] [filter:var(--drop-sm)] [display:grid] [place-items:center] [color:var(--ink)] [flex-shrink:0]" aria-label="Notifications">
-          <AppIcon name="bell" :size="19" />
-          <span v-if="store.unreadNotifications.value" class="intro__bell-dot [position:absolute] [top:8px] [right:8px] [width:8px] [height:8px] [border-radius:50%] [background:var(--rose-fill)] [border:1.5px_solid_var(--paper-raised)]" />
-        </NuxtLink>
-      </div>
+      <NuxtLink
+        v-else-if="actions"
+        to="/notifications"
+        class="intro__bell relative w-10.5 h-10.5 rounded-pill bg-raised border border-hairline grid place-items-center text-ink shrink-0"
+        aria-label="Notifications"
+      >
+        <AppIcon name="bell" :size="19" />
+        <span v-if="store.unreadNotifications.value" class="intro__bell-dot absolute top-2 right-2 w-2 h-2 rounded-full bg-rose-fill border-[1.5px] border-raised" />
+      </NuxtLink>
     </div>
 
-    <p v-if="subtitle" class="intro__sub [margin:3px_0_0] [font-size:13.5px] [line-height:1.45] [color:var(--violet-28)] lg:[font-size:15px]">{{ subtitle }}</p>
+    <p v-if="subtitle" class="intro__sub mt-0.75 mx-0 mb-0 text-[13.5px] leading-[1.45] text-soft lg:text-[15px]">{{ subtitle }}</p>
     <slot name="sub" />
   </header>
 </template>

@@ -28,14 +28,10 @@ const BTN =
 
 <template>
   <div class="flex min-w-0 flex-col">
-    <span
-      class="pb-1.5 font-data text-[9px] uppercase tracking-[0.81px] text-soft"
-    >
-      {{ label }}
-    </span>
+    <span class="pb-2 text-[13px] text-soft">{{ label }}</span>
 
     <div
-      class="flex h-11.25 items-center justify-center rounded-[14px] border border-hairline bg-sunken px-1.25"
+      class="flex h-11.25 items-center justify-center rounded-md border border-hairline bg-sunken px-1.25"
     >
       <button
         type="button"
@@ -48,7 +44,7 @@ const BTN =
       </button>
 
       <input
-        class="h-full w-full min-w-0 flex-1 appearance-none border-none bg-transparent text-center font-body text-[17px] text-ink outline-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none"
+        class="h-full w-full min-w-0 flex-1 appearance-none border-none bg-transparent text-center font-body text-[17px] font-bold text-ink tabular-nums outline-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none"
         type="number"
         inputmode="numeric"
         :value="modelValue"

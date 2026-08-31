@@ -25,18 +25,18 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="done [padding:var(--screen-pad-top)_20px_0] [min-height:100%] lg:[padding:0]">
-    <div class="done__center [display:flex] [flex-direction:column] [align-items:center] [text-align:center] [gap:14px] [margin-top:32px] lg:[margin-top:24px] lg:[padding:48px_24px] lg:[background:var(--paper-raised)] lg:[border-radius:var(--radius-lg)] lg:[box-shadow:var(--shadow-card)]">
-      <div class="done__check [width:96px] [height:96px] [border-radius:50%] [background:var(--rose-soft)] [color:var(--rose)] [display:grid] [place-items:center]">
+  <div class="done pt-(--screen-pad-top) px-5 pb-0 min-h-full lg:p-0">
+    <div class="done__center flex flex-col items-center text-center gap-3.5 mt-8 lg:mt-6 lg:py-12 lg:px-6 lg:bg-raised lg:rounded-lg lg:shadow-card">
+      <div class="done__check w-[96px] h-[96px] rounded-full bg-rose-soft text-rose grid place-items-center">
         <AppIcon name="check" :size="34" :stroke="2.6" />
       </div>
-      <h1 class="done__title [margin:0] [font-family:var(--font-display)] [font-weight:900] [font-size:26px] [color:var(--ink)]">Check-in sent</h1>
-      <p class="done__desc [margin:0] [max-width:320px] [font-size:14px] [line-height:1.5] [color:var(--violet-45)]">
+      <h1 class="done__title m-0 font-display font-black text-[26px] text-ink">Check-in sent</h1>
+      <p class="done__desc m-0 max-w-[320px] text-[14px] leading-[1.5] text-muted">
         Week {{ store.clock.value.week }} is with your coach. They’ll reply in Cohort Chat
         if anything needs adjusting.
       </p>
 
-      <div class="done__chips [display:flex] [gap:8px]">
+      <div class="done__chips flex gap-2">
         <StatPill :value="`+${record?.rewardPoints ?? 0} RP`" variant="rose" />
         <StatPill
           :label="`${store.rewards.value.streakWeeks}-week streak`"
@@ -45,33 +45,33 @@ onMounted(() => {
         />
       </div>
 
-      <div v-if="record" class="done__summary [width:100%] [max-width:340px] [padding:8px_16px] [border-radius:var(--radius-card)] [background:var(--paper-raised)] [box-shadow:var(--shadow-card)]">
-        <div class="done__row [display:flex] [align-items:center] [justify-content:space-between] [padding:9px_0] [font-size:13px] [color:var(--violet-45)] [&_+_.done__row]:[border-top:1px_solid_var(--hairline)] [&_.data]:[font-weight:700] [&_.data]:[color:var(--ink)]">
+      <div v-if="record" class="done__summary w-full max-w-[340px] py-2 px-4 rounded-card bg-raised shadow-card">
+        <div class="done__row flex items-center justify-between py-2.25 px-0 text-[13px] text-muted [&_+_.done__row]:border-t [&_+_.done__row]:border-hairline [&_.data]:font-bold [&_.data]:text-ink">
           <span>Workouts done</span><span class="data">{{ record.workoutsDone }}</span>
         </div>
-        <div class="done__row [display:flex] [align-items:center] [justify-content:space-between] [padding:9px_0] [font-size:13px] [color:var(--violet-45)] [&_+_.done__row]:[border-top:1px_solid_var(--hairline)] [&_.data]:[font-weight:700] [&_.data]:[color:var(--ink)]">
+        <div class="done__row flex items-center justify-between py-2.25 px-0 text-[13px] text-muted [&_+_.done__row]:border-t [&_+_.done__row]:border-hairline [&_.data]:font-bold [&_.data]:text-ink">
           <span>Nutrition</span><span class="data">{{ record.nutritionPct }}%</span>
         </div>
-        <div class="done__row [display:flex] [align-items:center] [justify-content:space-between] [padding:9px_0] [font-size:13px] [color:var(--violet-45)] [&_+_.done__row]:[border-top:1px_solid_var(--hairline)] [&_.data]:[font-weight:700] [&_.data]:[color:var(--ink)]">
-          <span>Energy</span><span class="data">{{ record.energy }}/5</span>
+        <div class="done__row flex items-center justify-between py-2.25 px-0 text-[13px] text-muted [&_+_.done__row]:border-t [&_+_.done__row]:border-hairline [&_.data]:font-bold [&_.data]:text-ink">
+          <span>Energy</span><span class="data">{{ record.energy }}/10</span>
         </div>
-        <div class="done__row [display:flex] [align-items:center] [justify-content:space-between] [padding:9px_0] [font-size:13px] [color:var(--violet-45)] [&_+_.done__row]:[border-top:1px_solid_var(--hairline)] [&_.data]:[font-weight:700] [&_.data]:[color:var(--ink)]">
+        <div class="done__row flex items-center justify-between py-2.25 px-0 text-[13px] text-muted [&_+_.done__row]:border-t [&_+_.done__row]:border-hairline [&_.data]:font-bold [&_.data]:text-ink">
           <span>Training felt</span><span class="data">{{ feelLabel }}</span>
         </div>
       </div>
 
-      <div class="done__actions [width:100%] [max-width:340px] [display:flex] [flex-direction:column] [gap:4px] [margin-top:4px]">
-        <AppButton glow to="/home">Back to home</AppButton>
+      <div class="done__actions w-full max-w-[340px] flex flex-col gap-1 mt-1">
+        <AppButton to="/home">Back to home</AppButton>
         <AppButton variant="ghost" to="/progress">Add a progress photo</AppButton>
       </div>
     </div>
 
     <BottomSheet v-model="showCelebration" title="Badge unlocked">
-      <div v-if="celebrated" class="celebrate [display:flex] [flex-direction:column] [align-items:center] [text-align:center] [gap:10px]">
-        <span class="celebrate__emoji [font-size:56px] [line-height:1]">{{ celebrated.emoji }}</span>
-        <h2 class="celebrate__name [margin:0] [font-family:var(--font-display)] [font-weight:900] [font-size:22px] [color:var(--ink)]">{{ celebrated.name }}</h2>
-        <p class="celebrate__desc [margin:0_0_8px] [font-size:14px] [color:var(--violet-45)]">{{ celebrated.description }}</p>
-        <AppButton glow @click="showCelebration = false">Nice</AppButton>
+      <div v-if="celebrated" class="celebrate flex flex-col items-center text-center gap-2.5">
+        <span class="celebrate__emoji text-[56px] leading-none">{{ celebrated.emoji }}</span>
+        <h2 class="celebrate__name m-0 font-display font-black text-[22px] text-ink">{{ celebrated.name }}</h2>
+        <p class="celebrate__desc mt-0 mx-0 mb-2 text-[14px] text-muted">{{ celebrated.description }}</p>
+        <AppButton @click="showCelebration = false">Nice</AppButton>
       </div>
     </BottomSheet>
   </div>

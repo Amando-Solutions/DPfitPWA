@@ -61,7 +61,7 @@ const takenLabel = formatDate
 </script>
 
 <template>
-  <div class="progress [padding:var(--screen-pad-top)_20px_0] [display:flex] [flex-direction:column] [gap:18px] [&_.progress__title]:[margin:8px_0_6px] [&_.progress__sub]:[margin:0] [&_.progress__sub]:[font-size:13.5px] [&_.progress__sub]:[line-height:1.45] [&_.lightbox]:[position:fixed] [&_.lightbox]:[inset:0] [&_.lightbox]:[z-index:300] [&_.lightbox]:[display:grid] [&_.lightbox]:[place-items:center] [&_.lightbox]:[padding:24px] [&_.lightbox]:[background:var(--scrim-photo)] [&_.lightbox]:[backdrop-filter:blur(3px)] [&_.lightbox__panel]:[position:relative] [&_.lightbox__panel]:[width:100%] [&_.lightbox__panel]:[max-width:420px] [&_.lightbox__panel]:[border-radius:var(--radius-lg)] [&_.lightbox__panel]:[overflow:hidden] [&_.lightbox__panel]:[background:var(--paper-raised)] lg:[padding:0] lg:[display:grid] lg:[grid-template-columns:minmax(0,_320px)_minmax(0,_1fr)] lg:[grid-template-areas:'header_header'_'capture_weeks'] lg:[column-gap:24px] lg:[row-gap:18px] lg:[align-content:start] lg:[align-items:start] lg:[&_.progress__sub]:[font-size:15px] lg:[&_.progress__sub]:[max-width:560px]">
+  <div class="progress pt-(--screen-pad-top) px-5 pb-0 flex flex-col gap-4.5 [&_.progress__title]:mt-2 [&_.progress__title]:mx-0 [&_.progress__title]:mb-1.5 [&_.progress__sub]:m-0 [&_.progress__sub]:text-[13.5px] [&_.progress__sub]:leading-[1.45] [&_.lightbox]:fixed [&_.lightbox]:inset-0 [&_.lightbox]:z-300 [&_.lightbox]:grid [&_.lightbox]:place-items-center [&_.lightbox]:p-6 [&_.lightbox]:bg-scrim-photo [&_.lightbox]:backdrop-blur-[3px] [&_.lightbox__panel]:relative [&_.lightbox__panel]:w-full [&_.lightbox__panel]:max-w-[420px] [&_.lightbox__panel]:rounded-lg [&_.lightbox__panel]:overflow-hidden [&_.lightbox__panel]:bg-raised lg:p-0 lg:grid lg:grid-cols-[minmax(0,_320px)_minmax(0,_1fr)] lg:[grid-template-areas:'header_header'_'capture_weeks'] lg:gap-x-6 lg:gap-y-4.5 lg:content-start lg:items-start lg:[&_.progress__sub]:text-[15px] lg:[&_.progress__sub]:max-w-[560px]">
     <ScreenIntro
       eyebrow="Visual proof"
       title="Progress photos"
@@ -70,11 +70,11 @@ const takenLabel = formatDate
       class="progress__header lg:[grid-area:header]"
     />
 
-    <AppCard variant="raised" class="progress__capture [display:flex] [flex-direction:column] [gap:14px] lg:[grid-area:capture] lg:[position:sticky] lg:[top:0]">
+    <AppCard variant="raised" class="progress__capture flex flex-col gap-3.5 lg:[grid-area:capture] lg:sticky lg:top-0">
       <SegmentedTabs v-model="pose" :tabs="poseTabs" />
       <input
         ref="fileInput"
-        class="progress__file [display:none]"
+        class="progress__file hidden"
         type="file"
         accept="image/*"
         capture="environment"
@@ -83,23 +83,23 @@ const takenLabel = formatDate
       <AppButton icon="camera" :disabled="busy" @click="add">
         {{ busy ? 'Adding…' : `Add ${pose} photo · Week ${store.clock.value.week}` }}
       </AppButton>
-      <p v-if="error" class="progress__error [margin:-4px_0_0] [font-size:12px] [line-height:1.45] [color:var(--violet-45)] [text-align:center] [color:var(--rose)] [font-weight:700]">{{ error }}</p>
-      <p v-else class="progress__note [margin:-4px_0_0] [font-size:12px] [line-height:1.45] [color:var(--violet-45)] [text-align:center]">
+      <p v-if="error" class="progress__error -mt-1 mx-0 mb-0 text-[12px] leading-[1.45] text-muted text-center text-rose font-bold">{{ error }}</p>
+      <p v-else class="progress__note -mt-1 mx-0 mb-0 text-[12px] leading-[1.45] text-muted text-center">
         Stored on this device only. Your coach sees them when you share a check-in.
       </p>
     </AppCard>
 
-    <div class="progress__weeks [display:flex] [flex-direction:column] [gap:18px] lg:[grid-area:weeks]">
+    <div class="progress__weeks flex flex-col gap-4.5 lg:[grid-area:weeks]">
       <section v-for="group in byWeek" :key="group.weekNumber" class="progress__week">
-      <div class="progress__week-head [display:flex] [align-items:center] [justify-content:space-between] [margin-bottom:10px]">
+      <div class="progress__week-head flex items-center justify-between mb-2.5">
         <EyebrowLabel tone="muted">Week {{ group.weekNumber }}</EyebrowLabel>
-        <span class="progress__week-count data [font-size:12px] [font-weight:700] [color:var(--rose)]">{{ group.photos.length }}/3</span>
+        <span class="progress__week-count tabular-nums text-[12.5px] text-rose">{{ group.photos.length }}/3</span>
       </div>
-        <div class="progress__grid [display:grid] [grid-template-columns:repeat(3,_1fr)] [gap:10px] lg:[grid-template-columns:repeat(4,_1fr)] lg:[gap:14px]">
+        <div class="progress__grid grid grid-cols-[repeat(3,_1fr)] gap-2.5 lg:grid-cols-[repeat(4,_1fr)] lg:gap-3.5">
           <button
             v-for="photo in group.photos"
             :key="photo.id"
-            class="shot [position:relative] [padding:0] [border-radius:var(--radius-md)] [overflow:hidden] [aspect-ratio:3/4] [background:var(--paper-raised)] [box-shadow:var(--shadow-card)] [&_img]:[width:100%] [&_img]:[height:100%] [&_img]:[object-fit:cover] [&_img]:[display:block]"
+            class="shot relative p-0 rounded-md overflow-hidden aspect-3/4 bg-raised shadow-card [&_img]:w-full [&_img]:h-full [&_img]:object-cover [&_img]:block"
             @click="active = photo"
           >
             <img
@@ -108,12 +108,12 @@ const takenLabel = formatDate
               loading="lazy"
               decoding="async"
             />
-            <span class="shot__pose [position:absolute] [left:6px] [bottom:6px] [padding:3px_7px] [border-radius:var(--radius-pill)] [background:var(--overlay-strong)] [color:var(--on-photo)] [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:0.5px] [font-size:8px] [font-weight:700]">{{ photo.pose }}</span>
+            <span class="shot__pose absolute left-1.5 bottom-1.5 py-0.75 px-1.75 rounded-pill bg-overlay-strong text-on-photo text-[11px] capitalize">{{ photo.pose }}</span>
           </button>
         </div>
       </section>
 
-      <div v-if="!byWeek.length" class="progress__empty [display:flex] [flex-direction:column] [align-items:center] [gap:10px] [padding:32px_24px] [border-radius:var(--radius-card)] [box-shadow:inset_0_0_0_1.5px_var(--hairline)] [color:var(--violet-45)] [text-align:center] [&_p]:[margin:0] [&_p]:[font-size:13.5px] [&_p]:[line-height:1.5] [&_p]:[max-width:260px]">
+      <div v-if="!byWeek.length" class="progress__empty flex flex-col items-center gap-2.5 py-8 px-6 rounded-card shadow-[inset_0_0_0_1.5px_var(--hairline)] text-muted text-center [&_p]:m-0 [&_p]:text-[13.5px] [&_p]:leading-[1.5] [&_p]:max-w-[260px]">
         <AppIcon name="image" :size="28" :stroke="1.6" />
         <p>No photos yet. Take your first set today. It becomes your before.</p>
       </div>
@@ -148,22 +148,22 @@ const takenLabel = formatDate
         <!-- Close is first in the DOM so it, and not Delete, is what the focus
              trap lands on when the lightbox opens. It is absolutely positioned,
              so the order costs nothing visually. -->
-        <DialogClose class="lightbox__close [position:absolute] [top:10px] [right:10px] [width:36px] [height:36px] [border-radius:50%] [background:var(--overlay-medium)] [color:var(--on-photo)] [display:grid] [place-items:center]" aria-label="Close">
+        <DialogClose class="lightbox__close absolute top-2.5 right-2.5 w-9 h-9 rounded-full bg-overlay-medium text-on-photo grid place-items-center" aria-label="Close">
           <AppIcon name="close" :size="20" :stroke="2.4" />
         </DialogClose>
 
         <img
           :src="active.image.downloadUrl"
           :alt="`${active.pose} pose`"
-          class="lightbox__img [width:100%] [max-height:70vh] [object-fit:contain] [display:block] [background:var(--surface-inverse)]"
+          class="lightbox__img w-full max-h-[70vh] object-contain block bg-inverse"
           decoding="async"
         />
-        <div class="lightbox__meta [display:flex] [align-items:center] [justify-content:space-between] [gap:12px] [padding:14px_16px] [&_div]:[display:flex] [&_div]:[flex-direction:column] [&_div]:[gap:3px]">
+        <div class="lightbox__meta flex items-center justify-between gap-3 py-3.5 px-4 [&_div]:flex [&_div]:flex-col [&_div]:gap-0.75">
           <div>
-            <span class="lightbox__pose [font-family:var(--font-display)] [font-weight:900] [font-size:15px] [color:var(--ink)] [text-transform:capitalize]">{{ active.pose }} · Week {{ active.weekNumber }}</span>
-            <span class="lightbox__date data [font-size:11px] [color:var(--violet-45)]">{{ takenLabel(active.takenAt) }}</span>
+            <span class="lightbox__pose font-display font-black text-[15px] text-ink capitalize">{{ active.pose }} · Week {{ active.weekNumber }}</span>
+            <span class="lightbox__date tabular-nums text-[12px] text-muted">{{ takenLabel(active.takenAt) }}</span>
           </div>
-          <button class="lightbox__delete [font-size:13px] [font-weight:700] [color:var(--rose)]" @click="remove">Delete</button>
+          <button class="lightbox__delete text-[13px] font-bold text-rose" @click="remove">Delete</button>
         </div>
       </DialogContent>
     </Dialog>
