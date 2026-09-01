@@ -1,8 +1,17 @@
 {
-  "firestore": {
-    "rules": "firestore.rules",
-    "indexes": "firestore.indexes.json"
-  },
+  "_comment_firestore": "An ARRAY, because the project has more than one database and rules are per-database. `firebase deploy --only firestore` with the single-object form publishes to (default) alone, silently leaving `staging` on whatever it was created with — the app then reads a database whose rules nobody has updated. Each database names its own rules file so the two can diverge; they are identical today, and `npm run rules:diff` says whether that is still true. The indexes are shared, since a query that needs an index in one database needs it in the other.",
+  "firestore": [
+    {
+      "database": "(default)",
+      "rules": "firestore.rules",
+      "indexes": "firestore.indexes.json"
+    },
+    {
+      "database": "staging",
+      "rules": "firestore.staging.rules",
+      "indexes": "firestore.indexes.json"
+    }
+  ],
   "storage": {
     "rules": "storage.rules"
   },

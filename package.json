@@ -2,14 +2,18 @@
   "name": "dp-fitness-pwa",
   "private": true,
   "type": "module",
-  "description": "DP Fitness · Recomp Challenge, member-facing PWA",
+  "description": "DP Fitness \u00b7 Recomp Challenge, member-facing PWA",
   "scripts": {
     "build": "nuxt build",
     "dev": "nuxt dev",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
-    "typecheck": "nuxt prepare && vue-tsc -b --noEmit"
+    "typecheck": "nuxt prepare && vue-tsc -b --noEmit",
+    "backfill:codes": "node scripts/backfill-access-codes.mjs",
+    "rules:diff": "diff firestore.rules firestore.staging.rules && echo '\u2713 staging rules are identical to production' || echo '\u2191 staging has diverged from production'",
+    "deploy:staging": "firebase deploy --only firestore:staging",
+    "deploy:rules": "firebase deploy --only firestore,storage"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
@@ -25,6 +29,8 @@
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^22",
     "@vite-pwa/nuxt": "^1.1.1",
+    "firebase-admin": "^14.3.0",
+    "firebase-tools": "^15.28.2",
     "playwright-core": "1.62.1",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.0",
