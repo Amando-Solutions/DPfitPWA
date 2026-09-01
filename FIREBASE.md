@@ -98,6 +98,28 @@ firebase deploy --only firestore:rules,firestore:indexes,storage
 Indexes build in the background; queries needing one fail until it is ready, and
 the console shows progress.
 
+## Two databases
+
+The project holds `(default)` and `staging`. They are separate databases — not
+namespaces — with their own documents **and their own rules**. Which one the
+app talks to is `NUXT_PUBLIC_FIREBASE_DATABASE_ID`; empty means `(default)`.
+
+Each has its own rules file, so the two can diverge without production being
+loosened by accident:
+
+| database | rules file |
+|---|---|
+| `(default)` | `firestore.rules` |
+| `staging` | `firestore.staging.rules` |
+
+They are byte-for-byte identical today. `npm run rules:diff` says whether that
+is still true — no output means they match, and any output is the divergence.
+When you change something that should apply to both, change it in both; the
+diff is there to catch the half that gets forgotten.
+
+Indexes are shared. A query needing a composite index in one database needs the
+same one in the other, and nothing about an index is a security decision.
+
 ## Deploying the rules
 
 `firestore.rules` and `storage.rules` are source files. They do nothing until
@@ -113,6 +135,36 @@ firebase deploy --only firestore:rules,storage
 ```
 
 `.firebaserc` names the project, so there is no `firebase use` step.
+
+`.firebaserc` names the project, so there is no `firebase use` step, and
+`firebase-tools` is a devDependency — `npx firebase`, or the scripts below.
+
+### Deploying to one database
+
+`--only firestore:<database>` matches the `database` key in `firebase.json` and
+publishes that entry's rules *and* indexes:
+
+```bash
+npm run deploy:staging          # firebase deploy --only firestore:staging
+firebase deploy --only "firestore:(default)"    # quote it — the shell eats the parens
+```
+
+The one to watch is `--only firestore:rules`. It reads like "rules only" and
+means the opposite of narrowing: the CLI treats `rules` and `indexes` as
+requests for *every* database, so it publishes to production too. Verified
+against the CLI's own config resolver:
+
+| `--only` | publishes to |
+|---|---|
+| *(omitted)* | `(default)` **and** `staging` |
+| `firestore` | `(default)` **and** `staging` |
+| `firestore:staging` | `staging` |
+| `firestore:(default)` | `(default)` |
+| `firestore:rules` | `(default)` **and** `staging` |
+| `firestore:typo` | error, names the unmatched target |
+
+A name that matches nothing is an error rather than a silent no-op, so a typo
+cannot quietly deploy nothing and look like success.
 
 To see what is actually live: Firebase console → Firestore Database → **Rules**,
 which shows the published text and when it was last published. If that does not

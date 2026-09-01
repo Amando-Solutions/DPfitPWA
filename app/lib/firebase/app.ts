@@ -24,13 +24,24 @@ export interface FirebaseWebConfig {
   messagingSenderId: string
   appId: string
   measurementId: string
+  /**
+   * Which Firestore database in the project, when it is not the first one.
+   *
+   * A project can hold several, and they are separate databases with separate
+   * documents and separate rules — not namespaces. Empty means `(default)`,
+   * which is what a project starts with and what every SDK assumes when it is
+   * not told otherwise.
+   *
+   * It is configuration rather than something derived from `NODE_ENV`, because
+   * `NODE_ENV` is `production` for *any* built bundle, a staging deploy
+   * included. Keying off it would send the staging site to the production
+   * database, which is the one mistake in this area that cannot be undone.
+   */
+  databaseId: string
 }
 
 let app: FirebaseApp | null = null
-
-const storageBucketUrl = process.env.NODE_ENV === 'production'
-  ? 'gs://recomp-48b7b.firebasestorage.app'
-  : 'gs://recomp-48b7b-staging.firebasestorage.app'
+let databaseId = ''
 
 /**
  * Whether there is enough configuration to talk to a project at all.
@@ -44,8 +55,13 @@ export const isFirebaseConfigured = (config: Partial<FirebaseWebConfig>): boolea
 
 export const initFirebase = (config: FirebaseWebConfig): FirebaseApp => {
   if (app) return app
-  const dbEnvironment = process.env.NODE_ENV === "production" ? "(default)" : "staging";
-  app = getApps().length ? getApp() : initializeApp(config, dbEnvironment)
+  databaseId = config.databaseId?.trim() ?? ''
+  // No second argument. `initializeApp(config, name)` names the *app*, not the
+  // database — passing "staging" there creates an app called "staging" instead
+  // of `[DEFAULT]`, which changes nothing about where the data goes and makes
+  // the `getApp()` below throw, because that returns `[DEFAULT]` by name.
+  // Choosing a database is `getFirestore(app, id)`, in `firebaseDb`.
+  app = getApps().length ? getApp() : initializeApp(config)
   return app
 }
 
@@ -60,8 +76,20 @@ const require_ = (): FirebaseApp => {
 }
 
 export const firebaseAuth = (): Auth => getAuth(require_())
-export const firebaseDb = (): Firestore => getFirestore(require_())
-export const firebaseStorage = (): FirebaseStorage => getStorage(require_(), storageBucketUrl)
+
+/**
+ * The configured database, or `(default)` when none is named.
+ *
+ * `getFirestore(app)` — the one-argument form — always means `(default)`, no
+ * matter what the app was called or what environment it thinks it is in. This
+ * is the only place in the codebase that decides otherwise.
+ */
+export const firebaseDb = (): Firestore =>
+  databaseId ? getFirestore(require_(), databaseId) : getFirestore(require_())
+
+// `storageBucket` comes from the same config block, so the bucket follows the
+// environment for the same reason and by the same route as everything else.
+export const firebaseStorage = (): FirebaseStorage => getStorage(require_())
 
 let restored: Promise<void> | null = null
 

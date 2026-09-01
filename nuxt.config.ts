@@ -134,6 +134,10 @@ export default defineNuxtConfig({
         messagingSenderId: process.env.NUXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || '',
         appId: process.env.NUXT_PUBLIC_FIREBASE_APP_ID || '',
         measurementId: process.env.NUXT_PUBLIC_FIREBASE_MEASUREMENT_ID || '',
+        // Which database in the project. Empty means `(default)`. See
+        // `FirebaseWebConfig.databaseId` for why this is configuration and not
+        // something derived from `NODE_ENV`.
+        databaseId: process.env.NUXT_PUBLIC_FIREBASE_DATABASE_ID || '',
       },
     },
   },
