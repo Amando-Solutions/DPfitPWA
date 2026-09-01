@@ -1,0 +1,35 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "notifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "pinned",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "publishedAt",
+          "order": "DESCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "sessions",
+      "fieldPath": "exercises",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "state",
+      "fieldPath": "exercises",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "messages",
+      "fieldPath": "reactionCounts",
+      "indexes": []
+    }
+  ]
+}

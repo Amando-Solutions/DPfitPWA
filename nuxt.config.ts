@@ -5,7 +5,7 @@ import { basename, dirname } from 'node:path'
 
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
-  compatibilityDate: '2025-01-01',
+  compatibilityDate: '2025-07-15',
   devtools: { enabled: true },
 
   // Single-page app. Every screen is driven by member data held on the device,
@@ -26,6 +26,32 @@ export default defineNuxtConfig({
     prerender: {
       routes: ['/'],
       crawlLinks: false,
+    },
+  },
+
+  /**
+   * Keep the handle on the sign-in popup.
+   *
+   * `signInWithPopup` opens a window, waits for it to post the credential
+   * back, and then closes it. `accounts.google.com` sets its own
+   * Cross-Origin-Opener-Policy, and against our default of `unsafe-none` the
+   * browser severs the opener relationship: the sign-in still completes, but
+   * the tidy-up afterwards cannot, so Chrome logs "Cross-Origin-Opener-Policy
+   * policy would block the window.close call" and the member is left staring
+   * at a stranded Google window over an app that has already signed them in.
+   *
+   * `same-origin-allow-popups` is the pairing Google's own docs ask for. It is
+   * *stricter* than the default in every direction except the one that matters
+   * — a window this page opened itself stays reachable — so nothing else on
+   * the origin loosens to buy it.
+   *
+   * Set here for `nuxt dev` and `nuxt preview`; the deployed copy is served by
+   * Firebase Hosting, which reads `firebase.json`, so the same header is
+   * declared there too and the two have to be changed together.
+   */
+  routeRules: {
+    '/**': {
+      headers: { 'Cross-Origin-Opener-Policy': 'same-origin-allow-popups' },
     },
   },
 
@@ -58,12 +84,18 @@ export default defineNuxtConfig({
 
   // Auto-import components by filename (no directory prefix), so
   // components/shell/AppShell.vue is <AppShell/>, etc.
-  components: [{ path: '~/components', pathPrefix: false }],
+  //
+  // `extensions` is narrowed to Vue files because the shadcn components under
+  // `components/ui/*` ship a barrel `index.ts` each, and Nuxt would otherwise
+  // register that barrel as a component named after its directory: `Dialog`
+  // from `ui/dialog/index.ts` colliding with `Dialog` from `ui/dialog/Dialog.vue`,
+  // and the same for the other six. Keeping the barrels means `shadcn-vue add`
+  // output drops in unchanged and explicit imports still work.
+  components: [{ path: '~/components', pathPrefix: false, extensions: ['vue'] }],
 
-  // Nuxt only auto-detects `~/app/spa-loading-template.html`; this project keeps
-  // it at the root, so without an explicit path the boot splash is compiled in
-  // empty and the first paint is a blank page.
-  spaLoadingTemplate: 'spa-loading-template.html',
+  // The splash now sits at `app/spa-loading-template.html`, which is exactly
+  // where Nuxt 4 looks by default (`<srcDir>/spa-loading-template.html`), so the
+  // explicit path this used to need is gone.
 
   css: ['~/assets/styles/main.css'],
 
@@ -79,11 +111,30 @@ export default defineNuxtConfig({
   runtimeConfig: {
     public: {
       // NUXT_PUBLIC_USE_MOCK_DATA: serve every screen from `data/*.ts`.
-      useMockData: true,
-      // NUXT_PUBLIC_API_BASE: backend origin used when mock data is off.
-      apiBase: '',
+      useMockData: process.env.NUXT_PUBLIC_USE_MOCK_DATA !== 'false',
+      // NUXT_PUBLIC_API_BASE: backend origin used when mock data is off and
+      // the REST implementation is selected. See `lib/datasource/index.ts`.
+      apiBase: process.env.NUXT_PUBLIC_API_BASE || '',
       // NUXT_PUBLIC_APP_ENV: free-form label for the running environment.
-      appEnv: 'development',
+      appEnv: process.env.NUXT_PUBLIC_APP_ENV || 'development',
+      /**
+       * Firebase web config. Public by design — these identify the project,
+       * they do not authorise anything. What stops a stranger reading the
+       * database is the security rules, never the secrecy of these values.
+       *
+       * Nested rather than flat so `config.public.firebase` can be passed to
+       * `initializeApp` whole, which is how `plugins/firebase.client.ts` reads
+       * it.
+       */
+      firebase: {
+        apiKey: process.env.NUXT_PUBLIC_FIREBASE_API_KEY || '',
+        authDomain: process.env.NUXT_PUBLIC_FIREBASE_AUTH_DOMAIN || '',
+        projectId: process.env.NUXT_PUBLIC_FIREBASE_PROJECT_ID || '',
+        storageBucket: process.env.NUXT_PUBLIC_FIREBASE_STORAGE_BUCKET || '',
+        messagingSenderId: process.env.NUXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || '',
+        appId: process.env.NUXT_PUBLIC_FIREBASE_APP_ID || '',
+        measurementId: process.env.NUXT_PUBLIC_FIREBASE_MEASUREMENT_ID || '',
+      },
     },
   },
 
@@ -151,7 +202,7 @@ export default defineNuxtConfig({
         { rel: 'preconnect', href: 'https://images.unsplash.com', crossorigin: '' },
         {
           rel: 'stylesheet',
-          href: 'https://fonts.googleapis.com/css2?family=Chivo:ital,wght@0,300;0,400;0,700;0,900;1,700&family=Chivo+Mono:wght@400;500;700&family=Schibsted+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap',
+          href: 'https://fonts.googleapis.com/css2?family=Chivo:ital,wght@0,300;0,400;0,700;0,900;1,700&family=Chivo+Mono:wght@400;500;700&family=Manrope:wght@400;500;600;700;800&family=Schibsted+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap',
         },
       ],
     },
@@ -220,8 +271,7 @@ pwa: {
 
     runtimeCaching: [
       {
-        urlPattern: ({ url }: { url: URL }) =>
-          url.pathname.startsWith('/onboarding_tour/'),
+        urlPattern: /\/onboarding_tour\//,
         handler: 'CacheFirst',
         options: {
           cacheName: 'dpfit-onboarding-art',
@@ -236,8 +286,7 @@ pwa: {
       },
 
       {
-        urlPattern: ({ url }: { url: URL }) =>
-          url.hostname === 'images.unsplash.com',
+        urlPattern: /^https:\/\/images\.unsplash\.com\//,
         handler: 'StaleWhileRevalidate',
         options: {
           cacheName: 'dpfit-remote-images',
@@ -251,9 +300,30 @@ pwa: {
         },
       },
 
+      // Coach-authored imagery out of Cloud Storage: workout day heroes, and
+      // the member's own proof and progress photos read back. Cache-first,
+      // because a Storage object is immutable at its URL — a replaced hero is
+      // a new upload with a new token, so a cached copy can never go stale, and
+      // the alternative is Home's largest asset blocking on the network every
+      // morning. Without this the hero is the one thing on the screen that
+      // disappears offline, which is exactly when a gym has no signal.
       {
-        urlPattern: ({ url }: { url: URL }) =>
-          url.hostname === 'fonts.googleapis.com',
+        urlPattern: /^https:\/\/firebasestorage\.googleapis\.com\//,
+        handler: 'CacheFirst',
+        options: {
+          cacheName: 'dpfit-storage-images',
+          expiration: {
+            maxEntries: 80,
+            maxAgeSeconds: 60 * 60 * 24 * 30,
+          },
+          cacheableResponse: {
+            statuses: [0, 200],
+          },
+        },
+      },
+
+      {
+        urlPattern: /^https:\/\/fonts\.googleapis\.com\//,
         handler: 'StaleWhileRevalidate',
         options: {
           cacheName: 'dpfit-font-css',
@@ -261,8 +331,7 @@ pwa: {
       },
 
       {
-        urlPattern: ({ url }: { url: URL }) =>
-          url.hostname === 'fonts.gstatic.com',
+        urlPattern: /^https:\/\/fonts\.gstatic\.com\//,
         handler: 'CacheFirst',
         options: {
           cacheName: 'dpfit-font-files',

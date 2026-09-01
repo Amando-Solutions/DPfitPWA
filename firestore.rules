@@ -1,0 +1,240 @@
+rules_version = '2';
+
+// =============================================================================
+// DP Fitness — Firestore security rules
+//
+// The app talks to Firestore directly from the browser, so these rules are the
+// only thing standing between a member and everyone else's data. Read them as
+// the real access-control policy, not as a formality.
+//
+// Two principles run through the whole file:
+//
+//   1. A member reads their own documents and writes their own documents.
+//      Everything under `members/{uid}` is gated on `uid == request.auth.uid`,
+//      with no exceptions, including for the coach — coach tooling belongs on
+//      the Admin SDK, which bypasses rules entirely.
+//
+//   2. Anything shared with the cohort is a projection, never the source.
+//      The leaderboard reads `cohorts/{id}/leaderboard`, which holds a name, an
+//      avatar and a count. It does not read `members`, because member documents
+//      carry email addresses, body weight, injuries and allergies, and no
+//      feature is worth handing that to forty-seven strangers.
+//
+// WHAT THESE RULES CANNOT DO
+//
+// Rules validate shape, ownership and transitions. They cannot re-derive a
+// value from data they do not have. Specifically, nothing here can check that a
+// session's `setsDone` matches the sets the member actually logged, so
+// `qualifies` — and the reward points that follow from it — is asserted by the
+// client and merely shape-checked here. A determined member could inflate their
+// own totals.
+//
+// The fix is to move the four writes that mint points (`saveSession`,
+// `saveCheckIn`, `awardBadge`, `redeemAccessCode`) behind Callable Functions
+// and deny those paths to clients outright. `FirestoreDataSource` is shaped so
+// each becomes a one-line `httpsCallable`. Until then the exposure is bounded
+// to a member cheating on their own leaderboard position, which is worth
+// knowing about and is not worth blocking launch over.
+// =============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- Helpers -----------------------------------------------------------
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    /**
+     * Coaches and admins, identified by a custom claim.
+     *
+     * Set with the Admin SDK (`setCustomUserClaims`), never from the client,
+     * which is what makes it trustworthy here. Absent for every member.
+     */
+    function isCoach() {
+      return signedIn() && request.auth.token.coach == true;
+    }
+
+    /** The caller's member document. One `get`, billed as a read. */
+    function me() {
+      return get(/databases/$(database)/documents/members/$(request.auth.uid)).data;
+    }
+
+    function inCohort(cohortId) {
+      return signedIn() && me().cohortId == cohortId;
+    }
+
+    /** Which fields a write is touching, whether it creates or updates. */
+    function changed() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    // --- Access codes ------------------------------------------------------
+    // `accessCodes/{code}` — keyed by the code itself.
+    match /accessCodes/{code} {
+      // `get` but never `list`. The code IS the secret, so looking one up by
+      // name is the intended operation; enumerating the collection would hand
+      // over every unredeemed seat in the business.
+      allow get: if signedIn();
+      allow list: if isCoach();
+
+      allow create, delete: if isCoach();
+
+      allow update: if isCoach() || (
+        signedIn()
+        // Only the unused → claimed transition, and only onto yourself.
+        && resource.data.status == 'unused'
+        && request.resource.data.status == 'claimed'
+        && request.resource.data.claimedByUid == request.auth.uid
+        && request.time < resource.data.expiresAt
+        // A code issued against a purchase is redeemable only by that buyer.
+        // Compared case-insensitively, and it has to be: the address reaches
+        // this rule from three different places — lowercased by the email-link
+        // form, in whatever case the account was created with from Google, and
+        // typed by hand into the console when the code was issued. An exact
+        // match would cost a member their seat over a capital letter, and the
+        // client-side check in `redeemAccessCode` folds case the same way, so
+        // the two must agree or the transaction fails with a bare permission
+        // error after the friendly check has already passed.
+        && (resource.data.issuedToEmail == null
+            || resource.data.issuedToEmail.lower() == request.auth.token.email.lower())
+        // Nothing else moves. Without this, a claim could rewrite `cohortId`
+        // and walk into a cohort the member never paid for.
+        && changed().hasOnly([
+             'status', 'claimedByUid', 'claimedByName', 'claimedAt',
+             'updatedAt', 'updatedByUid', 'updatedByEmail'
+           ])
+      );
+    }
+
+    // --- Programs ----------------------------------------------------------
+    // Authored content. Every signed-in member reads it; only the console
+    // writes it.
+    match /programs/{programId} {
+      allow read: if signedIn();
+      allow write: if isCoach();
+
+      match /{sub=**} {
+        allow read: if signedIn();
+        allow write: if isCoach();
+      }
+    }
+
+    // --- Cohorts -----------------------------------------------------------
+    match /cohorts/{cohortId} {
+      allow read: if inCohort(cohortId) || isCoach();
+      allow write: if isCoach();
+
+      // Coach-authored announcements. Read state is per member and lives on
+      // the member document, so nothing here is ever written by a client.
+      match /notifications/{notificationId} {
+        allow read: if inCohort(cohortId) || isCoach();
+        allow write: if isCoach();
+      }
+
+      // The board projection: name, avatar, count. Deliberately the only
+      // cross-member read in the system. See the header.
+      match /leaderboard/{memberId} {
+        allow read: if inCohort(cohortId) || isCoach();
+
+        // Your own row only, and it can never carry more than these four
+        // fields — this is the boundary that keeps the projection a
+        // projection rather than a second copy of the member document.
+        //
+        // Split from delete deliberately. `allow write` would cover deletes
+        // too, and on a delete `request.resource` is null, so the `keys()`
+        // check errors and denies — which would have made a member unable to
+        // remove their own row and broken `reset()`.
+        allow create, update: if isCoach() || (
+          isSelf(memberId)
+          && request.resource.data.keys().hasOnly(
+               ['name', 'avatarUrl', 'sessions', 'updatedAt'])
+        );
+        allow delete: if isCoach() || isSelf(memberId);
+      }
+
+      // --- Threads -------------------------------------------------------
+      // `cohort` is the group thread. Every other thread id is a member uid:
+      // that member's private thread with the coach.
+      match /threads/{threadId}/messages/{messageId} {
+        function myThread() {
+          return threadId == 'cohort' || threadId == request.auth.uid;
+        }
+
+        allow read: if isCoach() || (inCohort(cohortId) && myThread());
+
+        allow create: if inCohort(cohortId)
+          && myThread()
+          && request.resource.data.authorUid == request.auth.uid
+          // Only the coach's messages get the coach's styling.
+          && request.resource.data.isCoach == false
+          // A new message starts with no reactions. Counts are only ever
+          // moved by the increment below.
+          && request.resource.data.reactionCounts.size() == 0;
+
+        // Nobody edits a sent message. The only writable part is the
+        // reaction tally, and only ever one emoji at a time.
+        allow update: if isCoach() || (
+          inCohort(cohortId) && myThread()
+          && changed().hasOnly(['reactionCounts'])
+        );
+
+        allow delete: if isCoach() || (
+          inCohort(cohortId) && resource.data.authorUid == request.auth.uid
+        );
+
+        // Who reacted, one document per reactor, keyed by uid so a member can
+        // only ever move their own.
+        match /reactions/{reactorId} {
+          allow read: if isCoach() || inCohort(cohortId);
+          allow write: if isSelf(reactorId) && inCohort(cohortId);
+        }
+      }
+    }
+
+    // --- Members -----------------------------------------------------------
+    // Private, without exception. Coach tooling runs on the Admin SDK.
+    match /members/{uid} {
+      allow read: if isSelf(uid);
+
+      // Creating the member document is half of redeeming a code; the other
+      // half is the claim above, and the two run in one transaction. The
+      // fields checked here are the ones that decide what the member is
+      // entitled to, so none of them may be self-assigned freely.
+      allow create: if isSelf(uid)
+        && request.resource.data.status == 'onboarding'
+        && request.resource.data.accessCode is string
+        && request.resource.data.email == request.auth.token.email
+        // Points cannot be conjured at sign-up.
+        && request.resource.data.stats.points == 0
+        && request.resource.data.stats.sessionsQualified == 0
+        // The cohort has to be the one the code actually belongs to.
+        && request.resource.data.cohortId == get(
+             /databases/$(database)/documents/accessCodes/$(request.resource.data.accessCode)
+           ).data.cohortId;
+
+      allow update: if isSelf(uid)
+        // Immutable once set: these define who the member is and what they
+        // paid for, and a self-service change to any of them is an attack.
+        && request.resource.data.cohortId == resource.data.cohortId
+        && request.resource.data.accessCode == resource.data.accessCode
+        && request.resource.data.joinedAt == resource.data.joinedAt
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.programId == resource.data.programId;
+
+      allow delete: if isSelf(uid) || isCoach();
+
+      // Everything below a member belongs to that member alone. One rule
+      // rather than eight: sessions, check-ins, photos, badges, the active
+      // session, notification read state and lifecycle events all share the
+      // same answer, and listing them separately invites one to drift.
+      match /{collection}/{docId} {
+        allow read, write: if isSelf(uid);
+      }
+    }
+  }
+}
