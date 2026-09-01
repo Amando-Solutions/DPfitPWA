@@ -150,7 +150,7 @@ const STAT_VALUE =
         between three numbers of equal weight.
       -->
       <section class="home__stats order-2 mt-3.5 lg:mt-0">
-        <div :class="CARD" class="flex items-center gap-4">
+        <div :class="CARD" class="flex items-center gap-6">
           <ProgressRing :value="challengePct" :size="82" :stroke="8">
             <div class="flex flex-col items-center leading-none">
               <span class="flex items-baseline font-display font-black tracking-[-0.5px] text-ink tabular-nums">

@@ -37,10 +37,19 @@ const restLabel = computed(() => {
 })
 
 const menuOpen = ref(false)
+const noteFocused = ref(false)
+const noteId = useId()
 const noteDraft = ref(props.note)
 watch(
   () => props.note,
   (value) => (noteDraft.value = value),
+)
+watch(menuOpen, (open) => {
+  if (!open) noteFocused.value = false
+})
+
+const modalPosition = computed(() =>
+  noteFocused.value ? 'top-4 translate-y-0' : 'top-1/2 -translate-y-1/2',
 )
 
 const saveNote = () => {
@@ -114,7 +123,7 @@ const NO_SPINNER =
     like a terminal. Bold survives in exactly three places: the exercise name,
     the numbers being entered, and the primary button.
   -->
-  <AppCard variant="raised" class="flex flex-col rounded-2xl">
+  <AppCard variant="raised" class="flex flex-col rounded-2xl font-exercise">
     <div class="flex items-center gap-2.5">
       <div
         class="grid size-8 shrink-0 place-items-center rounded-pill bg-rose-soft text-rose"
@@ -129,7 +138,7 @@ const NO_SPINNER =
         is a weight-and-reps exercise because there is a weight column and a
         reps column.
       -->
-      <h3 class="m-0 min-w-0 flex-1 truncate font-body text-[15px] font-bold text-rose">
+      <h3 class="m-0 min-w-0 flex-1 truncate text-[15px] font-bold text-rose">
         {{ name }}
       </h3>
 
@@ -244,33 +253,53 @@ const NO_SPINNER =
       <span>Add set</span>
     </button>
 
-    <!-- 16 · Exercise Menu -->
-    <BottomSheet v-model="menuOpen" :title="name">
-      <div class="flex flex-col gap-3">
-        <label class="text-[13px] text-muted" for="exercise-note">
-          Note for this exercise
-        </label>
-        <textarea
-          id="exercise-note"
-          v-model="noteDraft"
-          class="w-full resize-none rounded-field border-none bg-sunken px-3.5 py-3 font-body text-sm text-ink shadow-[inset_0_0_0_1.5px_var(--hairline)] outline-none"
-          rows="2"
-          placeholder="Felt heavy, dropped to 12kg on the last set…"
-        />
-        <AppButton variant="secondary" @click="saveNote">Save note</AppButton>
-        <AppButton
-          v-if="removableSet >= 0"
-          variant="ghost"
-          @click="
-            () => {
-              emit('remove-set', removableSet)
-              menuOpen = false
-            }
-          "
+    <!-- 16 · Exercise Menu. Input belongs in a modal rather than a bottom
+         sheet, so the software keyboard cannot cover the editor. -->
+    <Dialog v-model:open="menuOpen">
+      <DialogContent
+        :class="[
+          'w-[calc(100%-32px)] max-w-md max-h-[calc(100dvh-32px)] gap-0 overflow-y-auto rounded-lg bg-raised p-5 font-exercise transition-[top,transform] duration-200 sm:p-6',
+          modalPosition,
+        ]"
+        :aria-describedby="undefined"
+      >
+        <DialogClose
+          class="absolute top-3 right-3 grid size-9 place-items-center rounded-pill text-muted transition-colors hover:bg-fill-subtle hover:text-ink"
+          aria-label="Close exercise options"
         >
-          Remove the set you added
-        </AppButton>
-      </div>
-    </BottomSheet>
+          <AppIcon name="close" :size="18" :stroke="2.2" />
+        </DialogClose>
+
+        <DialogTitle class="pr-10">{{ name }}</DialogTitle>
+
+        <div class="mt-4 flex flex-col gap-3">
+          <label class="text-[13px] text-muted" :for="noteId">
+            Note for this exercise
+          </label>
+          <textarea
+            :id="noteId"
+            v-model="noteDraft"
+            class="w-full scroll-mt-4 resize-none rounded-field border-none bg-sunken px-3.5 py-3 text-base text-ink shadow-[inset_0_0_0_1.5px_var(--hairline)] outline-none focus:shadow-[inset_0_0_0_1.5px_var(--rose)] sm:text-sm"
+            rows="3"
+            placeholder="Felt heavy, dropped to 12kg on the last set…"
+            @focus="noteFocused = true"
+            @blur="noteFocused = false"
+          />
+          <AppButton variant="secondary" @click="saveNote">Save note</AppButton>
+          <AppButton
+            v-if="removableSet >= 0"
+            variant="ghost"
+            @click="
+              () => {
+                emit('remove-set', removableSet)
+                menuOpen = false
+              }
+            "
+          >
+            Remove the set you added
+          </AppButton>
+        </div>
+      </DialogContent>
+    </Dialog>
   </AppCard>
 </template>

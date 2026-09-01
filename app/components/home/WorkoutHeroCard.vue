@@ -49,7 +49,7 @@ const cta = computed(() => {
   <component
     :is="tag"
     :to="locked ? undefined : `/train/${day.id}`"
-    class="relative block min-h-58 overflow-hidden rounded-lg bg-photo text-on-photo lg:min-h-75"
+    class="relative block min-h-52 overflow-hidden rounded-lg bg-photo text-on-photo lg:min-h-64"
   >
     <!--
       `mix-blend-luminosity` is what keeps this from reading as stock: the photo
@@ -71,7 +71,7 @@ const cta = computed(() => {
     />
 
     <div
-      class="relative flex min-h-58 flex-col justify-end p-5 lg:min-h-75 lg:p-6"
+      class="relative flex min-h-52 flex-col justify-end p-5 lg:min-h-64 lg:p-6"
     >
       <div class="flex items-center justify-between gap-2.5 text-[12px] text-on-photo/75">
         <span>{{ eyebrow }}</span>

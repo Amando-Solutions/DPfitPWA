@@ -73,7 +73,7 @@ const initials = computed(() =>
 </script>
 
 <template>
-  <div class="more p-[var(--screen-pad-top)_20px_0] flex flex-col gap-4.5 [&_.more__title]:m-[8px_0_0] lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:[grid-template-areas:'header_header'_'profile_rewards'_'links_links'] lg:content-start lg:items-start lg:gap-x-6 lg:gap-y-4.5 lg:p-[0_0_8px]">
+  <div class="more p-[var(--screen-pad-top)_20px_0] flex flex-col gap-4.5 [&_.more__title]:m-[8px_0_0] lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:[grid-template-areas:'header_header'_'profile_rewards'_'links_links'_'signout_signout'] lg:content-start lg:items-start lg:gap-x-6 lg:gap-y-4.5 lg:p-[0_0_8px]">
     <!-- The cohort-and-coach eyebrow is gone: it named the same cohort on every
          screen that carried it, and neither half was something you act on. -->
     <ScreenIntro title="More" class="more__header lg:[grid-area:header]" />
@@ -152,23 +152,13 @@ const initials = computed(() =>
     </section>
 
     <!-- Sign out lives here now rather than at the foot of Profile & settings. -->
-    <section class="more__signout lg:[grid-area:links] lg:justify-self-start">
-      <button
-        type="button"
-        class="min-h-11 px-4 text-[14px] font-bold text-rose"
-        @click="showSignOut = true"
-      >
-        Sign out
-      </button>
+    <section class="more__signout lg:[grid-area:signout] lg:mt-1.5">
+      <AppButton variant="danger" @click="showSignOut = true">Sign out</AppButton>
     </section>
 
-    <BottomSheet v-model="showSignOut" title="Sign out?">
-      <p class="m-[0_0_16px] text-[14px] leading-normal text-muted">
-        This device is where your challenge lives. Signing out erases your logged
-        sessions, photos and check-ins.
-      </p>
+    <BottomSheet v-model="showSignOut" title="Do you want to sign out?">
       <div class="grid grid-cols-2 gap-3">
-        <AppButton variant="secondary" @click="showSignOut = false">Stay</AppButton>
+        <AppButton variant="secondary" @click="showSignOut = false">Cancel</AppButton>
         <AppButton variant="danger" @click="signOut">Sign out</AppButton>
       </div>
     </BottomSheet>

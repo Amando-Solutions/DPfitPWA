@@ -202,7 +202,7 @@ export default defineNuxtConfig({
         { rel: 'preconnect', href: 'https://images.unsplash.com', crossorigin: '' },
         {
           rel: 'stylesheet',
-          href: 'https://fonts.googleapis.com/css2?family=Chivo:ital,wght@0,300;0,400;0,700;0,900;1,700&family=Chivo+Mono:wght@400;500;700&family=Schibsted+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap',
+          href: 'https://fonts.googleapis.com/css2?family=Chivo:ital,wght@0,300;0,400;0,700;0,900;1,700&family=Chivo+Mono:wght@400;500;700&family=Manrope:wght@400;500;600;700;800&family=Schibsted+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap',
         },
       ],
     },

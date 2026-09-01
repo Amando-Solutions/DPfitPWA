@@ -40,7 +40,8 @@ export const isFirebaseConfigured = (config: Partial<FirebaseWebConfig>): boolea
 
 export const initFirebase = (config: FirebaseWebConfig): FirebaseApp => {
   if (app) return app
-  app = getApps().length ? getApp() : initializeApp(config)
+  const dbEnvironment = process.env.NODE_ENV === "production" ? "(default)" : "staging";
+  app = getApps().length ? getApp() : initializeApp(config, dbEnvironment)
   return app
 }
 

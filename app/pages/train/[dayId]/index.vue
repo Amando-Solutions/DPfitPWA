@@ -262,11 +262,12 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
         :sets-done="totals.setsDone"
         :sets-total="totals.setsTotal"
         :unit="units"
+        :image-url="day.heroImage?.downloadUrl"
         :action="session.running ? 'Cancel' : undefined"
         @action="showDiscard = true"
       />
 
-      <div class="session__body pt-4 px-5 pb-[120px] flex flex-col gap-3.5 lg:w-full lg:max-w-(--focus-max) lg:my-0 lg:mx-auto lg:pt-6 lg:px-10 lg:pb-[150px]">
+      <div class="session__body pt-4 px-5 pb-30 flex flex-col gap-3.5 lg:w-full lg:max-w-(--focus-max) lg:my-0 lg:mx-auto lg:pt-6 lg:px-10 lg:pb-37.5">
         <ExerciseLogCard
           v-for="(exercise, i) in session.exercises"
           :key="exercise.id"
@@ -286,7 +287,7 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
     </div>
 
     <!-- Docked footer: rest timer (when running) + primary CTA -->
-    <div class="session__footer absolute left-4 right-4 bottom-4 flex flex-col gap-2.5 lg:left-1/2 lg:right-auto lg:-translate-x-1/2 lg:w-[min(var(--focus-max),_100%_-_80px)] lg:bottom-6">
+    <div class="session__footer absolute left-4 right-4 bottom-4 flex flex-col gap-2.5 lg:left-1/2 lg:right-auto lg:-translate-x-1/2 lg:w-[min(var(--focus-max),100%-80px)] lg:bottom-6">
       <RestTimerBar
         v-if="restActive"
         :seconds="restRemaining"
@@ -300,13 +301,13 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
       >
         Start workout
       </AppButton>
-      <AppButton v-else :variant="allDone ? 'primary' : 'dark'" @click="finish">
+      <AppButton v-else variant="primary" @click="finish">
         {{ allDone ? 'Finish workout' : `Finish (${totals.setsDone}/${totals.setsTotal} sets)` }}
       </AppButton>
     </div>
 
     <BottomSheet v-model="showDiscard" title="Discard this workout?">
-      <p class="discard__body mt-0 mx-0 mb-4 text-[14px] text-muted leading-[1.5]">
+      <p class="discard__body mt-0 mx-0 mb-4 text-[14px] text-muted leading-normal">
         You’ve logged {{ totals.setsDone }} of {{ totals.setsTotal }} sets. This can’t be
         undone.
       </p>

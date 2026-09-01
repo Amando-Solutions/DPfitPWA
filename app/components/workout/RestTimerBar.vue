@@ -25,9 +25,9 @@ const ADJ =
       -15
     </button>
 
-    <!-- A second clock, so it takes the same treatment as the one in the header:
-         monospace and tabular, in ink rather than a second accent colour. -->
-    <span class="flex-1 text-center font-data text-[22px] font-bold tracking-[1px] tabular-nums">
+    <!-- The elapsed clock in the session header is the screen's sole monospace
+         treatment. This secondary timer uses the proportional body face. -->
+    <span class="flex-1 text-center text-[22px] font-bold tracking-[1px] tabular-nums">
       {{ label }}
     </span>
 

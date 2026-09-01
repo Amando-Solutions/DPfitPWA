@@ -10,6 +10,8 @@ const props = withDefaults(
     volume: number
     setsDone: number
     setsTotal: number
+    /** Decorative workout image shown beneath the header colour overlay. */
+    imageUrl?: string
     /** Label for the right-hand button. Omitted, and no button is drawn. */
     action?: string
     unit?: Units
@@ -45,16 +47,26 @@ const STAT_VALUE = 'text-[17px] font-bold tabular-nums'
     the exercise list you are. It sits inside the scroller on the logging screen
     and above it on the save screen; `sticky` is correct either way.
 
-    The decorative gym photograph that used to wash this panel is gone. It was
-    stock imagery of somebody else's gym, and repainting it behind a header that
-    now follows the scroll is cost with nothing on the other side of it.
+    The workout day's own image sits beneath the header colour, keeping this
+    panel connected to the session while preserving contrast as it follows the
+    scroll.
   -->
   <header
-    class="sticky top-0 z-20 rounded-b-2xl bg-photo text-on-photo shadow-[0_1px_0_rgba(0,0,0,0.25)]"
+    class="sticky top-0 z-20 overflow-hidden rounded-b-2xl bg-photo text-on-photo shadow-[0_1px_0_rgba(0,0,0,0.25)]"
   >
+    <img
+      v-if="imageUrl"
+      :src="imageUrl"
+      alt=""
+      aria-hidden="true"
+      decoding="async"
+      class="absolute inset-0 size-full object-cover"
+    />
+    <div v-if="imageUrl" class="absolute inset-0 bg-photo/80" />
+
     <!-- Desktop: the banner stays full-bleed, its content follows the focus column. -->
     <div
-      class="px-5 pt-(--screen-pad-top) pb-4 lg:mx-auto lg:max-w-(--focus-max) lg:px-10 lg:pt-6 lg:pb-5"
+      class="relative px-5 pt-(--screen-pad-top) pb-4 lg:mx-auto lg:max-w-(--focus-max) lg:px-10 lg:pt-6 lg:pb-5"
     >
       <div class="mb-3.5 flex items-center justify-between gap-3">
         <h1 class="m-0 min-w-0 truncate font-display text-[17px] font-bold lg:text-[20px]">

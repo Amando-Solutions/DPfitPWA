@@ -274,6 +274,7 @@
   --font-display: 'Chivo', system-ui, sans-serif;
   --font-eyebrow: 'Chivo Mono', ui-monospace, monospace;
   --font-body: 'Schibsted Grotesk', system-ui, sans-serif;
+  --font-exercise: 'Manrope', 'Schibsted Grotesk', 'Chivo', system-ui, sans-serif;
   --font-data: 'Space Mono', ui-monospace, monospace;
 
   /* --- Spacing aliases used by migrated arbitrary-value utilities ---------- */
@@ -497,6 +498,7 @@
   --font-display: var(--font-display);
   --font-eyebrow: var(--font-eyebrow);
   --font-body: var(--font-body);
+  --font-exercise: var(--font-exercise);
   --font-data: var(--font-data);
 
   --shadow-card: var(--shadow-card);

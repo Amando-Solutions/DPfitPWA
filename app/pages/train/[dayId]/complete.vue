@@ -120,6 +120,7 @@ const discard = async () => {
       :sets-done="totals.setsDone"
       :sets-total="totals.setsTotal"
       :unit="units"
+      :image-url="day.heroImage?.downloadUrl"
       action="Save"
       @action="save"
     />
