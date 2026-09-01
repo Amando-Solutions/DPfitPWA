@@ -28,6 +28,10 @@ export interface FirebaseWebConfig {
 
 let app: FirebaseApp | null = null
 
+const storageBucketUrl = process.env.NODE_ENV === 'production'
+  ? 'gs://recomp-48b7b.firebasestorage.app'
+  : 'gs://recomp-48b7b-staging.firebasestorage.app'
+
 /**
  * Whether there is enough configuration to talk to a project at all.
  *
@@ -57,7 +61,7 @@ const require_ = (): FirebaseApp => {
 
 export const firebaseAuth = (): Auth => getAuth(require_())
 export const firebaseDb = (): Firestore => getFirestore(require_())
-export const firebaseStorage = (): FirebaseStorage => getStorage(require_())
+export const firebaseStorage = (): FirebaseStorage => getStorage(require_(), storageBucketUrl)
 
 let restored: Promise<void> | null = null
 
