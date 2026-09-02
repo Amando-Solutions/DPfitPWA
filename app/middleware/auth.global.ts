@@ -39,7 +39,14 @@ const SETUP_ROUTES = [
 
 export default defineNuxtRouteMiddleware((to) => {
   // The entry route owns its own decision. See `pages/index.vue`.
-  if (to.path === '/') return
+   if (
+    to.path === '/' ||
+    to.path === '/sw.js' ||
+    to.path === '/manifest.webmanifest' ||
+    to.path.startsWith('/_nuxt/')
+  ) {
+    return
+  }
 
   const store = useAppStore()
   const isPublic = PUBLIC_ROUTES.includes(to.path)
