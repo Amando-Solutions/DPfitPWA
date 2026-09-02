@@ -267,6 +267,8 @@ pwa: {
     // Important for an SPA: unknown navigations fall back
     // to the cached application shell.
     navigateFallback: '/',
+    skipWaiting: true,
+    clientsClaim: true,
 
     globPatterns: ['**/*.{js,css,html,png,svg,ico,woff2}'],
 
