@@ -1,0 +1,13 @@
+@import 'tailwindcss';
+
+/* The design system itself — tokens, type ramp, control recipes — now lives in
+   `packages/theme` so the public site is built from the same palette as the
+   app. It has to be imported *here*, into the stylesheet that pulled in
+   Tailwind, because `@theme inline` only publishes utilities within its own
+   Tailwind root. See the comment in `packages/theme/nuxt.config.ts`. */
+@import '@dpfit/theme/styles/theme.css';
+
+/* Tailwind scans for class names from the stylesheet's own directory outwards,
+   which since the move points at the design system rather than at this app.
+   Naming the app explicitly is what keeps `apps/pwa/app/**` in the scan. */
+@source '../..';

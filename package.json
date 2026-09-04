@@ -1,39 +1,28 @@
 {
-  "name": "dp-fitness-pwa",
+  "name": "dp-fitness",
   "private": true,
   "type": "module",
-  "description": "DP Fitness \u00b7 Recomp Challenge, member-facing PWA",
+  "description": "DP Fitness monorepo · the member PWA, the public landing site, and the design system they share",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "build": "nuxt build",
-    "dev": "nuxt dev",
-    "generate": "nuxt generate",
-    "preview": "nuxt preview",
-    "postinstall": "nuxt prepare",
-    "typecheck": "nuxt prepare && vue-tsc -b --noEmit",
-    "backfill:codes": "node scripts/backfill-access-codes.mjs",
-    "rules:diff": "diff firestore.rules firestore.staging.rules && echo '\u2713 staging rules are identical to production' || echo '\u2191 staging has diverged from production'",
+    "dev": "bun run dev:web",
+    "dev:web": "bun run --filter dp-fitness-web dev",
+    "dev:pwa": "bun run --filter dp-fitness-pwa dev",
+    "build": "bun run --filter '*' build",
+    "build:web": "bun run --filter dp-fitness-web build",
+    "build:pwa": "bun run --filter dp-fitness-pwa build",
+    "typecheck": "bun run --filter '*' typecheck",
+    "postinstall": "bun run --filter '*' postinstall",
+    "backfill:codes": "bun run --filter dp-fitness-pwa backfill:codes",
+    "rules:diff": "diff firestore.rules firestore.staging.rules && echo '✓ staging rules are identical to production' || echo '↑ staging has diverged from production'",
     "deploy:staging": "firebase deploy --only firestore:staging",
     "deploy:rules": "firebase deploy --only firestore,storage"
   },
-  "dependencies": {
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "firebase": "^12.18.0",
-    "nuxt": "^4.5.2",
-    "reka-ui": "^2.10.4",
-    "tailwind-merge": "^3.6.0",
-    "vue": "^3.5.41",
-    "vue-router": "^5.2.0"
-  },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.3.3",
-    "@types/node": "^22",
-    "@vite-pwa/nuxt": "^1.1.1",
-    "firebase-admin": "^14.3.0",
     "firebase-tools": "^15.28.2",
-    "playwright-core": "1.62.1",
-    "tailwindcss": "^4.3.3",
-    "typescript": "^5.9.0",
-    "vue-tsc": "^3.3.11"
+    "typescript": "^5.9.0"
   }
 }

@@ -1,0 +1,16 @@
+{
+  "name": "@dpfit/theme",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "DP Fitness design system · the semantic token layer, type scale and control recipes both apps are built from",
+  "exports": {
+    ".": "./nuxt.config.ts",
+    "./styles/theme.css": "./styles/theme.css",
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "tailwindcss": "^4.3.3"
+  }
+}
