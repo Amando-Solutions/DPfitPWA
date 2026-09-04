@@ -1,0 +1,15 @@
+{
+  // https://nuxt.com/docs/guide/concepts/typescript
+  //
+  // Nuxt 4 emits one tsconfig per environment rather than a single merged one,
+  // because `app/` (browser), `server/` (Nitro) and `shared/` no longer agree on
+  // globals or module resolution. This root file only wires the projects
+  // together; every real setting lives in the generated files.
+  "files": [],
+  "references": [
+    { "path": "./.nuxt/tsconfig.app.json" },
+    { "path": "./.nuxt/tsconfig.server.json" },
+    { "path": "./.nuxt/tsconfig.shared.json" },
+    { "path": "./.nuxt/tsconfig.node.json" }
+  ]
+}

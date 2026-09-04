@@ -1,0 +1,893 @@
+/* =============================================================================
+   DP Fitness · Design system
+   -----------------------------------------------------------------------------
+   Two layers, in this order:
+
+   1. `:root` / `[data-theme]` is the *semantic* token layer. Every colour the UI
+      can see is named for its job (surface, text, hairline) rather than for its
+      value, and each one has a light and a dark definition. This is the only
+      place a literal colour is allowed to appear.
+
+   2. `@theme inline` publishes those tokens to Tailwind so they become real
+      utilities (`bg-surface`, `text-muted`, `rounded-card`, `shadow-card`).
+      `inline` matters: it makes each utility emit `var(--surface)` rather than a
+      frozen copy of its value, which is what lets one class serve both themes.
+
+   Because the tokens are plain custom properties, Tailwind's arbitrary-value
+   utilities can read `var(--ink)`, `var(--paper)` and friends directly. Those
+   original Figma names are kept below as aliases.
+   ========================================================================== */
+
+/* Dark mode is driven by a `data-theme="dark"` attribute on <html> (set by
+   `useTheme`), not by the media query alone, so members can override the OS. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+:root {
+  /* --- Brand primitives, identical in both themes ------------------------ */
+  --brand-rose: #c81e5c;
+  --brand-orange: #e8a33d;
+  --flame-ember: #d94f1e;
+  --flame-core: #fbda99;
+  --white: #ffffff;
+  --black: #000000;
+
+  /* --- Surfaces ---------------------------------------------------------- */
+  /* The page itself. */
+  --surface: #f3eae4;
+  /* Cards and anything lifted off the page. */
+  --surface-raised: #fbf6f2;
+  /* Wells pressed *into* the page: inputs, steppers, segmented tracks. */
+  --surface-sunken: #f3eae4;
+  /* A panel that is deliberately the opposite of the page (hero, dark card).
+     This is the one that must NOT simply follow `--ink`, because in dark mode a
+     "dark card" has to get *lighter* than its surroundings to stay legible. */
+  --surface-inverse: #241b2e;
+  --on-inverse: #fbf6f2;
+  /* Photographic heroes: a dark plate under an image and a scrim. Unlike
+     `--surface-inverse` this one is NOT re-defined for dark mode, because white type
+     over a photo has to stay white whichever theme the page is in. */
+  --surface-photo: #241b2e;
+  --on-photo: #fbf6f2;
+  /* Sheets, menus and dialogs floating above everything. */
+  --surface-overlay: #fbf6f2;
+  --scrim: rgba(20, 16, 26, 0.5);
+  /* A photo lightbox is dark in both themes, like the photo surfaces above. */
+  --scrim-photo: rgba(20, 14, 26, 0.86);
+  /* Coach messages get a warm amber bubble that has to survive the flip. */
+  --bubble-coach: #f2e4c9;
+  /* Chips and buttons that sit directly on top of imagery. Constant across
+     themes for the same reason `--surface-photo` is. */
+  --overlay-strong: rgba(36, 27, 46, 0.7);
+  --overlay-medium: rgba(36, 27, 46, 0.6);
+  /* A dimmed version of `--on-inverse`, for secondary type on dark chrome. */
+  --on-inverse-muted: rgba(251, 246, 242, 0.55);
+
+  /* --- Text -------------------------------------------------------------- */
+  --text: #241b2e;
+  --text-soft: #4a3f52;
+  /* Secondary type. The alpha is set by contrast, not by taste: at the 0.45 the
+     Figma file used, muted labels landed at 2.7:1 on both surfaces. */
+  --text-muted: rgba(36, 27, 46, 0.66);
+  /* Decorative / disabled only. Never body copy. */
+  --text-faint: rgba(36, 27, 46, 0.42);
+  /* Placeholders need more weight than `--text-faint`: they are the only thing
+     in an empty field, so they carry the field's meaning until it is filled. */
+  --text-placeholder: rgba(36, 27, 46, 0.66);
+
+  /* --- Lines and inset fills --------------------------------------------- */
+  --hairline: rgba(36, 27, 46, 0.11);
+  --hairline-strong: rgba(36, 27, 46, 0.22);
+  /* Neutral tint used for icon chips, ghost buttons, inactive tracks. */
+  --fill-subtle: rgba(36, 27, 46, 0.06);
+  --fill-muted: rgba(36, 27, 46, 0.1);
+
+  /* --- Accents ----------------------------------------------------------- */
+  /* `--rose` is the accent as *ink* (text, icons, rings); `--rose-fill` is the
+     accent as a *solid background* under white text. They diverge in dark mode:
+     the text form has to brighten to stay readable, the fill must not. */
+  --rose: #b81a54;
+  --rose-fill: #c81e5c;
+  --on-rose: #fbf6f2;
+  --rose-soft: rgba(200, 30, 92, 0.07);
+  --rose-softer: rgba(200, 30, 92, 0.05);
+  --rose-ring: rgba(200, 30, 92, 0.25);
+  /* Accent type on an inverse (dark) panel. Deliberately the same bright rose
+     in both themes: the panel under it is dark either way. */
+  --rose-on-inverse: #ff86a8;
+
+  --rose-strong: rgba(200, 30, 92, 0.55);
+
+  --orange: #e8a33d;
+  --orange-soft: rgba(232, 163, 61, 0.16);
+  --orange-ring: rgba(232, 163, 61, 0.32);
+  /* The brand orange and ember are *fills*. As type on a light ground they sit
+     near 2:1, so type gets a darkened companion; on dark they stay bright. */
+  --orange-text: #8a5a12;
+  --ember-text: #a83a12;
+
+  /* --- Macro categories ---------------------------------------------------
+     Protein reuses the rose accent; fat and carbs get their own hues. Each one
+     brightens in dark mode so it still reads as type on a dark card. */
+  --macro-fat: #9a6318;
+  --macro-carbs: #56643a;
+  --macro-carbs-soft: rgba(86, 100, 58, 0.14);
+  --macro-carbs-ring: rgba(86, 100, 58, 0.28);
+
+  /* --- Onboarding splash --------------------------------------------------
+     A branded moment with its own palette rather than the app surfaces. */
+  --onboard-art: #f6ccd5;
+  --onboard-title: #711337;
+  --onboard-dot: #d7d0d2;
+  --shadow-art: 0 18px 35px rgba(164, 18, 73, 0.1);
+  --drop-art: drop-shadow(0 12px 12px rgba(212, 20, 90, 0.22));
+
+  /* The transparent end of a fade must be the surface at zero alpha, not
+     `transparent`, which is rgba(0,0,0,0) and greys the ramp on the way out. */
+  --surface-fade: rgba(243, 234, 228, 0);
+  /* --- Splash art ---------------------------------------------------------
+     The two corner glows and the hairline motion ring. The design paints solid
+     discs behind a heavy blur rather than radial gradients, so a glow keeps a
+     body of colour before its edge lets go; the alpha therefore belongs to the
+     colour, not to the shape. Dark mode flips the violet disc from ink to a
+     lifted mauve, because a glow that darkens is invisible on a dark page.
+
+     Nothing in the app reads these: the splash is now the boot frame in
+     `spa-loading-template.html`, which paints before this stylesheet is live
+     and therefore inlines its own copies. They stay here because this file is
+     where the palette is defined and reasoned about for both themes; the
+     template's copies are meant to be checked against these. */
+  --splash-glow-rose: rgba(200, 30, 92, 0.5);
+  --splash-glow-violet: rgba(36, 27, 46, 0.8);
+  --splash-ring: rgba(200, 30, 92, 0.7);
+  /* Scrims laid over photography so white type stays legible. Constant across
+     themes, since the photo underneath does not change. */
+  --photo-scrim: linear-gradient(
+    180deg,
+    rgba(36, 27, 46, 0.15) 0%,
+    rgba(36, 27, 46, 0.82) 72%
+  );
+  /* A floor under the type on a photographic card.
+     `--photo-scrim` grades the whole frame, which is enough when the art is
+     dark where the words are. Hero art is authored by the coach and could be
+     anything — a bright gym, a white wall — so the block the title and CTA
+     actually sit in gets its own guaranteed darkness rather than trusting the
+     upload. Layered above the scrim and below the content. */
+  --photo-floor: linear-gradient(
+    0deg,
+    rgba(36, 27, 46, 0.9) 0%,
+    rgba(36, 27, 46, 0.72) 34%,
+    transparent 68%
+  );
+  --photo-wash: radial-gradient(
+    90% 60% at 100% 0%,
+    rgba(200, 30, 92, 0.28),
+    transparent 60%
+  );
+  /* A hairline drawn *on* a dark surface. */
+  --hairline-inverse: rgba(255, 255, 255, 0.12);
+  --on-inverse-soft: rgba(251, 246, 242, 0.7);
+
+  --flame-gradient: linear-gradient(
+    90deg,
+    var(--flame-ember),
+    var(--brand-orange),
+    var(--flame-core)
+  );
+
+  /* --- Elevation --------------------------------------------------------- */
+  --shadow-card: 0 8px 24px rgba(36, 27, 46, 0.08);
+  --shadow-raised: 0 12px 32px rgba(36, 27, 46, 0.12);
+  --shadow-glow: 0 12px 28px rgba(200, 30, 92, 0.35);
+  --shadow-hero: 0 18px 40px rgba(36, 27, 46, 0.28);
+  --shadow-sheet: 0 -12px 40px rgba(0, 0, 0, 0.3);
+  --shadow-dialog: 0 24px 60px rgba(0, 0, 0, 0.32);
+  --shadow-knob: 0 1px 3px rgba(36, 27, 46, 0.25);
+  --shadow-tabbar: 0 14px 34px rgba(36, 27, 46, 0.3);
+  /* Ready-made `filter` values. A violet-tinted drop shadow is invisible on a
+     dark page, so these carry a black variant rather than a tinted one. */
+  --drop-sm: drop-shadow(0 2px 4px rgba(36, 27, 46, 0.05));
+  --drop-md: drop-shadow(0 4px 7px rgba(36, 27, 46, 0.04));
+  --drop-lg: drop-shadow(0 14px 16px rgba(36, 27, 46, 0.22));
+
+  /* --- Raised buttons -----------------------------------------------------
+     Filled controls are domed slabs rather than flat rectangles of colour,
+     the Stripe / Shopify treatment. Four layers do the work, and every one of
+     them is derived from the button's own face colour (`--btn-face`), so a
+     rose button casts a rose shadow and a dark button casts a violet one:
+
+       1. a darkened outer stroke, so the edge never dissolves into the page
+       2. a small cast shadow in that same hue, so the slab floats
+       3. a soft highlight along the top inside edge, the lit top face
+       4. a darkened bottom inside edge, which is what reads as thickness
+
+     Only the amounts live here: the recipe itself is the `btn-raised` utility
+     below. They are *lightness* moves, not mixes towards black and white:
+     darkening a colour by pulling it towards #000 drains its chroma on the way
+     down, which is what turns a rose edge into a black one. Scaling lightness
+     while chroma and hue sit still keeps every edge a darker version of the
+     button it belongs to, and it self-scales: the same number that takes rose
+     to a deep rose barely moves a near-black face at all.
+
+     Each scale multiplies the face's lightness; the glint instead closes that
+     fraction of the gap to white, so a nearly-white face cannot overshoot. */
+  --btn-stroke-scale: 0.84;
+  --btn-glint-rise: 0.3;
+  --btn-shade-scale: 0.89;
+  /* A scale alone punishes pale faces: 16% of a near-white button's lightness
+     is a far bigger step down than 16% of a dark one's, so an outline button
+     ends up ringed in a grey heavier than any hairline the app draws. The cap
+     bounds the *absolute* step instead, and it tapers: `-cap` is all a white
+     face may spend, and `-cap-slope` hands back a share of whatever headroom
+     to white the face still has, so the line thins as the button pales while a
+     rose one keeps the full edge. For reference, `--hairline` sits 0.072 below
+     the surface it is drawn on and `--hairline-strong` 0.144, while a white button
+     lands at 0.046, finer than either. The cast is deliberately left uncapped:
+     it is a blurred shadow at a quarter alpha, not an edge. */
+  --btn-stroke-cap: 0.043;
+  --btn-stroke-cap-slope: 0.12;
+  --btn-shade-cap: 0.05;
+  /* The cast shadow: the face taken well down, so it stays in-hue... */
+  --btn-cast-scale: 0.72;
+  /* ...and how much of it survives, near the button and further out. */
+  --btn-cast-near: 34%;
+  --btn-cast-far: 24%;
+
+  /* Buttons whose fill is a translucent tint have to hand `--btn-face` the
+     colour they end up *looking* like: mixing a 6%-alpha tint towards black
+     yields a stroke far heavier than the button it belongs to. These are the
+     opaque equivalents of the tints the chrome uses, and because they are
+     built out of theme tokens they follow the flip on their own. */
+  --face-subtle: color-mix(in srgb, var(--text) 6%, var(--surface));
+  --face-muted: color-mix(in srgb, var(--text) 10%, var(--surface));
+  --face-on-inverse: color-mix(in srgb, var(--on-inverse) 12%, var(--surface-inverse));
+  --face-on-photo: color-mix(in srgb, var(--on-photo) 14%, var(--surface-photo));
+
+  /* --- Legacy aliases ----------------------------------------------------
+     Migrated utility classes still speak in parts of the original Figma
+     vocabulary. Pointing those names at the semantic tokens keeps them themed
+     while the markup moves incrementally toward the semantic utility names. */
+  --ink: var(--text);
+  --paper: var(--surface);
+  --paper-raised: var(--surface-raised);
+  --violet-28: var(--text-soft);
+  --violet-45: var(--text-muted);
+  --rose-25: var(--rose-ring);
+  --orange-16: var(--orange-soft);
+  --grey-18: #2e2e2e;
+  --grey-50: #7f7f7f;
+
+  /* --- Radii ------------------------------------------------------------- */
+  --radius-sm: 5px;
+  /* Inputs, checkmarks, small wells. Sits deliberately between `sm` and `md`:
+     at a 32px control `--radius-md` is indistinguishable from a pill, and a row
+     of pills reads as a row of buttons rather than a row of fields. True pills
+     are reserved for things you press. */
+  --radius-field: 10px;
+  --radius-md: 18px;
+  --radius-card: 22px;
+  --radius-lg: 26px;
+  --radius-pill: 999px;
+
+  /* --- Type -------------------------------------------------------------- */
+  --font-display: 'Chivo', system-ui, sans-serif;
+  --font-eyebrow: 'Chivo Mono', ui-monospace, monospace;
+  --font-body: 'Schibsted Grotesk', system-ui, sans-serif;
+  --font-exercise: 'Manrope', 'Schibsted Grotesk', 'Chivo', system-ui, sans-serif;
+  --font-data: 'Space Mono', ui-monospace, monospace;
+
+  /* --- Spacing aliases used by migrated arbitrary-value utilities ---------- */
+  --space-2: 2px;
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-20: 20px;
+  --space-24: 24px;
+  --space-32: 32px;
+
+  /* --- App chrome sizing --------------------------------------------------
+     The app is *not* framed as a phone. It is one responsive product:
+       - < 1024px  : full-bleed, floating bottom tab bar
+       - >= 1024px : centred surface capped at --app-max-width, left side nav,
+                     viewport-height with internal scrolling
+     The desktop breakpoint is 1024px everywhere; search for it when tuning. */
+  --app-max-width: 1280px;
+  --content-max: 1040px;
+  --flow-max: 600px;
+  --focus-max: 880px;
+
+  /* Space above the first thing on a screen. Larger than the Figma's 14px
+     because there is no OS status bar occupying that strip any more, plus the
+     notch inset on an installed PWA. */
+  --screen-pad-top: calc(24px + env(safe-area-inset-top, 0px));
+
+  --sidenav-width: 252px;
+  --tabbar-height: 84px;
+  --tabbar-gutter: var(--tabbar-height);
+
+  /* The area beside the app surface on wide monitors. Deliberately identical to
+     the screen background so the capped content column never reads as a seam. */
+  --app-backdrop: var(--surface);
+
+  --scrollbar-thumb: rgba(36, 27, 46, 0.18);
+  --scrollbar-thumb-hover: rgba(36, 27, 46, 0.32);
+
+  color-scheme: light;
+}
+
+/* =============================================================================
+   Dark theme
+   -----------------------------------------------------------------------------
+   Not an inversion. The page drops to a deep violet-black that keeps the
+   brand's warmth, cards rise *towards* the light rather than away from it, and
+   the accent brightens for text while the button fill stays deep enough to
+   carry white type.
+   ========================================================================== */
+[data-theme='dark'] {
+  --surface: #14101a;
+  --surface-raised: #1e1826;
+  --surface-sunken: #0e0b13;
+  /* Inverted panels invert again: on a dark page they lift, not sink. */
+  --surface-inverse: #2f2739;
+  --on-inverse: #f5f0ea;
+  --surface-overlay: #241d2d;
+  --scrim: rgba(6, 4, 9, 0.66);
+  --bubble-coach: #3d3120;
+  --on-inverse-muted: rgba(245, 240, 234, 0.6);
+
+  --text: #f5f0ea;
+  --text-soft: rgba(245, 240, 234, 0.78);
+  --text-muted: rgba(245, 240, 234, 0.62);
+  --text-faint: rgba(245, 240, 234, 0.45);
+  --text-placeholder: rgba(245, 240, 234, 0.58);
+  /* The ember is a deep orange; on a dark page it has to lift to stay legible
+     where it is used as type (streak counters). */
+  --flame-ember: #ff8a4c;
+
+  --hairline: rgba(245, 240, 234, 0.12);
+  --hairline-strong: rgba(245, 240, 234, 0.24);
+  --fill-subtle: rgba(245, 240, 234, 0.07);
+  --fill-muted: rgba(245, 240, 234, 0.12);
+
+  /* Lifted far enough to stay legible even on its own tint (>=5.8:1)... */
+  --rose: #ff86a8;
+  /* ...while the solid fill stays deep enough for white type (~4.8:1). */
+  --rose-fill: #d6295f;
+  --on-rose: #ffffff;
+  --rose-soft: rgba(255, 134, 168, 0.14);
+  --rose-softer: rgba(255, 134, 168, 0.09);
+  --rose-ring: rgba(255, 134, 168, 0.34);
+
+  --rose-strong: rgba(255, 134, 168, 0.5);
+
+  --orange: #f0b45c;
+  --orange-soft: rgba(240, 180, 92, 0.16);
+  --orange-ring: rgba(240, 180, 92, 0.34);
+  /* Already bright enough to be type on a dark ground. */
+  --orange-text: #f0b45c;
+  --ember-text: #ff8a4c;
+
+  --macro-fat: #e5b269;
+  --macro-carbs: #a9bd7c;
+  --macro-carbs-soft: rgba(169, 189, 124, 0.14);
+  --macro-carbs-ring: rgba(169, 189, 124, 0.3);
+
+  --onboard-art: #3a2029;
+  --onboard-title: #ff9dbd;
+  --onboard-dot: rgba(245, 240, 234, 0.22);
+  --shadow-art: 0 18px 35px rgba(0, 0, 0, 0.5);
+  --drop-art: drop-shadow(0 12px 12px rgba(214, 41, 95, 0.3));
+
+  --surface-fade: rgba(20, 16, 26, 0);
+  --splash-glow-rose: rgba(255, 134, 168, 0.5);
+  --splash-glow-violet: rgba(150, 132, 172, 0.35);
+  --splash-ring: rgba(255, 134, 168, 0.6);
+  --hairline-inverse: rgba(255, 255, 255, 0.14);
+  --on-inverse-soft: rgba(245, 240, 234, 0.7);
+
+  /* Violet-tinted shadows vanish on a dark ground, so go to true black, deeper. */
+  --shadow-card: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-raised: 0 12px 32px rgba(0, 0, 0, 0.55);
+  --shadow-glow: 0 12px 28px rgba(214, 41, 95, 0.5);
+  --shadow-hero: 0 18px 40px rgba(0, 0, 0, 0.6);
+  --shadow-sheet: 0 -12px 40px rgba(0, 0, 0, 0.6);
+  --shadow-dialog: 0 24px 60px rgba(0, 0, 0, 0.65);
+  --shadow-knob: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-tabbar: 0 14px 34px rgba(0, 0, 0, 0.55);
+  --drop-sm: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
+  --drop-md: drop-shadow(0 4px 7px rgba(0, 0, 0, 0.45));
+  --drop-lg: drop-shadow(0 14px 16px rgba(0, 0, 0, 0.55));
+
+  /* Raised buttons: on a dark page a top highlight reads as glare long before
+     it reads as light, so it comes down; the cast, conversely, has to go far
+     darker than the face to register at all against the surface behind it.
+     The edges can also go deeper here than in light mode without reading as
+     black, because there is no bright page behind them to contrast against. */
+  --btn-stroke-scale: 0.74;
+  --btn-glint-rise: 0.2;
+  --btn-shade-scale: 0.82;
+  /* A white button should look the same in either theme, so the cap at white
+     does not move; the slope opens up instead, which keeps the steeper scale
+     above untouched for everything darker. What this catches in practice is
+     the handful of faces that stay pale in dark mode: the thumb on a photo
+     header, chips over imagery. */
+  --btn-stroke-cap: 0.043;
+  --btn-stroke-cap-slope: 0.25;
+  --btn-shade-cap: 0.1;
+  --btn-cast-scale: 0.5;
+  --btn-cast-near: 52%;
+  --btn-cast-far: 42%;
+
+  --grey-18: #d8d3cd;
+  --grey-50: #9a938d;
+
+  --scrollbar-thumb: rgba(245, 240, 234, 0.2);
+  --scrollbar-thumb-hover: rgba(245, 240, 234, 0.34);
+
+  color-scheme: dark;
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --tabbar-gutter: 16px;
+    /* The desktop layout supplies its own gutter. */
+    --screen-pad-top: 0px;
+  }
+}
+
+/* =============================================================================
+   Tailwind theme. Publishes the tokens above as utilities.
+   ========================================================================== */
+@theme inline {
+  --color-surface: var(--surface);
+  --color-raised: var(--surface-raised);
+  --color-sunken: var(--surface-sunken);
+  --color-inverse: var(--surface-inverse);
+  --color-on-inverse: var(--on-inverse);
+  --color-overlay: var(--surface-overlay);
+  --color-photo: var(--surface-photo);
+  --color-on-photo: var(--on-photo);
+  --color-scrim-photo: var(--scrim-photo);
+  --color-bubble-coach: var(--bubble-coach);
+  --color-on-inverse-muted: var(--on-inverse-muted);
+  --color-overlay-strong: var(--overlay-strong);
+  --color-overlay-medium: var(--overlay-medium);
+  --color-on-inverse-soft: var(--on-inverse-soft);
+  --color-hairline-inverse: var(--hairline-inverse);
+  --color-rose-strong: var(--rose-strong);
+  --color-orange-ring: var(--orange-ring);
+  --color-macro-fat: var(--macro-fat);
+  --color-macro-carbs: var(--macro-carbs);
+  --color-scrim: var(--scrim);
+
+  --color-ink: var(--text);
+  --color-soft: var(--text-soft);
+  --color-muted: var(--text-muted);
+  --color-faint: var(--text-faint);
+  --color-placeholder: var(--text-placeholder);
+
+  --color-hairline: var(--hairline);
+  --color-hairline-strong: var(--hairline-strong);
+  --color-fill-subtle: var(--fill-subtle);
+  --color-fill-muted: var(--fill-muted);
+
+  --color-rose: var(--rose);
+  --color-rose-fill: var(--rose-fill);
+  --color-on-rose: var(--on-rose);
+  --color-rose-soft: var(--rose-soft);
+  --color-rose-softer: var(--rose-softer);
+  --color-rose-ring: var(--rose-ring);
+
+  --color-orange: var(--orange);
+  --color-orange-soft: var(--orange-soft);
+  --color-orange-text: var(--orange-text);
+  --color-ember-text: var(--ember-text);
+  --color-rose-on-inverse: var(--rose-on-inverse);
+  --color-ember: var(--flame-ember);
+  --color-flame-core: var(--flame-core);
+
+  --radius-sm: var(--radius-sm);
+  --radius-field: var(--radius-field);
+  --radius-md: var(--radius-md);
+  --radius-card: var(--radius-card);
+  --radius-lg: var(--radius-lg);
+  --radius-pill: var(--radius-pill);
+
+  --font-display: var(--font-display);
+  --font-eyebrow: var(--font-eyebrow);
+  --font-body: var(--font-body);
+  --font-exercise: var(--font-exercise);
+  --font-data: var(--font-data);
+
+  --shadow-card: var(--shadow-card);
+  --shadow-raised: var(--shadow-raised);
+  --shadow-glow: var(--shadow-glow);
+  --shadow-hero: var(--shadow-hero);
+  --shadow-sheet: var(--shadow-sheet);
+  --shadow-dialog: var(--shadow-dialog);
+}
+
+/* Animations. Kept in a plain `@theme` (not `inline`) so Tailwind registers the
+   keyframes alongside the `animate-*` utility that drives them. */
+@theme {
+  --animate-day-ping: day-ping 1.9s cubic-bezier(0, 0, 0.2, 1) infinite;
+  --animate-rest-pulse: rest-pulse 2s ease-in-out infinite;
+}
+
+@keyframes day-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.75;
+  }
+  /* 54px dot out to the ~73px ring the design draws around it. */
+  70%,
+  100% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+}
+
+@keyframes rest-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* =============================================================================
+   Base
+   ========================================================================== */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html,
+  body,
+  #__nuxt {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+  }
+
+  body {
+    font-family: var(--font-body);
+    color: var(--text);
+    background: var(--surface);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  button {
+    font-family: inherit;
+    cursor: pointer;
+    border: none;
+    background: none;
+    color: inherit;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  input,
+  textarea,
+  select {
+    font-family: inherit;
+    color: inherit;
+    /* The caret is the accent, not the text ink: a field being typed in reads
+       as active at a glance, and it matches the rose focus border. */
+    caret-color: var(--rose);
+  }
+
+  /* Keyboard users get a visible ring; pointer users never see it. */
+  :focus-visible {
+    outline: 2px solid var(--rose);
+    outline-offset: 2px;
+  }
+
+  ::placeholder {
+    color: var(--text-placeholder);
+  }
+
+  /* Form controls don't reliably inherit the page's ::selection, so they're
+     named explicitly rather than left to the platform's default blue. */
+  ::selection,
+  input::selection,
+  textarea::selection {
+    background: var(--rose-ring);
+    color: var(--text);
+  }
+}
+
+/* =============================================================================
+   Shared utilities: the vocabulary screens compose with.
+   Declared with `@utility` so they behave like first-class Tailwind classes
+   (variant-aware, and correctly ordered inside the utilities layer).
+   ========================================================================== */
+@utility eyebrow {
+  font-family: var(--font-eyebrow);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--rose);
+}
+
+@utility display-xl {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 34px;
+  line-height: 1.05;
+  letter-spacing: -0.5px;
+  color: var(--text);
+  @media (min-width: 1024px) {
+    font-size: 42px;
+  }
+}
+
+@utility display-lg {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 26px;
+  line-height: 1.08;
+  letter-spacing: -0.4px;
+  color: var(--text);
+  @media (min-width: 1024px) {
+    font-size: 32px;
+  }
+}
+
+@utility display-md {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 19px;
+  line-height: 1.15;
+  color: var(--text);
+  @media (min-width: 1024px) {
+    font-size: 21px;
+  }
+}
+
+@utility data {
+  font-family: var(--font-data);
+}
+
+@utility muted {
+  color: var(--text-muted);
+}
+
+/* A subtle rose glow used behind hero elements. */
+@utility glow-rose {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--rose-ring), transparent 70%);
+  pointer-events: none;
+  filter: blur(4px);
+}
+
+@utility flame-gradient {
+  background-image: var(--flame-gradient);
+}
+
+/* =============================================================================
+   Raised buttons
+   -----------------------------------------------------------------------------
+   `btn-raised` is the whole recipe: put it on any filled control and give it a
+   face colour, and it stops being a flat rectangle of colour.
+
+     <button class="btn-raised bg-rose-fill [--btn-face:var(--rose-fill)]">
+
+   `--btn-face` must be the button's *opaque* fill. Controls whose fill is a
+   translucent tint (`bg-fill-subtle` and friends) should hand it the surface
+   they end up looking like, not the tint itself, because a 6%-alpha colour has almost
+   no lightness of its own to darken, so its edges land far heavier than the
+   button they belong to.
+   ========================================================================== */
+@utility btn-raised {
+  --btn-face: var(--surface-raised);
+
+  /* 1 · the outer stroke, 2 · the cast, 3 · the top glint, 4 · the bottom
+     shade. All four are the face colour with its lightness moved and its
+     chroma and hue left alone, so a rose button gets rose edges rather than
+     the sooty ones a mix towards #000 would give it. */
+  --btn-stroke: oklch(
+    from var(--btn-face)
+      calc(
+        l -
+          min(
+            l * (1 - var(--btn-stroke-scale)),
+            var(--btn-stroke-cap) + (1 - l) * var(--btn-stroke-cap-slope)
+          )
+      )
+      c h
+  );
+  --btn-glint: oklch(
+    from var(--btn-face) calc(l + (1 - l) * var(--btn-glint-rise)) c h
+  );
+  --btn-shade: oklch(
+    from var(--btn-face)
+      calc(l - min(l * (1 - var(--btn-shade-scale)), var(--btn-shade-cap))) c h
+  );
+  --btn-cast: oklch(from var(--btn-face) calc(l * var(--btn-cast-scale)) c h);
+
+  /* Every layer is its own variable so hover and press can restate the one
+     layer they change instead of repeating the whole stack. */
+  --btn-edge: inset 0 0 0 1px var(--btn-stroke);
+  /* Pushed past the stroke and pulled back in by the negative spread, so the
+     highlight sits *inside* the edge rather than being painted over by it. */
+  --btn-top: inset 0 2px 1.5px -1px var(--btn-glint);
+  --btn-bottom: inset 0 -3px 3px -2px var(--btn-shade);
+  --btn-lift-near: 0 1px 1.5px -0.5px
+    color-mix(in srgb, var(--btn-cast) var(--btn-cast-near), transparent);
+  --btn-lift-far: 0 3px 7px -2px
+    color-mix(in srgb, var(--btn-cast) var(--btn-cast-far), transparent);
+
+  box-shadow:
+    var(--btn-edge), var(--btn-top), var(--btn-bottom), var(--btn-lift-near),
+    var(--btn-lift-far), var(--btn-halo, 0 0 #0000);
+  transition:
+    box-shadow 140ms ease,
+    transform 140ms ease,
+    background-color 140ms ease,
+    opacity 140ms ease;
+
+  /* Pointer devices only, since a touch device would leave the button stuck in its
+     hover state after a tap. */
+  @media (hover: hover) {
+    &:hover:not(:disabled) {
+      transform: translateY(-1px);
+      --btn-lift-near: 0 2px 2px -1px
+        color-mix(in srgb, var(--btn-cast) var(--btn-cast-near), transparent);
+      --btn-lift-far: 0 7px 16px -4px
+        color-mix(in srgb, var(--btn-cast) var(--btn-cast-far), transparent);
+    }
+  }
+
+  /* Pressed: the dome inverts. The top edge falls into shadow, the bottom
+     catches the light, and the slab drops onto the page. */
+  &:active:not(:disabled) {
+    transform: translateY(1px);
+    --btn-top: inset 0 2px 4px -1px var(--btn-shade);
+    --btn-bottom: inset 0 -1px 1px -0.5px var(--btn-glint);
+    --btn-lift-near: 0 1px 1px -1px
+      color-mix(in srgb, var(--btn-cast) var(--btn-cast-near), transparent);
+    --btn-lift-far: 0 0 #0000;
+    transition-duration: 60ms;
+  }
+
+  &:disabled {
+    transform: none;
+    --btn-lift-near: 0 0 #0000;
+    --btn-lift-far: 0 0 #0000;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition-duration: 1ms;
+    &:hover,
+    &:active {
+      transform: none;
+    }
+  }
+}
+
+/* The old `shadow-glow`, folded into the raised stack so the halo and the
+   raised layers are not fighting over the single `box-shadow` slot. */
+@utility btn-glow {
+  --btn-halo: 0 12px 26px -6px
+    color-mix(in srgb, var(--btn-face, var(--rose-fill)) 45%, transparent);
+}
+
+/* Momentum-friendly scrolling inside screens. Scrollbars are hidden on touch
+   (they overlay content) but shown, slimmed down, on desktop where a pointer
+   needs the affordance. */
+@utility scroll-y {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+
+  @media (min-width: 1024px) {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+
+    &::-webkit-scrollbar {
+      display: block;
+      width: 10px;
+    }
+    &::-webkit-scrollbar-thumb {
+      background: var(--scrollbar-thumb);
+      border-radius: 999px;
+      border: 3px solid transparent;
+      background-clip: content-box;
+    }
+    &::-webkit-scrollbar-thumb:hover {
+      background: var(--scrollbar-thumb-hover);
+      background-clip: content-box;
+    }
+    &::-webkit-scrollbar-track {
+      background: transparent;
+    }
+  }
+}
+
+/* Motion primitives referenced by Tailwind animation utilities in the dialog
+   and sheet components. Keeping only the keyframe definitions global lets the
+   component timing and state behavior remain visible in their class lists. */
+@keyframes sheet-in {
+  from { transform: translateY(100%); }
+}
+
+@keyframes sheet-out {
+  to { transform: translateY(100%); }
+}
+
+@keyframes sheet-in-top {
+  from { transform: translateY(-100%); }
+}
+
+@keyframes sheet-out-top {
+  to { transform: translateY(-100%); }
+}
+
+@keyframes sheet-in-left {
+  from { transform: translateX(-100%); }
+}
+
+@keyframes sheet-out-left {
+  to { transform: translateX(-100%); }
+}
+
+@keyframes sheet-in-right {
+  from { transform: translateX(100%); }
+}
+
+@keyframes sheet-out-right {
+  to { transform: translateX(100%); }
+}
+
+@keyframes sheet-scrim-in {
+  from { opacity: 0; }
+}
+
+@keyframes sheet-scrim-out {
+  to { opacity: 0; }
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.95);
+  }
+}
+
+@keyframes dialog-out {
+  to {
+    opacity: 0;
+    transform: translateY(12px) scale(0.95);
+  }
+}
+
+@keyframes dialog-content-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+}
+
+@keyframes dialog-content-out {
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+}
