@@ -110,6 +110,10 @@ export const emptyProfile = (): MemberProfile => ({
   activity: '',
   goal: '',
   trainingDaysPerWeek: 4,
+  // Empty here where the Firestore path seeds it from the access code: mock
+  // mode has no code document to carry one, and inventing a phone number that
+  // looks real is worse than a blank field.
+  whatsapp: '',
   healthConditions: '',
   injuries: '',
   avatarUrl: '',

@@ -166,6 +166,16 @@ const plan = (id, data) => {
     notes.push('issuedToEmail → null (a generic code, redeemable by any buyer)')
   }
 
+  // Not urgent the way `issuedToEmail` is — no rule reads this one, so its
+  // absence denies nothing. It is filled in so `AccessCodeDoc` stays true of
+  // every document in the collection, and so a coach reading a code in the
+  // console sees the field is blank rather than wondering whether it is
+  // missing or was never asked for.
+  if (!('issuedToWhatsapp' in data)) {
+    patch.issuedToWhatsapp = null
+    notes.push('issuedToWhatsapp → null (issued by hand; no number was collected)')
+  }
+
   // An older shape called this `claimedByMemberId`. The rule and `AccessCodeDoc`
   // both say `claimedByUid`, so carry the value across and drop the old key.
   if (!('claimedByUid' in data)) {

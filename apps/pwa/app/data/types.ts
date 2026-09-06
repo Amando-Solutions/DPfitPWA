@@ -72,6 +72,25 @@ export interface AccessCodeBase extends CreatedBy, UpdatedBy {
    * to somebody else. `null` for codes handed out generically.
    */
   issuedToEmail: string | null
+  /**
+   * The WhatsApp number the buyer registered with, carried here so it survives
+   * the gap between registering and signing in.
+   *
+   * It is not a second credential — nothing checks it, and redemption turns on
+   * `issuedToEmail` alone. It rides on the code because that is the only
+   * document that exists between the landing form and the member: the number
+   * is copied into `MemberProfile.whatsapp` at redemption, and without this it
+   * would be stranded in `registrations/{code}`, which the member cannot read.
+   *
+   * `null` for a code issued by hand, where nobody asked for a number. Every
+   * code the landing site issues has one, because the form requires it.
+   *
+   * Sits at the same sensitivity as `issuedToEmail`, which is already here: a
+   * contact detail readable by whoever knows the code, and the code is the
+   * secret. It is deliberately absent from the claim rule's `hasOnly` list, so
+   * redeeming a code cannot rewrite the number it was issued against.
+   */
+  issuedToWhatsapp: string | null
 }
 
 /**
@@ -109,6 +128,82 @@ export type AccessCodeClaim =
 
 export type AccessCodeDoc = AccessCodeBase & AccessCodeClaim
 export type AccessCode = WithId<AccessCodeDoc>
+
+// =============================================================================
+// Registrations — `registrations/{reference}`
+//
+// One attempt to buy a seat, from the moment the landing form is submitted.
+// Written by `apps/web/server/api/register.post.ts` on the Admin SDK and
+// completed by `api/payment/verify` or the Paystack webhook, whichever arrives
+// first.
+//
+// Keyed by the Paystack transaction reference, which this side generates before
+// the transaction exists. That ordering is the point: the document is what a
+// payment is later matched *back* to, so it cannot be keyed by anything the
+// payment produces — including the access code, which does not exist yet and
+// deliberately is not minted until money has moved.
+//
+// It exists separately from `AccessCodeDoc` because a code is a seat and this
+// is a person mid-purchase: the time zone decides which live-call slot they are
+// pointed at, the WhatsApp number is how they get into the group chat, and the
+// payment fields are a record nobody should have to reconstruct from Paystack's
+// dashboard. The number is the one field that travels onward — onto the code as
+// `issuedToWhatsapp`, and from there into `MemberProfile.whatsapp` — because
+// the member needs it and cannot read this.
+//
+// No client writes here, ever. See `firestore.rules`.
+// =============================================================================
+
+/** Where a registration came from. One value today; named so it can grow. */
+export type RegistrationSource = 'landing'
+
+/**
+ * Where a registration is in the one flow it has.
+ *
+ * `pending` is written before the buyer is sent to Paystack and is the state
+ * anyone who abandons checkout is left in — a real and common outcome, not an
+ * error. `paid` is set only after Paystack has been asked directly what
+ * happened. `failed` records a verification that came back as something other
+ * than a success, so an unhappy buyer's reference can be looked up rather than
+ * guessed at.
+ */
+export type RegistrationPaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded'
+
+export interface RegistrationDoc {
+  /** Mirrors the document id, and the Paystack transaction reference. */
+  reference: string
+  /**
+   * The access code, once one exists.
+   *
+   * `null` until the payment is confirmed, which is the whole shape of the
+   * flow: no money, no code. Writing it is also what makes fulfilment
+   * idempotent — the callback and the webhook both run, and whichever is
+   * second finds this already set and stops.
+   */
+  code: string | null
+  fullName: string
+  /** Lower-cased, matching `issuedToEmail` on the code. */
+  email: string
+  /** As typed. Not normalised to E.164 — see `MemberProfile.whatsapp`. */
+  whatsapp: string
+  /** Free text: "Lagos, WAT". A human answer, because it picks a call slot. */
+  timezone: string
+  cohortId: string
+  source: RegistrationSource
+  paymentStatus: RegistrationPaymentStatus
+  /** Minor units — kobo for NGN. What was asked for, not what arrived. */
+  amountMinor: number
+  currency: string
+  /** From Paystack: 'card', 'bank_transfer', … `null` until it settles. */
+  paymentChannel: string | null
+  paidAt: Timestamp | null
+  /** Whether the access-code email went out. False is worth being able to find. */
+  emailed: boolean
+  createdAt: Timestamp
+  updatedAt: Timestamp
+}
+
+export type Registration = WithId<RegistrationDoc>
 
 // =============================================================================
 // Cohorts — `cohorts/{cohortId}`
@@ -329,6 +424,21 @@ export type Sex = 'female' | 'male'
 /** Setup answers. Empty string and `null` both mean "not answered yet". */
 export interface MemberProfile {
   displayName: string
+  /**
+   * How the coach reaches this member outside the app.
+   *
+   * Stored on the member rather than left on the access code because it is a
+   * property of the person, not of the seat they bought: the code is claimed
+   * once and then historical, while the number changes and has to be editable.
+   * Seeded from `AccessCodeBase.issuedToWhatsapp` at redemption.
+   *
+   * Empty string when nobody asked — a code issued by hand in the console
+   * never went through the landing form. Not validated here beyond being a
+   * string; the landing form and the profile screen each check the shape, and
+   * a number that is wrong in a way a regex accepts is a support conversation
+   * rather than something the schema can catch.
+   */
+  whatsapp: string
   age: number | null
   sex: Sex | ''
   heightCm: number | null

@@ -48,6 +48,22 @@ const heightCm = ref<number | null>(profile.value?.heightCm ?? null)
 const activity = ref<ActivityLevel | ''>(profile.value?.activity ?? '')
 const healthConditions = ref(profile.value?.healthConditions ?? '')
 const injuries = ref(profile.value?.injuries ?? '')
+const whatsapp = ref(profile.value?.whatsapp ?? '')
+
+/**
+ * The same shape the landing form accepts, checked again here because this is
+ * the only screen where the number can be corrected.
+ *
+ * Blank is fine and not an error: a member whose code was issued by hand never
+ * gave one, and nagging them about a field they were never asked to fill in is
+ * worse than an empty value the coach can chase.
+ */
+const whatsappError = computed(() => {
+  const value = whatsapp.value.trim()
+  return value && !/^\+?[\d\s().-]{7,}$/.test(value)
+    ? 'Include the country code, like +234 801 234 5678.'
+    : ''
+})
 
 const saved = ref(false)
 let savedTimer: ReturnType<typeof setTimeout> | null = null
@@ -67,6 +83,11 @@ const persist = async () => {
     activity: (activity.value || undefined) as ActivityLevel,
     healthConditions: healthConditions.value.trim(),
     injuries: injuries.value.trim(),
+    // Held back while it is malformed, rather than blocking the whole save.
+    // Every other field on this screen blur-saves through here, and losing an
+    // edit to the weight field because a phone number is half-typed would be a
+    // strange way to enforce a phone number.
+    ...(whatsappError.value ? {} : { whatsapp: whatsapp.value.trim() }),
   })
   flashSaved()
 }
@@ -182,6 +203,20 @@ const SNAPSHOT_VALUE = 'text-[17px] font-bold text-on-inverse tabular-nums'
 
       <AppCard variant="raised" class="flex flex-col gap-4.5">
         <TextField v-model="displayName" label="Display name" @blur="persist" />
+
+        <!-- The number the coach uses to add somebody to the cohort's group
+             chat. Seeded from the access code at redemption, so for anyone who
+             came through the landing form this is already filled in and this
+             screen is only here to correct it. -->
+        <TextField
+          v-model="whatsapp"
+          label="WhatsApp number"
+          type="tel"
+          inputmode="tel"
+          placeholder="+234 801 234 5678"
+          :error="whatsappError"
+          @blur="persist"
+        />
 
         <!-- Weight, with the unit switch on the field it governs. -->
         <div>

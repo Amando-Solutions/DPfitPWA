@@ -2,7 +2,7 @@
   "name": "dp-fitness-web",
   "private": true,
   "type": "module",
-  "description": "DP Fitness · Recomp Challenge, public landing site",
+  "description": "DP Fitness \u00b7 Recomp Challenge, public landing site",
   "scripts": {
     "build": "nuxt build",
     "dev": "nuxt dev --port 3001",
@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@dpfit/theme": "workspace:*",
+    "firebase-admin": "^14.3.0",
     "nuxt": "^4.5.2",
     "vue": "^3.5.41",
     "vue-router": "^5.2.0"

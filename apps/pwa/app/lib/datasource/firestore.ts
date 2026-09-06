@@ -150,6 +150,7 @@ const emptyProfile = (): MemberProfile => ({
   activity: '',
   goal: '',
   trainingDaysPerWeek: 4,
+  whatsapp: '',
   healthConditions: '',
   injuries: '',
   avatarUrl: '',
@@ -162,11 +163,16 @@ const emptyProfile = (): MemberProfile => ({
  * them again on the very next screen is asking somebody to retype what they
  * just agreed to share. The email link knows nothing but the address, so that
  * path starts empty and the setup form asks — which is what it is for.
+ *
+ * `whatsapp` arrives from a third place again: the access code, which carried
+ * it from the landing form. It is passed in rather than read off `user`
+ * because no auth provider knows it — see `issuedToWhatsapp`.
  */
-const initialProfile = (user: User): MemberProfile => ({
+const initialProfile = (user: User, whatsapp = ''): MemberProfile => ({
   ...emptyProfile(),
   displayName: user.displayName ?? '',
   avatarUrl: user.photoURL ?? '',
+  whatsapp,
 })
 
 const defaultPreferences = (): MemberPreferences => ({
@@ -462,6 +468,12 @@ export class FirestoreDataSource implements DataSource {
       // but "permission-denied" — several layers below anything that could say
       // which field was missing. See `AccessCodeDoc` for the full shape and
       // `firestore.rules` for the rule this mirrors.
+      //
+      // `issuedToWhatsapp` is deliberately not in this list. The list exists
+      // because a *rule* that reads an absent field errors, and no rule reads
+      // that one — it is only copied into the profile below, where `?? ''`
+      // handles its absence. Requiring it here would reject every code written
+      // before the field existed, in exchange for nothing.
       const missing = (['status', 'expiresAt', 'issuedToEmail', 'cohortId'] as const).filter(
         (field) => !(field in codeData),
       )
@@ -528,7 +540,9 @@ export class FirestoreDataSource implements DataSource {
         programVersion: codeData.programVersion ?? 1,
         accessCode: normalised,
         joinedAt: now,
-        profile: initialProfile(user),
+        // The number the landing form asked for, finally landing somewhere the
+        // member owns. Empty for a code issued by hand, which never had one.
+        profile: initialProfile(user, codeData.issuedToWhatsapp ?? ''),
         prefs: defaultPreferences(),
         stats: emptyStats(),
         createdAt: now,

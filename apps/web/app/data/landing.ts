@@ -11,8 +11,31 @@
  * design, not around it.
  */
 
+/**
+ * The one-time price, in the smallest unit of `PRICE_CURRENCY`.
+ *
+ * Kobo, not naira. Paystack charges in minor units and so does every other
+ * processor, and this is the number that actually leaves somebody's account —
+ * so it is the one that is authored, and the string below is derived from it.
+ * The alternative, a display string beside a separate amount constant, is two
+ * numbers that must agree and a page that can advertise one price while
+ * charging another.
+ *
+ * `server/api/register.post.ts` imports this directly rather than taking it
+ * from configuration, so the amount initialised with Paystack is by
+ * construction the amount on the page.
+ */
+export const PRICE_MINOR = 3_000_000
+
+/** ISO 4217. Paystack validates the pair, so this travels with the amount. */
+export const PRICE_CURRENCY = 'NGN'
+
 /** The one-time price of the challenge, formatted for display. */
-export const PRICE = '₦30,000'
+export const PRICE = new Intl.NumberFormat('en-NG', {
+  style: 'currency',
+  currency: PRICE_CURRENCY,
+  maximumFractionDigits: 0,
+}).format(PRICE_MINOR / 100)
 
 /** Where every "Join the Challenge" call-to-action points. */
 export const REGISTER_ANCHOR = '#register'
@@ -227,7 +250,15 @@ export const PRICE_INCLUDES: string[] = [
 ]
 
 /** The three steps of registration. Only the first is collected on this page. */
-export const REGISTER_STEPS = ['About you', 'Your stats', 'Personalise'] as const
+/**
+ * The three things that happen between arriving and being in the app.
+ *
+ * Was "About you / Your stats / Personalise" — two steps of a longer onboarding
+ * that were designed but never built, and which the member app now asks for
+ * anyway once somebody is inside. What replaced them is the flow that actually
+ * runs: details, payment, and the code that lands in an inbox.
+ */
+export const REGISTER_STEPS = ['Your details', 'Payment', 'Access code'] as const
 
 export interface FaqEntry {
   question: string

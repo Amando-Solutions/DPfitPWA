@@ -31,11 +31,16 @@ bun run dev:web      # the landing site  → http://localhost:3001
 bun run dev:pwa      # the member app    → http://localhost:3000
 ```
 
-Both apps read a local `.env`. The member app ships an example to copy:
+Both apps read a local `.env`, and both ship an example to copy:
 
 ```bash
 cp apps/pwa/.env.example apps/pwa/.env
+cp apps/web/.env.example apps/web/.env
 ```
+
+The landing site's is much shorter and only one thing needs it: the registration
+form, which issues the member's access code and therefore needs a Firebase
+service account. Every other word on that page renders without any of it.
 
 | Script | What it does |
 | --- | --- |
