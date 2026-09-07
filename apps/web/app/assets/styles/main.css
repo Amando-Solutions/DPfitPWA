@@ -1,0 +1,179 @@
+@import 'tailwindcss';
+
+/* The same design system the member app is built from — one palette, one type
+   ramp, one set of control recipes across both. Imported into this file rather
+   than registered as its own `css` entry because `@theme inline` only publishes
+   utilities inside the Tailwind root that pulled in `tailwindcss`. */
+@import '@dpfit/theme/styles/theme.css';
+
+/* Tailwind scans outwards from the stylesheet's own directory, which since the
+   design system moved out of this app points at `packages/theme`. Naming this
+   app explicitly is what keeps `apps/web/app/**` in the scan. */
+@source '../..';
+
+/* =============================================================================
+   Landing page · the handful of values the shared system doesn't already carry
+   -----------------------------------------------------------------------------
+   Almost everything this page needs is already a token: `--text` is the ink,
+   `--text-soft` the secondary ink, `--rose-fill` the accent, `--orange` the
+   warm accent, `--macro-carbs` the green the "this is for you" column uses, and
+   the five `--font-*` families are the same. What follows is only what the
+   marketing composition genuinely introduces.
+
+   The page is pinned to the light palette (`data-theme="light"` in
+   `nuxt.config.ts`) because it is one authored composition — a warm paper page
+   with two deliberately dark panels — rather than a surface someone lives in.
+   That is why these sit on plain `:root` with no dark counterpart.
+   ========================================================================== */
+:root {
+  /* The page itself, and the slightly deeper band that alternating sections sit
+     on. A shade warmer than the app's `--surface`/`--surface-raised`, which is
+     what stops a full-width marketing page reading as grey. */
+  --page: #fbf8f5;
+  --page-deep: #f2ebe5;
+  /* The hero and the closing panel. Deeper than the app's `--surface-inverse`
+     (#241b2e) so the rose and orange glows bloom out of something near-black
+     instead of out of violet. */
+  --night: #0f0a14;
+  /* Type on `--night`. Matches `--page` so the dark panels read as the page
+     inverted rather than as a different brand. */
+  --paper: #fbf8f5;
+
+  /* A third ink, between `--text-soft` and the app's `--text-faint`, for the
+     asides under a price or a submit button. */
+  --ink-mute: #6a5f72;
+
+  /* The rules that divide the numbered lists. Heavier than the app's
+     `--hairline` (0.11) because here they are structure, not just separation. */
+  --rule: rgba(36, 27, 46, 0.14);
+  --rule-soft: rgba(36, 27, 46, 0.1);
+  --rule-faint: rgba(36, 27, 46, 0.08);
+  /* The same idea drawn on `--night`. */
+  --rule-inverse: rgba(255, 255, 255, 0.14);
+
+  /* The release chip on each package row. Its own pair in Figma
+     (`chip-day-surface` / `chip-day-label`) rather than a tint of the ink,
+     because it is warmer than everything around it on purpose. */
+  --chip-quiet: rgba(74, 42, 70, 0.12);
+  --chip-quiet-ink: #4a2a46;
+
+  /* Field surfaces in the registration card. */
+  --field: #fbf8f5;
+  --field-edge: rgba(36, 27, 46, 0.18);
+
+  /* The two-stop wash that paints "Do both at once." and nothing else. */
+  --recomp-gradient: linear-gradient(
+    111.43deg,
+    var(--brand-rose) 6.17%,
+    var(--brand-orange) 93.83%
+  );
+}
+
+@theme inline {
+  --color-page: var(--page);
+  --color-page-deep: var(--page-deep);
+  --color-night: var(--night);
+  --color-paper: var(--paper);
+  --color-ink-mute: var(--ink-mute);
+  --color-rule: var(--rule);
+  --color-rule-soft: var(--rule-soft);
+  --color-rule-faint: var(--rule-faint);
+  --color-rule-inverse: var(--rule-inverse);
+  --color-chip-quiet: var(--chip-quiet);
+  --color-field: var(--field);
+  --color-field-edge: var(--field-edge);
+}
+
+/* =============================================================================
+   Type ramp
+   -----------------------------------------------------------------------------
+   The shared `display-xl / lg / md` utilities are sized for a phone screen a
+   member reads every morning — 34px at the top of the ramp. A landing page
+   opens at 88px. Same families and the same weights, a different scale, so
+   these are additions rather than overrides.
+
+   Each one is fluid between the mobile artboard and the 1400px desktop one, so
+   the page has no width at which the headline is either clipped or marooned.
+   ========================================================================== */
+
+/* The rose or orange kicker above every section heading. */
+@utility eyebrow-section {
+  font-family: var(--font-eyebrow);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+}
+
+/* "Lose the fat. Keep the muscle." — used once, at the top. */
+@utility title-hero {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(2.75rem, 6.4vw, 5.5rem);
+  line-height: 0.95;
+  letter-spacing: -0.038em;
+}
+
+/* Every section heading on the page. */
+@utility title-section {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(2rem, 4vw, 3.125rem);
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+}
+
+/* Card headings inside the three-phase grid, and the "What you get" lead. */
+@utility title-card {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 1.625rem;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+/* The price, at the size the pricing section prints it. */
+@utility title-price {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(3.75rem, 8vw, 6.5rem);
+  line-height: 0.9;
+  letter-spacing: -0.04em;
+}
+
+/* Small uppercase monospace: stat captions, field labels, release chips. */
+@utility meta {
+  font-family: var(--font-data);
+  font-size: 10.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+/* The rose "Do both at once." wash. Needs a painted background clipped to the
+   glyphs, so it cannot be expressed as a colour token. */
+@utility text-recomp {
+  background-image: var(--recomp-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@layer base {
+  body {
+    background: var(--page);
+    color: var(--text);
+  }
+
+  /* Every in-page CTA is an anchor to a section further down, so the jump has
+     to clear the sticky header rather than hiding the heading behind it. */
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 96px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+}

@@ -104,11 +104,60 @@ service cloud.firestore {
             || resource.data.issuedToEmail.lower() == request.auth.token.email.lower())
         // Nothing else moves. Without this, a claim could rewrite `cohortId`
         // and walk into a cohort the member never paid for.
+        //
+        // `issuedToEmail` and `issuedToWhatsapp` are absent from this list for
+        // the same reason and it matters as much: they are who the seat was
+        // sold to. A claim that could rewrite either could point somebody
+        // else's code at itself, or quietly swap the number the coach uses to
+        // reach a member. The buyer changing their own number does it on their
+        // member document, after redemption, where it belongs.
         && changed().hasOnly([
              'status', 'claimedByUid', 'claimedByName', 'claimedAt',
              'updatedAt', 'updatedByUid', 'updatedByEmail'
            ])
       );
+    }
+
+    // --- Registrations -----------------------------------------------------
+    // `registrations/{reference}` — one attempt to buy a seat, keyed by a
+    // reference the landing site generates before the buyer is sent to Selar.
+    //
+    // Written only by `apps/web/server/api/register.post.ts` on the Admin SDK,
+    // which bypasses these rules entirely. That is why every client write is
+    // denied here rather than shape-checked: there is no legitimate client
+    // write to allow, and a rule that permitted one would let anybody forge a
+    // registration against a code they do not hold.
+    //
+    // Nor can a member read their own. It would have to be granted by matching
+    // the address on the document, which means a rule that reads
+    // `resource.data.email` — and that rule *errors* on a code with no
+    // registration behind it, which is every code issued by hand in the
+    // console, taking redemption down with it. The one field a member actually
+    // needs is the WhatsApp number, and that reaches them a safer way: it is
+    // copied onto the access code as `issuedToWhatsapp`, which they can already
+    // read, and from there into their own profile at redemption.
+    match /registrations/{reference} {
+      allow get, list: if isCoach();
+      allow write: if false;
+    }
+
+    // --- Unmatched sales ---------------------------------------------------
+    // `unmatchedSales/{id}` — money that arrived with nothing to attach it to.
+    //
+    // Selar cannot be told our reference, so a sale is matched back to a
+    // registration by the buyer's email address. Somebody who edits that
+    // address on Selar's checkout form, or who buys from the product link
+    // without ever filling in the form, produces a payment this site cannot
+    // fulfil. Rather than lose it to a log line, `api/payment/webhook` writes
+    // it here: a short queue of people who have paid and are owed a code by
+    // hand.
+    //
+    // Same shape of rule as `registrations` above, and for the same reason —
+    // the only writer is the Admin SDK, which bypasses these rules entirely,
+    // so there is no legitimate client write to allow.
+    match /unmatchedSales/{saleId} {
+      allow get, list: if isCoach();
+      allow write: if false;
     }
 
     // --- Programs ----------------------------------------------------------

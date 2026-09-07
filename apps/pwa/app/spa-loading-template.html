@@ -1,0 +1,240 @@
+<!--
+  First paint, before the app boots, and the splash screen itself.
+
+  `/` has no screen of its own any more: it redirects straight to wherever the
+  member left off, so this markup is the only splash there is. It carries the
+  design's full boot frame (corner art, lockup, tagline, loading bar) and is
+  torn down by Nuxt the moment the destination screen is ready, which is why
+  the member sees it exactly once instead of it handing over to a second,
+  identical-looking Vue screen.
+
+  This markup can render before the app's stylesheet is live, so it carries its
+  own copy of the two palettes rather than reading design tokens. It keys off
+  the `data-theme` attribute that the inline boot script in `nuxt.config.ts`
+  puts on <html>, so a dark-mode member never gets a white flash.
+-->
+<div class="dp-boot">
+  <!-- Corner art, in the design's paint order: both discs, then the rings
+       over them. -->
+  <div class="dp-boot__glow dp-boot__glow--rose"></div>
+  <div class="dp-boot__glow dp-boot__glow--violet"></div>
+  <div class="dp-boot__ring dp-boot__ring--top"></div>
+  <div class="dp-boot__ring dp-boot__ring--bottom"></div>
+
+  <div class="dp-boot__center">
+    <!--
+      The lockup, inline rather than fetched. It is the same artwork
+      `BrandLogo` draws in the app; it is copied here because this frame has to
+      paint before any bundle is live, and a shared component cannot.
+    -->
+    <svg class="dp-boot__mark" viewBox="0 0 119 93" fill="none" role="img" aria-label="DP Fitness">
+      <path d="M23.4668 92V71H32.0468C37.0568 71 40.0868 73.94 40.0868 78.26V78.32C40.0868 83.21 36.3068 85.7 31.5968 85.7H28.0868V92H23.4668ZM28.0868 81.59H31.7468C34.0568 81.59 35.4068 80.21 35.4068 78.41V78.35C35.4068 76.28 33.9668 75.17 31.6568 75.17H28.0868V81.59Z" fill="currentColor"/>
+      <path d="M0 92V71H8.19C14.79 71 19.35 75.53 19.35 81.44V81.5C19.35 87.41 14.79 92 8.19 92H0ZM8.19 75.17H4.62V87.83H8.19C11.94 87.83 14.52 85.28 14.52 81.56V81.5C14.52 77.78 11.94 75.17 8.19 75.17Z" fill="currentColor"/>
+      <path d="M115.617 92.2C114.537 92.2 113.537 91.84 112.697 91.08L113.437 90.2C114.117 90.79 114.777 91.11 115.647 91.11C116.407 91.11 116.887 90.75 116.887 90.23V90.21C116.887 89.72 116.607 89.43 115.307 89.14C113.817 88.79 112.977 88.33 112.977 87.05V87.03C112.977 85.83 113.977 85 115.367 85C116.397 85 117.187 85.31 117.907 85.88L117.247 86.81C116.607 86.34 115.987 86.09 115.347 86.09C114.627 86.09 114.207 86.45 114.207 86.92V86.94C114.207 87.48 114.527 87.72 115.877 88.04C117.347 88.42 118.117 88.92 118.117 90.09V90.11C118.117 91.43 117.087 92.2 115.617 92.2Z" fill="currentColor"/>
+      <path d="M105.318 92.2C104.238 92.2 103.238 91.84 102.398 91.08L103.138 90.2C103.818 90.79 104.478 91.11 105.348 91.11C106.108 91.11 106.588 90.75 106.588 90.23V90.21C106.588 89.72 106.308 89.43 105.008 89.14C103.518 88.79 102.678 88.33 102.678 87.05V87.03C102.678 85.83 103.678 85 105.068 85C106.098 85 106.888 85.31 107.608 85.88L106.948 86.81C106.308 86.34 105.688 86.09 105.048 86.09C104.328 86.09 103.908 86.45 103.908 86.92V86.94C103.908 87.48 104.228 87.72 105.578 88.04C107.048 88.42 107.818 88.92 107.818 90.09V90.11C107.818 91.43 106.788 92.2 105.318 92.2Z" fill="currentColor"/>
+      <path d="M92.1688 92.1V85.1H97.3588V86.2H93.3988V88.02H96.9088V89.13H93.3988V91H97.4088V92.1H92.1688Z" fill="currentColor"/>
+      <path d="M80.2684 92.1V85.1H81.4084L85.1584 89.94V85.1H86.3684V92.1H85.3384L81.4784 87.12V92.1H80.2684Z" fill="currentColor"/>
+      <path d="M71.5331 92.1V86.24H69.3031V85.1H74.9931V86.24H72.7631V92.1H71.5331Z" fill="currentColor"/>
+      <path d="M62.7193 92.1V85.1H63.9493V92.1H62.7193Z" fill="currentColor"/>
+      <path d="M52.0868 92.1V85.1H57.2968V86.22H53.3168V88.13H56.8468V89.25H53.3168V92.1H52.0868Z" fill="currentColor"/>
+      <path d="M58.7048 54.0342L58.707 51.0685L59.1472 50.7496C59.8028 50.2747 61.0286 49.1028 61.7756 48.2366C63.5147 46.2201 64.7542 44.0961 66.3537 40.3917C67.3159 38.1629 67.7644 37.2371 68.2964 36.381C69.7489 34.0437 71.9403 32.1917 74.5461 31.0991C76.4552 30.2986 78.4262 29.9272 81.477 29.7933C82.0906 29.7663 82.9043 29.7103 83.2851 29.6687C87.1991 29.2417 90.0773 27.5566 91.8107 24.6775C92.8825 22.8973 93.3458 21.1342 93.3427 18.8468C93.3402 16.9421 93.0609 15.669 92.3274 14.2192C90.9827 11.5615 88.3984 9.77617 84.7855 9.00919C83.6322 8.76437 80.6945 8.70372 79.3117 8.89618C74.7794 9.52701 71.4195 11.1361 68.6657 13.9945C66.4517 16.2926 65.0274 19.1937 64.249 22.9908C63.9515 24.4417 63.8145 25.5882 63.6651 27.8781C63.3986 31.9641 63.0635 34.101 62.2851 36.6797C59.9824 44.3082 55.52 49.7727 48.8926 53.0795C45.281 54.8816 41.5063 55.9891 37.2361 56.4994C34.0439 56.8809 34.4664 56.8681 23.9446 56.9018L14 56.9337L14.0006 52.2025C14.0016 45.2961 14.1356 44.0016 15.1244 41.3484C15.9368 39.1686 16.9993 37.4911 19.2492 34.836C21.8549 31.7611 22.5012 30.9276 23.3094 29.6001C25.7572 25.5794 26.1478 21.4785 24.5574 16.496C24.4806 16.2553 24.3988 16.0396 24.3757 16.0166C24.3525 15.9936 24.3129 16.6899 24.2877 17.5639C24.1963 20.7279 23.6955 23.027 22.5704 25.4483C21.4257 27.9117 20.1579 29.5068 16.3893 33.2254L14.3054 35.2816L14.3194 23.1609C14.3271 16.4945 14.348 8.67235 14.3658 5.77833L14.3982 0.516484L24.0667 0.517069C34.0971 0.51765 35.2525 0.546621 37.8303 0.861835C44.3796 1.66267 50.3625 4.31499 54.5041 8.25359L55.2344 8.94806L54.5403 9.80278C53.3111 11.3165 52.4605 12.6496 51.6917 14.2676C51.2379 15.2228 50.5915 16.8822 50.3586 17.6899C50.2872 17.9375 50.2003 18.1097 50.1655 18.0725C50.1307 18.0354 49.8127 17.6206 49.4589 17.1508C47.844 15.0067 46.3408 13.5876 44.1607 12.1492C41.4226 10.3425 38.2348 9.30823 34.2353 8.92888C33.5528 8.86415 31.9926 8.85008 28.862 8.88043C26.4357 8.90396 24.4347 8.93895 24.4153 8.95819C24.3345 9.0386 24.715 10.5757 25.0077 11.3512C25.6194 12.9718 26.1567 13.9618 27.1317 15.2646C28.5174 17.1161 30.2727 18.6549 32.5295 19.9964C33.521 20.5857 33.5747 20.6622 33.5233 21.412C33.4798 22.0456 33.2643 22.5291 32.8098 23.0124C32.32 23.5333 31.7915 23.8546 30.9676 24.1327C30.2939 24.36 30.2734 24.3739 30.2893 24.5919C30.2983 24.7155 30.3135 25.3505 30.3232 26.0029C30.3441 27.4179 30.2202 28.2091 29.7659 29.5619C29.3442 30.8179 28.77 31.8686 27.3289 34.0214C25.5044 36.747 24.7892 38.2548 24.3796 40.2386C24.149 41.3558 24.1298 43.4189 24.3408 44.4098C24.685 46.0259 25.4551 47.6523 26.2193 48.3772L26.4481 48.5942L29.2453 48.5973C30.7838 48.5991 32.5099 48.5606 33.0812 48.5119C40.6598 47.8664 46.0075 45.1378 49.2955 40.2386C50.8791 37.8791 51.9646 34.9276 52.4221 31.7374C52.6095 30.4307 52.6558 29.9473 52.8983 26.7683C53.3188 21.2554 54.5571 17.1006 56.9986 13.0106C60.4765 7.18434 66.3162 2.87849 73.1667 1.08929C77.9565 -0.161707 83.3085 -0.344365 87.8278 0.588926C96.52 2.38396 102.366 8.06815 103.747 16.068C104.295 19.2419 103.947 22.6346 102.763 25.6776C102.169 27.2055 100.977 29.2476 99.8925 30.5951C96.6283 34.6527 91.6305 37.2218 85.6702 37.906C84.9559 37.988 83.3877 38.0526 81.0153 38.0977C78.3245 38.1489 77.295 38.1949 76.8627 38.2832C74.3933 38.7875 72.4091 40.2181 71.399 42.2226C71.2627 42.4929 71.0608 43.044 70.9501 43.4472L70.7489 44.1802L70.723 50.5901L70.6971 57H64.6999H58.7026L58.7048 54.0342Z" fill="var(--boot-mark)"/>
+    </svg>
+    <div class="dp-boot__accent"></div>
+    <p class="dp-boot__tagline">Train with purpose &middot; Transform with proof</p>
+  </div>
+
+  <div class="dp-boot__loading">
+    <div class="dp-boot__track"><div class="dp-boot__fill"></div></div>
+  </div>
+</div>
+
+<style>
+  .dp-boot {
+    /*
+      The corner art is authored at the design frame's 412 x 892, so every size
+      and offset below is that file's number. `--art` scales the whole set
+      together on the wider desktop surface. Change it, not the geometry.
+    */
+    --art: 1;
+    /* The app's light palette, inlined: --surface, --text, --rose-fill and the
+       three splash-art colours. Keep in step with `assets/styles/main.css`. */
+    --boot-bg: #f3eae4;
+    --boot-ink: #241b2e;
+    /* The logo's plum. Mirrors `--brand-mark` in the design system. */
+    --boot-mark: #430f32;
+    --boot-accent: #c81e5c;
+    --boot-glow-rose: rgba(200, 30, 92, 0.5);
+    --boot-glow-violet: rgba(36, 27, 46, 0.8);
+    --boot-ring: rgba(200, 30, 92, 0.7);
+
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: var(--boot-bg);
+    /* Matches `--font-data`. The webfont arrives with `display=swap`, so this
+       may paint in the fallback for a frame, and the fallback is the same stack
+       the app itself falls back to. */
+    font-family: "Space Mono", ui-monospace, monospace;
+  }
+
+  [data-theme="dark"] .dp-boot {
+    --boot-bg: #14101a;
+    --boot-ink: #f5f0ea;
+    /* On the near-black the brand's own answer is the all-white lockup, so the
+       mark stops being plum and joins the wordmark. */
+    --boot-mark: #f5f0ea;
+    --boot-accent: #d6295f;
+    --boot-glow-rose: rgba(255, 134, 168, 0.5);
+    /* Dark mode flips the violet disc from ink to a lifted mauve, because a glow that
+       darkens is invisible on a dark page. */
+    --boot-glow-violet: rgba(150, 132, 172, 0.35);
+    --boot-ring: rgba(255, 134, 168, 0.6);
+  }
+
+  .dp-boot__glow,
+  .dp-boot__ring {
+    position: absolute;
+    border-radius: 50%;
+    pointer-events: none;
+  }
+
+  /* Solid discs behind a heavy blur, not radial gradients: a gradient starts
+     fading at its own centre, which reads as haze rather than as light. */
+  .dp-boot__glow--rose {
+    width: calc(330px * var(--art));
+    height: calc(330px * var(--art));
+    top: calc(-180px * var(--art));
+    right: calc(-178px * var(--art));
+    background: var(--boot-glow-rose);
+    filter: blur(calc(32px * var(--art)));
+  }
+
+  .dp-boot__glow--violet {
+    width: calc(360px * var(--art));
+    height: calc(360px * var(--art));
+    bottom: calc(-130px * var(--art));
+    left: calc(-220px * var(--art));
+    background: var(--boot-glow-violet);
+    filter: blur(calc(38px * var(--art)));
+  }
+
+  /* Hairline rings, each roughly concentric with the disc it sits over. */
+  .dp-boot__ring {
+    width: calc(250px * var(--art));
+    height: calc(250px * var(--art));
+    border: 1px solid var(--boot-ring);
+  }
+
+  .dp-boot__ring--top {
+    top: calc(-72px * var(--art));
+    right: calc(-134px * var(--art));
+  }
+
+  .dp-boot__ring--bottom {
+    bottom: calc(-72px * var(--art));
+    left: calc(-134px * var(--art));
+  }
+
+  .dp-boot__center {
+    position: relative;
+    z-index: 1;
+    margin: auto;
+    padding: 40px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 15px;
+  }
+
+  /*
+    Drawn rather than fetched, which is the whole point of it being here: the
+    splash is the very first paint, and an inline path costs no request at all
+    where the two PNG exports this replaced cost one that could not even start
+    until the theme was known. Both colourways now fall out of the palette
+    above — the wordmark takes `--boot-ink` through `currentColor` and the mark
+    takes `--boot-mark` — so there is nothing left to preload and nothing to
+    swap. 119:93 is the artwork's own ratio.
+  */
+  .dp-boot__mark {
+    width: 118px;
+    height: 92px;
+    color: var(--boot-ink);
+  }
+
+  .dp-boot__accent {
+    width: 52px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--boot-accent);
+  }
+
+  .dp-boot__tagline {
+    margin: 0;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.15px;
+    font-size: 9.5px;
+    line-height: 14px;
+    color: var(--boot-ink);
+  }
+
+  .dp-boot__loading {
+    position: relative;
+    z-index: 1;
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+    display: grid;
+    place-items: center;
+  }
+
+  .dp-boot__track {
+    width: 68px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--boot-ink);
+    overflow: hidden;
+  }
+
+  /*
+    Indeterminate rather than a bar filling to 100%: this frame lives for
+    however long boot actually takes, which nothing here knows in advance. A
+    fixed-duration fill would either finish early and sit at full, reading as
+    stuck, or still be crawling when the app replaces it. The slide is
+    composited (`transform` only), so it stays smooth through the busiest
+    moment in the app's life.
+  */
+  .dp-boot__fill {
+    width: 40%;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--boot-accent);
+    animation: dp-boot-slide 1.1s ease-in-out infinite;
+  }
+
+  @keyframes dp-boot-slide {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(250%); }
+  }
+
+  /* With motion reduced, show the track filled rather than leaving an empty
+     one for the duration. */
+  @media (prefers-reduced-motion: reduce) {
+    .dp-boot__fill {
+      width: 100%;
+      animation: none;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .dp-boot {
+      --art: 1.55;
+    }
+
+    /* The art already hangs off the screen corners here, so this frame is
+       viewport-sized, unlike the width-capped app surface underneath it. */
+    .dp-boot__center {
+      transform: scale(1.35);
+    }
+  }
+</style>
