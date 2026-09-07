@@ -825,11 +825,26 @@ export type SignInLinkStatus =
 /**
  * Where a member lands after sign-in.
  *
- * `needs-code` is the state that only exists because auth and cohort membership
- * are separate: a valid Firebase user with no member document is somebody who
- * clicked their link but has not redeemed a code yet.
+ * The first three exist because auth and cohort membership are separate facts,
+ * and the routing goes wrong in a different way for each:
+ *
+ *   `needs-auth`  nobody is signed in. The sign-in half of `/access-code`.
+ *   `needs-code`  signed in, and the member document is *known* to be absent.
+ *                 The code half.
+ *   `unknown`     signed in, and the member document could not be read at all
+ *                 — offline, blocked, or refused. Not the same as not having
+ *                 one, and it must never be answered with the code prompt: a
+ *                 member who redeemed weeks ago would be asked for a code they
+ *                 no longer have, and told it was already used when they typed
+ *                 it. This state asks them to retry instead.
  */
-export type MemberGate = 'needs-code' | 'needs-setup' | 'ready' | 'paused'
+export type MemberGate =
+  | 'needs-auth'
+  | 'needs-code'
+  | 'unknown'
+  | 'needs-setup'
+  | 'ready'
+  | 'paused'
 
 // =============================================================================
 // View models

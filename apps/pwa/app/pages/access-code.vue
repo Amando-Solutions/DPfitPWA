@@ -31,8 +31,16 @@ const store = useAppStore()
  * into submitting the address and the `sent` phase never appears. The screen
  * reads `store.instantSignIn` to know that in advance — a button offering to
  * email a link that will not be emailed is worse than no button.
+ *
+ * `blocked` is the fourth answer and the one that was missing. A session with
+ * an unreadable member document is not a session with no membership, and it
+ * used to render as the code prompt: a member of eight weeks asked for a code
+ * they redeemed on day one, told it had already been used when they found it,
+ * and shown no sign-in control to escape with, because they were signed in the
+ * whole time. It asks them to try the read again instead.
  */
-const phase = computed<'email' | 'sent' | 'code'>(() => {
+const phase = computed<'email' | 'sent' | 'code' | 'blocked'>(() => {
+  if (store.gate.value === 'unknown') return 'blocked'
   if (store.authUser.value) return 'code'
   return linkSent.value ? 'sent' : 'email'
 })
@@ -48,7 +56,7 @@ const linkSent = ref(false)
  * One ref rather than a flag per button: only one of these can be running at a
  * time, and the others have to be disabled while it is.
  */
-const busy = ref<'' | 'link' | 'google' | 'code'>('')
+const busy = ref<'' | 'link' | 'google' | 'code' | 'retry' | 'switch'>('')
 
 /**
  * Opening the link on a *different* device from the one that asked for it.
@@ -73,7 +81,7 @@ const message = (cause: unknown) =>
  * holding on to somebody it is already finished with.
  */
 const settle = async () => {
-  if (store.gate.value === 'needs-code') return
+  if (store.atTheDoor.value) return
   await router.replace(store.gate.value === 'needs-setup' ? FIRST_SETUP_STEP : '/home')
 }
 
@@ -183,7 +191,69 @@ const redeem = async () => {
   error.value = ''
   try {
     await store.redeemAccessCode(code.value)
-    await router.push(FIRST_SETUP_STEP)
+    // Through the gate rather than straight at the setup step. Redemption
+    // reloads the account, and that read can fail on the way back — in which
+    // case pushing at a route the member is no longer cleared for only has
+    // middleware bounce them here again. `settle` also replaces rather than
+    // pushes, so Back does not return to a code field that is now spent.
+    await settle()
+  } catch (cause) {
+    error.value = message(cause)
+  } finally {
+    busy.value = ''
+  }
+}
+
+/**
+ * Try the account read again.
+ *
+ * The only action offered in `blocked`, and the only one that can help: the
+ * session is fine, the document is not — an ad blocker on
+ * `firestore.googleapis.com`, a dead train tunnel, a rule that refused. All of
+ * those are fixed elsewhere and then retried, which is a button rather than
+ * "close the app and open it again", the workaround this state used to need.
+ *
+ * `hydrate` catches everything it can hit, so the failure comes back through
+ * `startupError` instead of a rejection.
+ */
+const retry = async () => {
+  if (busy.value) return
+  busy.value = 'retry'
+  error.value = ''
+  try {
+    await store.hydrate(true)
+    if (store.startupError.value) {
+      error.value = store.startupError.value
+      store.startupError.value = ''
+    }
+    await settle()
+  } finally {
+    busy.value = ''
+  }
+}
+
+/**
+ * Leave the session and go back to the sign-in half.
+ *
+ * The escape hatch, and the reason this screen was a trap without it. Every
+ * state below `ready` that involves being signed in — the code prompt, an
+ * unreadable account — used to render with no control that ends the session,
+ * on the one screen a member in that state is allowed to reach. Signing in as
+ * somebody else was impossible, because there was nothing on the page offering
+ * to sign in: they already were. That matters most when the session is the
+ * problem, which is the ordinary case here — a code issued to one address and
+ * a browser signed in with another goes round for ever otherwise.
+ */
+const useAnotherAccount = async () => {
+  if (busy.value) return
+  busy.value = 'switch'
+  error.value = ''
+  try {
+    await store.signOut()
+    code.value = ''
+    email.value = ''
+    linkSent.value = false
+    confirmingEmail.value = false
   } catch (cause) {
     error.value = message(cause)
   } finally {
@@ -193,15 +263,29 @@ const redeem = async () => {
 
 const submit = () => {
   if (confirmingEmail.value) return confirmEmail()
+  if (phase.value === 'blocked') return retry()
   return phase.value === 'code' ? redeem() : sendLink()
 }
 
 /** What the one button is about to do, in the member's words. */
 const submitLabel = computed(() => {
+  if (busy.value === 'retry') return 'Trying again…'
   if (busy.value === 'link' || busy.value === 'code') return 'Checking…'
+  if (phase.value === 'blocked') return 'Try again'
   if (phase.value === 'code' || store.instantSignIn) return 'Continue'
   return 'Email me a link'
 })
+
+/**
+ * The address the outstanding step is being asked of.
+ *
+ * Printed on both signed-in steps, because the commonest way to be stuck on
+ * either is to be signed in as the wrong person and have no way to see it. A
+ * code issued to one address, typed into a browser holding a session for
+ * another, fails with "issued to a different email address" and no way to find
+ * out which — the screen never said whose session it was.
+ */
+const signedInAs = computed(() => store.authUser.value?.email ?? '')
 
 /**
  * The step, named.
@@ -216,6 +300,7 @@ const submitLabel = computed(() => {
  */
 const heading = computed(() => {
   if (confirmingEmail.value) return 'Confirm your email'
+  if (phase.value === 'blocked') return 'Couldn’t load your account'
   if (phase.value === 'sent') return 'Check your inbox'
   if (phase.value === 'code') return 'Enter your access code'
   return 'Sign in'
@@ -232,6 +317,11 @@ const standfirst = computed(() => {
   if (confirmingEmail.value) {
     return 'This link was opened on a different device from the one that asked for it.'
   }
+  if (phase.value === 'blocked') {
+    // Deliberately does not say "you are not a member": nothing here knows
+    // that. The read failed, and the two look identical from this side.
+    return 'You’re signed in, but we couldn’t reach your account just now.'
+  }
   if (phase.value === 'sent') return 'The link signs you in — no password to remember.'
   if (phase.value === 'code') return 'It was sent to you once your payment was confirmed.'
   return 'Use the email you paid with.'
@@ -240,6 +330,11 @@ const standfirst = computed(() => {
 /** Google has nothing to offer once the session exists, or mid-link-confirm. */
 const showGoogle = computed(
   () => store.googleSignIn && phase.value === 'email' && !confirmingEmail.value,
+)
+
+/** The signed-in steps, which are the ones that need a way back out. */
+const showSwitchAccount = computed(
+  () => (phase.value === 'code' || phase.value === 'blocked') && !confirmingEmail.value,
 )
 
 // Clear the error as soon as the member edits either field.
@@ -320,6 +415,16 @@ watch([code, email], () => {
           placeholder="you@example.com"
           :error="error"
         />
+        <!-- `blocked` has nothing to type. The read failed, so the only fact
+             worth printing is why, and the only useful control is the retry
+             below. Carried here rather than on a field's `:error` because
+             there is no field on this step. -->
+        <p
+          v-else-if="phase === 'blocked'"
+          class="access__blocked m-0 text-[14px] leading-normal text-(--violet-45)"
+        >
+          {{ error || 'Check your connection, then try again. An ad blocker or privacy extension can block it too.' }}
+        </p>
         <p
           v-else
           class="access__sent m-0 text-[14px] leading-normal text-(--violet-45)"
@@ -339,6 +444,31 @@ watch([code, email], () => {
         <AppButton v-else variant="ghost" :disabled="busy !== ''" @click="linkSent = false">
           Use a different email
         </AppButton>
+
+        <!--
+          The way out, on the two steps that have a session behind them.
+
+          It names the address first. Both steps fail in the same silent way —
+          a code issued to one inbox typed into a browser signed in as another
+          — and the screen used to keep the one fact that explains it to
+          itself, while offering nothing that could end the session either.
+        -->
+        <div
+          v-if="showSwitchAccount"
+          class="access__whoami flex flex-col items-center gap-1 pt-0.5 text-center"
+        >
+          <p v-if="signedInAs" class="m-0 text-[13px] leading-normal text-muted">
+            Signed in as <strong class="text-ink font-semibold">{{ signedInAs }}</strong>
+          </p>
+          <button
+            type="button"
+            class="access__switch pt-1 pb-1 text-[13px] font-bold text-rose disabled:opacity-50"
+            :disabled="busy !== ''"
+            @click="useAnotherAccount"
+          >
+            {{ busy === 'switch' ? 'Signing out…' : 'Not you? Use a different account' }}
+          </button>
+        </div>
       </AppCard>
     </form>
 

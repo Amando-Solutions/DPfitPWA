@@ -492,12 +492,31 @@ export class FirestoreDataSource implements DataSource {
       if (codeData.status === 'revoked') {
         throw new DataSourceError('That code has been revoked. Contact support.', 'invalid-code')
       }
-      if (codeData.status === 'claimed') {
+
+      /**
+       * This account's own claim, with no member document behind it.
+       *
+       * The seat is already theirs — `claimedByUid` says so — and the early
+       * return above did not fire, so the document that seat pays for is gone:
+       * deleted, or never written because something failed between the two
+       * halves of a previous transaction. Every check below is about whether a
+       * *new* claim is allowed, and none of them apply to a seat that was
+       * bought and claimed months ago. Answering "that code has already been
+       * used" to the person who used it is the one reply that leaves them with
+       * nothing to do, on the one screen they are allowed to reach.
+       *
+       * Nothing is granted here that the claim did not already grant: the code
+       * is not re-claimed, only the member document is rebuilt, and it is
+       * rebuilt for the uid the code already names.
+       */
+      const reclaiming = codeData.status === 'claimed' && codeData.claimedByUid === user.uid
+
+      if (codeData.status === 'claimed' && !reclaiming) {
         throw new DataSourceError('That code has already been used.', 'code-claimed')
       }
       // Anything else is not a state the rule will claim from: it requires
       // `status == 'unused'` exactly, so a typo denies the write in silence.
-      if (codeData.status !== 'unused') {
+      if (!reclaiming && codeData.status !== 'unused') {
         console.error(
           `[datasource] accessCodes/${normalised} has status "${codeData.status}". ` +
             'The claim rule requires exactly "unused".',
@@ -507,7 +526,10 @@ export class FirestoreDataSource implements DataSource {
           'invalid-code',
         )
       }
-      if (codeData.expiresAt.toMillis() < Date.now()) {
+      // Expiry is a deadline on redeeming, not on the membership it bought. A
+      // seat claimed inside the window stays claimed after it closes, so this
+      // is only asked of a code being claimed now.
+      if (!reclaiming && codeData.expiresAt.toMillis() < Date.now()) {
         throw new DataSourceError('That code has expired. Contact support.', 'code-expired')
       }
       // A code issued against a purchase can only be redeemed by that buyer,
@@ -527,6 +549,11 @@ export class FirestoreDataSource implements DataSource {
       }
 
       const now = Timestamp.now()
+      // The challenge clock runs from here, and for a rebuilt document that
+      // has to be the original claim rather than today — otherwise a member in
+      // week six comes back to the app in week one, with their own logged
+      // sessions sitting in weeks that no longer exist.
+      const joinedAt = (reclaiming && codeData.claimedAt) || now
       const created: MemberDoc = {
         email: user.email ?? '',
         emailVerified: user.emailVerified,
@@ -539,7 +566,7 @@ export class FirestoreDataSource implements DataSource {
         programId: codeData.programId ?? '',
         programVersion: codeData.programVersion ?? 1,
         accessCode: normalised,
-        joinedAt: now,
+        joinedAt,
         // The number the landing form asked for, finally landing somewhere the
         // member owns. Empty for a code issued by hand, which never had one.
         profile: initialProfile(user, codeData.issuedToWhatsapp ?? ''),
@@ -552,17 +579,23 @@ export class FirestoreDataSource implements DataSource {
       }
 
       tx.set(memberRef, created)
-      tx.update(codeRef, {
-        status: 'claimed',
-        claimedByUid: user.uid,
-        // The console shows this beside the claimed code, so it takes the real
-        // name when the provider gave one and falls back to the address.
-        claimedByName: user.displayName || user.email || '',
-        claimedAt: now,
-        updatedAt: now,
-        updatedByUid: user.uid,
-        updatedByEmail: user.email ?? '',
-      })
+      // Only a first claim writes to the code. A rebuild has nothing to say
+      // there — the seat is already marked claimed, by this uid, at the instant
+      // it happened — and the rule would refuse it anyway: it allows the
+      // `unused` → `claimed` transition and nothing else.
+      if (!reclaiming) {
+        tx.update(codeRef, {
+          status: 'claimed',
+          claimedByUid: user.uid,
+          // The console shows this beside the claimed code, so it takes the
+          // real name when the provider gave one and falls back to the address.
+          claimedByName: user.displayName || user.email || '',
+          claimedAt: now,
+          updatedAt: now,
+          updatedByUid: user.uid,
+          updatedByEmail: user.email ?? '',
+        })
+      }
 
       return { id: user.uid, ...created }
     })

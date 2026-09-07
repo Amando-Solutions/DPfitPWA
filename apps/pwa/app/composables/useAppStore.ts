@@ -52,6 +52,17 @@ interface AppState {
   /** The Firebase user. Present without a `member` between sign-in and redemption. */
   authUser: AuthUser | null
   member: Member | null
+  /**
+   * Whether the member document could not be read, as opposed to not existing.
+   *
+   * `member: null` used to carry both meanings, and the two want opposite
+   * screens. "You have not redeemed a code" asks for a code. "We could not
+   * reach your account" must not: a member who redeemed weeks ago would be
+   * asked for a code they no longer have, and told it had already been used
+   * when they dug it out — with no way back to the sign-in screen, because
+   * they *are* signed in. See `gate`.
+   */
+  memberUnreadable: boolean
   sessions: SessionLog[]
   activeSession: ActiveSessionDoc | null
   checkIns: CheckIn[]
@@ -85,6 +96,7 @@ const emptyState = (): AppState => ({
   nowMs: Date.now(),
   authUser: null,
   member: null,
+  memberUnreadable: false,
   sessions: [],
   activeSession: null,
   checkIns: [],
@@ -130,6 +142,11 @@ const buildStore = () => {
   const hydrate = async (force = false) => {
     if (state.value.hydrated && !force) return
 
+    // A re-run re-answers the question, so the previous answer's failure does
+    // not survive it. Without this a retry that succeeds still hands the screen
+    // the error that prompted it.
+    startupError.value = ''
+
     // Before anything asks who is signed in. A load returning from a Google
     // redirect carries its credentials in the URL, and they have to be
     // consumed here or the reads below run as nobody and route middleware
@@ -154,13 +171,38 @@ const buildStore = () => {
     // ad blocker is refusing `firestore.googleapis.com`, or who is simply on a
     // bad train, gets the sign-in screen and a reason; reloading recovers.
     let authUser: AuthUser | null = null
-    let member: Member | null = null
     try {
-      ;[authUser, member] = await Promise.all([data.getAuthUser(), data.getMember()])
+      authUser = await data.getAuthUser()
     } catch (cause) {
       startupError.value = readMessage(cause)
       state.value = { ...emptyState(), hydrated: true, nowMs: trustedNow().getTime() }
       return
+    }
+
+    // Two reads, in order, rather than one `Promise.all`.
+    //
+    // They were parallel, and a rejected member read took the auth answer down
+    // with it: `Promise.all` rejects whole, so `authUser` stayed at its `null`
+    // seed and a signed-in member was written back into the store as nobody.
+    // The screens then asked them to sign in — while they were signed in — and
+    // the sign-in they were being offered was for a session they already had.
+    //
+    // Nothing was gained by the parallelism either: `getMember` waits on the
+    // same session restore `getAuthUser` does before it can name a document, so
+    // the second read never started early. Sequencing it also means a signed-out
+    // visitor makes no member read at all.
+    let member: Member | null = null
+    let memberUnreadable = false
+    if (authUser) {
+      try {
+        member = await data.getMember()
+      } catch (cause) {
+        // Signed in, and the document could not be read. Keep the session and
+        // say so: this is `gate === 'unknown'`, and the difference between a
+        // retry and being asked for an access code that was redeemed weeks ago.
+        startupError.value = readMessage(cause)
+        memberUnreadable = true
+      }
     }
 
     // Everything past this point hangs off the member document — their logs,
@@ -173,7 +215,13 @@ const buildStore = () => {
     // that state needs. So the load stops here for them, with the rest of the
     // state at its defaults and eight round trips not made.
     if (!member) {
-      state.value = { ...emptyState(), hydrated: true, nowMs: trustedNow().getTime(), authUser }
+      state.value = {
+        ...emptyState(),
+        hydrated: true,
+        nowMs: trustedNow().getTime(),
+        authUser,
+        memberUnreadable,
+      }
       return
     }
 
@@ -223,6 +271,7 @@ const buildStore = () => {
       nowMs: trustedNow().getTime(),
       authUser,
       member,
+      memberUnreadable: false,
       sessions,
       activeSession,
       checkIns,
@@ -267,13 +316,27 @@ const buildStore = () => {
    * Auth and cohort membership are separate facts now that sign-in is an email
    * link, so "signed in" is no longer the same question as "has an account
    * here". Route middleware branches on this rather than re-deriving it.
+   *
+   * The three states before `needs-setup` are the ones worth keeping apart. A
+   * missing member document used to mean all three at once, so a signed-in
+   * member whose account simply could not be read was handed the access-code
+   * prompt — the one screen with no way back to sign-in, asking for a code
+   * they redeemed weeks ago and no longer have.
    */
-  const gate = computed<MemberGate | null>(() => {
+  const gate = computed<MemberGate>(() => {
+    if (!state.value.authUser) return 'needs-auth'
+    if (state.value.memberUnreadable) return 'unknown'
     if (!state.value.member) return 'needs-code'
     if (state.value.member.status === 'paused') return 'paused'
     if (state.value.member.status === 'onboarding') return 'needs-setup'
     return 'ready'
   })
+
+  /** Nobody is in the app yet, whichever of the three reasons applies. */
+  const atTheDoor = computed(
+    () =>
+      gate.value === 'needs-auth' || gate.value === 'needs-code' || gate.value === 'unknown',
+  )
 
   const displayName = computed(() => profile.value?.displayName?.trim() || 'there')
 
@@ -495,9 +558,23 @@ const buildStore = () => {
   }
 
   // --- Actions: membership -------------------------------------------------
+  /**
+   * Redeem a code and load everything that hangs off the membership it creates.
+   *
+   * Hydration deliberately stops at the member document when there isn't one,
+   * so a visitor arriving at this call has a store at its defaults: no
+   * preferences, no cohort notifications, an empty leaderboard. Setting
+   * `member` alone left all of that empty for the rest of the session — the
+   * board showed a cohort of one and the inbox showed nothing until the member
+   * happened to reload. The full load belongs here, at the moment the paths it
+   * reads through start resolving.
+   */
   const redeemAccessCode = async (code: string) => {
     const account = await data.redeemAccessCode(code)
-    state.value.member = account
+    // No `state.value.member = account` first: `hydrate` replaces the state
+    // whole, so it would only be overwritten a line later. The document was
+    // just committed by this client, so the read below sees it.
+    await hydrate(true)
     return account
   }
 
@@ -743,6 +820,7 @@ const buildStore = () => {
     isAuthenticated,
     isSetupComplete,
     gate,
+    atTheDoor,
     displayName,
     now,
     nowTs,
