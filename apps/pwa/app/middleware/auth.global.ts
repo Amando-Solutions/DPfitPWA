@@ -5,11 +5,13 @@
  *   member, no setup   → the setup steps
  *   member, setup done → the app; the intro screens bounce to Home
  *
- * "No member" now covers two different situations, because sign-in and cohort
+ * "No member" covers three different situations, because sign-in and cohort
  * membership came apart when auth became an email link: nobody signed in at
- * all, and somebody signed in who has not redeemed a code yet. Both belong on
+ * all, somebody signed in who has not redeemed a code yet, and somebody signed
+ * in whose member document could not be read. All three belong on
  * `/access-code`, which shows whichever half is outstanding, so the routing
- * decision stays one branch. See `store.gate`.
+ * decision stays one branch — but they are three answers there, not one, and
+ * the page has to be able to tell them apart. See `store.gate`.
  *
  * `/` is exempt: it has no screen of its own. The boot splash in
  * `spa-loading-template.html` covers the first paint, and `pages/index.vue`
@@ -52,8 +54,9 @@ export default defineNuxtRouteMiddleware((to) => {
   const isPublic = PUBLIC_ROUTES.includes(to.path)
   const isSetup = SETUP_ROUTES.includes(to.path)
 
-  // No member document: only the intro flow is reachable, signed in or not.
-  if (store.gate.value === 'needs-code') {
+  // No member document — or no way to know there is one: only the intro flow
+  // is reachable, signed in or not.
+  if (store.atTheDoor.value) {
     return isPublic ? undefined : navigateTo('/access-code')
   }
 

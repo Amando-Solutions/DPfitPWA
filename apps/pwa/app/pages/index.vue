@@ -12,12 +12,25 @@
  * mounts, and therefore before the boot frame is removed. The member goes
  * straight from the splash to their destination with no frame in between.
  */
+import { FIRST_SETUP_STEP } from '~/middleware/auth.global'
+
 definePageMeta({
   layout: false,
   middleware() {
     const store = useAppStore()
-    if (!store.isAuthenticated.value) return navigateTo('/onboarding', { replace: true })
-    if (!store.isSetupComplete.value) return navigateTo('/setup/about-you', { replace: true })
+    switch (store.gate.value) {
+      // Nobody signed in: the tour, which ends on the sign-in screen.
+      case 'needs-auth':
+        return navigateTo('/onboarding', { replace: true })
+      // Signed in already, so the tour has nothing left to say — and being
+      // walked back through three marketing slides on every launch is what a
+      // half-finished sign-up felt like. Straight to the outstanding half.
+      case 'needs-code':
+      case 'unknown':
+        return navigateTo('/access-code', { replace: true })
+      case 'needs-setup':
+        return navigateTo(FIRST_SETUP_STEP, { replace: true })
+    }
     return navigateTo('/home', { replace: true })
   },
 })
