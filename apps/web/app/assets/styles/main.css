@@ -27,39 +27,39 @@
    ========================================================================== */
 :root {
   /* The page itself, and the slightly deeper band that alternating sections sit
-     on. A shade warmer than the app's `--surface`/`--surface-raised`, which is
-     what stops a full-width marketing page reading as grey. */
-  --page: #fbf8f5;
-  --page-deep: #f2ebe5;
+     on. Plain neutral, like the app's `--surface`/`--surface-raised` — colour
+     is spent on the accents and glows, not on the page itself. */
+  --page: #f7f7f7;
+  --page-deep: #efefef;
   /* The hero and the closing panel. Deeper than the app's `--surface-inverse`
-     (#241b2e) so the rose and orange glows bloom out of something near-black
-     instead of out of violet. */
-  --night: #0f0a14;
+     (#1c1c1c) so the mauve and coral glows bloom out of something near-black. */
+  --night: #0d0d0d;
   /* Type on `--night`. Matches `--page` so the dark panels read as the page
      inverted rather than as a different brand. */
-  --paper: #fbf8f5;
+  --paper: #f7f7f7;
 
   /* A third ink, between `--text-soft` and the app's `--text-faint`, for the
      asides under a price or a submit button. */
-  --ink-mute: #6a5f72;
+  --ink-mute: #7a7a7a;
 
   /* The rules that divide the numbered lists. Heavier than the app's
      `--hairline` (0.11) because here they are structure, not just separation. */
-  --rule: rgba(36, 27, 46, 0.14);
-  --rule-soft: rgba(36, 27, 46, 0.1);
-  --rule-faint: rgba(36, 27, 46, 0.08);
+  --rule: rgba(35, 35, 35, 0.14);
+  --rule-soft: rgba(35, 35, 35, 0.1);
+  --rule-faint: rgba(35, 35, 35, 0.08);
   /* The same idea drawn on `--night`. */
   --rule-inverse: rgba(255, 255, 255, 0.14);
 
   /* The release chip on each package row. Its own pair in Figma
-     (`chip-day-surface` / `chip-day-label`) rather than a tint of the ink,
-     because it is warmer than everything around it on purpose. */
-  --chip-quiet: rgba(74, 42, 70, 0.12);
-  --chip-quiet-ink: #4a2a46;
+     (`chip-day-surface` / `chip-day-label`) rather than a tint of the ink —
+     it is deliberately the brand mauve rather than a neutral, since a small
+     colourful chip is exactly the kind of accent moment this page wants. */
+  --chip-quiet: rgba(159, 95, 145, 0.12);
+  --chip-quiet-ink: #7f4c74;
 
   /* Field surfaces in the registration card. */
-  --field: #fbf8f5;
-  --field-edge: rgba(36, 27, 46, 0.18);
+  --field: #f7f7f7;
+  --field-edge: rgba(35, 35, 35, 0.18);
 
   /* The two-stop wash that paints "Do both at once." and nothing else. */
   --recomp-gradient: linear-gradient(

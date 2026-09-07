@@ -52,12 +52,12 @@ export default defineNuxtConfig({
       link: [
         { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
         { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' },
-        // Chivo (display), Chivo Mono (eyebrows), Schibsted Grotesk (body),
-        // Manrope (exercise names) and Space Mono (data) — the five families
-        // `--font-*` names in `styles/theme.css`. One request for all of them.
+        // Source Serif 4 covers display, body and exercise names; JetBrains
+        // Mono covers eyebrows and data — the two families the `--font-*`
+        // names in `styles/theme.css` resolve to. One request for both.
         {
           rel: 'stylesheet',
-          href: 'https://fonts.googleapis.com/css2?family=Chivo:ital,wght@0,300;0,400;0,700;0,900;1,700&family=Chivo+Mono:wght@400;500;700&family=Manrope:wght@400;500;600;700;800&family=Schibsted+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap',
+          href: 'https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,200..900;1,8..60,200..900&family=JetBrains+Mono:wght@400;500;700&display=swap',
         },
       ],
     },

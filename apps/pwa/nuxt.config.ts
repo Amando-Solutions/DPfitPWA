@@ -182,7 +182,7 @@ export default defineNuxtConfig({
       viewport: 'width=device-width, initial-scale=1, viewport-fit=cover',
       meta: [
         { charset: 'utf-8' },
-        { name: 'theme-color', content: '#241b2e' },
+        { name: 'theme-color', content: '#1c1c1c' },
         { name: 'apple-mobile-web-app-capable', content: 'yes' },
         {
           name: 'apple-mobile-web-app-status-bar-style',
@@ -208,7 +208,7 @@ export default defineNuxtConfig({
         {
           key: 'theme-boot',
           tagPosition: 'head',
-          innerHTML: `(function(){try{var s=localStorage.getItem('dpfit:theme');var p=s?JSON.parse(s):'system';var d=p==='dark'||(p!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=d?'dark':'light';var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',d?'#14101a':'#f3eae4');}catch(e){document.documentElement.dataset.theme='light';}})();`,
+          innerHTML: `(function(){try{var s=localStorage.getItem('dpfit:theme');var p=s?JSON.parse(s):'system';var d=p==='dark'||(p!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=d?'dark':'light';var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',d?'#161616':'#f5f5f5');}catch(e){document.documentElement.dataset.theme='light';}})();`,
         },
       ],
 
@@ -249,8 +249,8 @@ pwa: {
     display: 'standalone',
     orientation: 'any',
 
-    theme_color: '#241b2e',
-    background_color: '#fbf6f2',
+    theme_color: '#1c1c1c',
+    background_color: '#ffffff',
 
     icons: [
       {

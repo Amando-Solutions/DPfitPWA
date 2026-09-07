@@ -11,8 +11,8 @@ const MEDIA = '(prefers-color-scheme: dark)'
 
 /** The colour painted behind the OS chrome, per theme. Matches `--surface`. */
 const THEME_COLOR: Record<ResolvedTheme, string> = {
-  light: '#f3eae4',
-  dark: '#14101a',
+  light: '#f5f5f5',
+  dark: '#161616',
 }
 
 const systemPrefersDark = (): boolean =>

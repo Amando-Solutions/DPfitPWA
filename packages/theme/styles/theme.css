@@ -16,6 +16,14 @@
    Because the tokens are plain custom properties, Tailwind's arbitrary-value
    utilities can read `var(--ink)`, `var(--paper)` and friends directly. Those
    original Figma names are kept below as aliases.
+
+   Palette: the neutral scale (text, surfaces, hairlines, shadows) is plain
+   hue-free grey on purpose, so it never competes with the brand. Colour is
+   spent deliberately, and spread across distinct roles rather than one hue
+   washing everything: magenta for the primary accent (CTAs, focus, protein),
+   coral for warmth (streaks, energy), pale gold as the brightest highlight,
+   and the deep plum reserved for the logo mark alone. A page should read as
+   neutral paper with colour popping out of it, not as colour with type on top.
    ========================================================================== */
 
 /* Dark mode is driven by a `data-theme="dark"` attribute on <html> (set by
@@ -24,98 +32,106 @@
 
 :root {
   /* --- Brand primitives, identical in both themes ------------------------ */
-  --brand-rose: #c81e5c;
-  --brand-orange: #e8a33d;
-  --flame-ember: #d94f1e;
-  --flame-core: #fbda99;
+  --brand-rose: #9f5f91;
+  --brand-orange: #e26972;
+  --flame-ember: #aa4f56;
+  --flame-core: #f6ea98;
   --white: #ffffff;
   --black: #000000;
 
-  /* --- Surfaces ---------------------------------------------------------- */
+  /* --- Surfaces -----------------------------------------------------------
+     Hue-free grey. Colour lives in the accent tokens below, not here — a
+     tinted neutral scale is what makes a whole app read as "just purple". */
   /* The page itself. */
-  --surface: #f3eae4;
+  --surface: #f5f5f5;
   /* Cards and anything lifted off the page. */
-  --surface-raised: #fbf6f2;
+  --surface-raised: #ffffff;
   /* Wells pressed *into* the page: inputs, steppers, segmented tracks. */
-  --surface-sunken: #f3eae4;
+  --surface-sunken: #f5f5f5;
   /* A panel that is deliberately the opposite of the page (hero, dark card).
      This is the one that must NOT simply follow `--ink`, because in dark mode a
      "dark card" has to get *lighter* than its surroundings to stay legible. */
-  --surface-inverse: #241b2e;
-  --on-inverse: #fbf6f2;
+  --surface-inverse: #1c1c1c;
+  --on-inverse: #f5f5f5;
   /* Photographic heroes: a dark plate under an image and a scrim. Unlike
      `--surface-inverse` this one is NOT re-defined for dark mode, because white type
      over a photo has to stay white whichever theme the page is in. */
-  --surface-photo: #241b2e;
-  --on-photo: #fbf6f2;
+  --surface-photo: #1c1c1c;
+  --on-photo: #f5f5f5;
   /* Sheets, menus and dialogs floating above everything. */
-  --surface-overlay: #fbf6f2;
-  --scrim: rgba(20, 16, 26, 0.5);
+  --surface-overlay: #ffffff;
+  --scrim: rgba(20, 20, 20, 0.5);
   /* A photo lightbox is dark in both themes, like the photo surfaces above. */
-  --scrim-photo: rgba(20, 14, 26, 0.86);
-  /* Coach messages get a warm amber bubble that has to survive the flip. */
+  --scrim-photo: rgba(10, 10, 10, 0.86);
+  /* Coach messages get a warm bubble that has to survive the flip. */
   --bubble-coach: #f2e4c9;
   /* Chips and buttons that sit directly on top of imagery. Constant across
      themes for the same reason `--surface-photo` is. */
-  --overlay-strong: rgba(36, 27, 46, 0.7);
-  --overlay-medium: rgba(36, 27, 46, 0.6);
+  --overlay-strong: rgba(20, 20, 20, 0.7);
+  --overlay-medium: rgba(20, 20, 20, 0.6);
   /* A dimmed version of `--on-inverse`, for secondary type on dark chrome. */
-  --on-inverse-muted: rgba(251, 246, 242, 0.55);
+  --on-inverse-muted: rgba(245, 245, 245, 0.55);
 
-  /* --- Text -------------------------------------------------------------- */
-  --text: #241b2e;
-  --text-soft: #4a3f52;
-  /* Secondary type. The alpha is set by contrast, not by taste: at the 0.45 the
-     Figma file used, muted labels landed at 2.7:1 on both surfaces. */
-  --text-muted: rgba(36, 27, 46, 0.66);
+  /* --- Text --------------------------------------------------------------- */
+  --text: #232323;
+  --text-soft: #5c5c5c;
+  /* Secondary type. The alpha is set by contrast, not by taste, so muted
+     labels stay legible without competing with body copy on either surface. */
+  --text-muted: rgba(35, 35, 35, 0.66);
   /* Decorative / disabled only. Never body copy. */
-  --text-faint: rgba(36, 27, 46, 0.42);
+  --text-faint: rgba(35, 35, 35, 0.42);
   /* Placeholders need more weight than `--text-faint`: they are the only thing
      in an empty field, so they carry the field's meaning until it is filled. */
-  --text-placeholder: rgba(36, 27, 46, 0.66);
+  --text-placeholder: rgba(35, 35, 35, 0.66);
 
   /* --- Lines and inset fills --------------------------------------------- */
-  --hairline: rgba(36, 27, 46, 0.11);
-  --hairline-strong: rgba(36, 27, 46, 0.22);
+  --hairline: rgba(35, 35, 35, 0.11);
+  --hairline-strong: rgba(35, 35, 35, 0.22);
   /* Neutral tint used for icon chips, ghost buttons, inactive tracks. */
-  --fill-subtle: rgba(36, 27, 46, 0.06);
-  --fill-muted: rgba(36, 27, 46, 0.1);
+  --fill-subtle: rgba(35, 35, 35, 0.06);
+  --fill-muted: rgba(35, 35, 35, 0.1);
 
-  /* --- Accents ----------------------------------------------------------- */
-  /* `--rose` is the accent as *ink* (text, icons, rings); `--rose-fill` is the
-     accent as a *solid background* under white text. They diverge in dark mode:
-     the text form has to brighten to stay readable, the fill must not. */
-  --rose: #b81a54;
-  --rose-fill: #c81e5c;
-  --on-rose: #fbf6f2;
-  --rose-soft: rgba(200, 30, 92, 0.07);
-  --rose-softer: rgba(200, 30, 92, 0.05);
-  --rose-ring: rgba(200, 30, 92, 0.25);
-  /* Accent type on an inverse (dark) panel. Deliberately the same bright rose
-     in both themes: the panel under it is dark either way. */
-  --rose-on-inverse: #ff86a8;
+  /* --- Accents -------------------------------------------------------------
+     The one hue spent everywhere else is deliberately vivid rather than
+     muted toward the ink, so a rose button reads as magenta, not as grey
+     with a tint. `--rose` is the accent as *ink* (text, icons, rings);
+     `--rose-fill` is the accent as a *solid background* under white text.
+     They diverge in dark mode: the text form has to brighten to stay
+     readable, the fill must not. */
+  --rose: #7f4c74;
+  --rose-fill: #9f5f91;
+  --on-rose: #ffffff;
+  --rose-soft: rgba(159, 95, 145, 0.1);
+  --rose-softer: rgba(159, 95, 145, 0.06);
+  --rose-ring: rgba(159, 95, 145, 0.28);
+  /* Accent type on an inverse (dark) panel. Deliberately the same bright
+     mauve in both themes: the panel under it is dark either way. */
+  --rose-on-inverse: #bc8fb2;
 
-  --rose-strong: rgba(200, 30, 92, 0.55);
+  --rose-strong: rgba(159, 95, 145, 0.55);
 
   /* --- The logo -----------------------------------------------------------
-     The plum the mark is drawn in, and the only colour the brand files carry
-     that is not already an accent here. It is a token rather than a literal
-     inside `BrandLogo` so the mark can lift in dark mode, where #430f32 would
-     be a deep violet on a deeper one. Nothing but the logo should use it: the
-     accent for everything else is the rose. */
-  --brand-mark: #430f32;
+     The plum the mark is drawn in — the one place the deep plum shows up. It
+     is a token rather than a literal inside `BrandLogo` so the mark can lift
+     in dark mode. Nothing but the logo should use it: the accent for
+     everything else is the mauve. */
+  --brand-mark: #572c57;
 
-  --orange: #e8a33d;
-  --orange-soft: rgba(232, 163, 61, 0.16);
-  --orange-ring: rgba(232, 163, 61, 0.32);
-  /* The brand orange and ember are *fills*. As type on a light ground they sit
-     near 2:1, so type gets a darkened companion; on dark they stay bright. */
-  --orange-text: #8a5a12;
-  --ember-text: #a83a12;
+  --orange: #e26972;
+  --orange-soft: rgba(226, 105, 114, 0.16);
+  --orange-ring: rgba(226, 105, 114, 0.32);
+  /* The brand coral and ember are *fills*. As type on a light ground they sit
+     too light to read, so type gets a darkened companion; on dark they stay
+     bright. */
+  --orange-text: #9e4a50;
+  --ember-text: #aa4f56;
 
-  /* --- Macro categories ---------------------------------------------------
-     Protein reuses the rose accent; fat and carbs get their own hues. Each one
-     brightens in dark mode so it still reads as type on a dark card. */
+  /* --- Macro categories -----------------------------------------------------
+     Protein reuses the rose accent; fat and carbs keep their own long-standing
+     hues rather than being pulled toward magenta, so the three stay
+     distinguishable at a glance and the app reads as genuinely multi-coloured
+     rather than one hue at different strengths. Each one brightens in dark
+     mode so it still reads as type on a dark card. */
   --macro-fat: #9a6318;
   --macro-carbs: #56643a;
   --macro-carbs-soft: rgba(86, 100, 58, 0.14);
@@ -138,36 +154,37 @@
 
   /* --- Onboarding splash --------------------------------------------------
      A branded moment with its own palette rather than the app surfaces. */
-  --onboard-art: #f6ccd5;
-  --onboard-title: #711337;
-  --onboard-dot: #d7d0d2;
-  --shadow-art: 0 18px 35px rgba(164, 18, 73, 0.1);
-  --drop-art: drop-shadow(0 12px 12px rgba(212, 20, 90, 0.22));
+  --onboard-art: #e6c1cd;
+  --onboard-title: #7f4c74;
+  --onboard-dot: #d9d9d9;
+  --shadow-art: 0 18px 35px rgba(159, 95, 145, 0.12);
+  --drop-art: drop-shadow(0 12px 12px rgba(226, 105, 114, 0.24));
 
   /* The transparent end of a fade must be the surface at zero alpha, not
      `transparent`, which is rgba(0,0,0,0) and greys the ramp on the way out. */
-  --surface-fade: rgba(243, 234, 228, 0);
+  --surface-fade: rgba(245, 245, 245, 0);
   /* --- Splash art ---------------------------------------------------------
      The two corner glows and the hairline motion ring. The design paints solid
      discs behind a heavy blur rather than radial gradients, so a glow keeps a
      body of colour before its edge lets go; the alpha therefore belongs to the
-     colour, not to the shape. Dark mode flips the violet disc from ink to a
-     lifted mauve, because a glow that darkens is invisible on a dark page.
+     colour, not to the shape. The two glows are deliberately two different
+     hues (magenta and coral) rather than one colour at two strengths.
 
      Nothing in the app reads these: the splash is now the boot frame in
      `spa-loading-template.html`, which paints before this stylesheet is live
      and therefore inlines its own copies. They stay here because this file is
      where the palette is defined and reasoned about for both themes; the
      template's copies are meant to be checked against these. */
-  --splash-glow-rose: rgba(200, 30, 92, 0.5);
-  --splash-glow-violet: rgba(36, 27, 46, 0.8);
-  --splash-ring: rgba(200, 30, 92, 0.7);
+  --splash-glow-rose: rgba(159, 95, 145, 0.5);
+  --splash-glow-violet: rgba(226, 105, 114, 0.45);
+  --splash-ring: rgba(159, 95, 145, 0.7);
   /* Scrims laid over photography so white type stays legible. Constant across
-     themes, since the photo underneath does not change. */
+     themes, since the photo underneath does not change. Neutral rather than
+     tinted: a functional darkening layer, not a colour statement. */
   --photo-scrim: linear-gradient(
     180deg,
-    rgba(36, 27, 46, 0.15) 0%,
-    rgba(36, 27, 46, 0.82) 72%
+    rgba(20, 20, 20, 0.15) 0%,
+    rgba(20, 20, 20, 0.82) 72%
   );
   /* A floor under the type on a photographic card.
      `--photo-scrim` grades the whole frame, which is enough when the art is
@@ -177,18 +194,18 @@
      upload. Layered above the scrim and below the content. */
   --photo-floor: linear-gradient(
     0deg,
-    rgba(36, 27, 46, 0.9) 0%,
-    rgba(36, 27, 46, 0.72) 34%,
+    rgba(20, 20, 20, 0.9) 0%,
+    rgba(20, 20, 20, 0.72) 34%,
     transparent 68%
   );
   --photo-wash: radial-gradient(
     90% 60% at 100% 0%,
-    rgba(200, 30, 92, 0.28),
+    rgba(159, 95, 145, 0.28),
     transparent 60%
   );
   /* A hairline drawn *on* a dark surface. */
   --hairline-inverse: rgba(255, 255, 255, 0.12);
-  --on-inverse-soft: rgba(251, 246, 242, 0.7);
+  --on-inverse-soft: rgba(245, 245, 245, 0.7);
 
   --flame-gradient: linear-gradient(
     90deg,
@@ -197,26 +214,28 @@
     var(--flame-core)
   );
 
-  /* --- Elevation --------------------------------------------------------- */
-  --shadow-card: 0 8px 24px rgba(36, 27, 46, 0.08);
-  --shadow-raised: 0 12px 32px rgba(36, 27, 46, 0.12);
-  --shadow-glow: 0 12px 28px rgba(200, 30, 92, 0.35);
-  --shadow-hero: 0 18px 40px rgba(36, 27, 46, 0.28);
+  /* --- Elevation -----------------------------------------------------------
+     Ambient shadows stay neutral grey; `--shadow-glow` is the one exception,
+     since a glow is meant to read as coloured light rather than as shade. */
+  --shadow-card: 0 8px 24px rgba(20, 20, 20, 0.08);
+  --shadow-raised: 0 12px 32px rgba(20, 20, 20, 0.12);
+  --shadow-glow: 0 12px 28px rgba(159, 95, 145, 0.35);
+  --shadow-hero: 0 18px 40px rgba(20, 20, 20, 0.28);
   --shadow-sheet: 0 -12px 40px rgba(0, 0, 0, 0.3);
   --shadow-dialog: 0 24px 60px rgba(0, 0, 0, 0.32);
-  --shadow-knob: 0 1px 3px rgba(36, 27, 46, 0.25);
-  --shadow-tabbar: 0 14px 34px rgba(36, 27, 46, 0.3);
-  /* Ready-made `filter` values. A violet-tinted drop shadow is invisible on a
-     dark page, so these carry a black variant rather than a tinted one. */
-  --drop-sm: drop-shadow(0 2px 4px rgba(36, 27, 46, 0.05));
-  --drop-md: drop-shadow(0 4px 7px rgba(36, 27, 46, 0.04));
-  --drop-lg: drop-shadow(0 14px 16px rgba(36, 27, 46, 0.22));
+  --shadow-knob: 0 1px 3px rgba(20, 20, 20, 0.25);
+  --shadow-tabbar: 0 14px 34px rgba(20, 20, 20, 0.3);
+  /* Ready-made `filter` values, kept neutral for the same reason the ambient
+     shadows are. */
+  --drop-sm: drop-shadow(0 2px 4px rgba(20, 20, 20, 0.05));
+  --drop-md: drop-shadow(0 4px 7px rgba(20, 20, 20, 0.04));
+  --drop-lg: drop-shadow(0 14px 16px rgba(20, 20, 20, 0.22));
 
   /* --- Raised buttons -----------------------------------------------------
      Filled controls are domed slabs rather than flat rectangles of colour,
      the Stripe / Shopify treatment. Four layers do the work, and every one of
      them is derived from the button's own face colour (`--btn-face`), so a
-     rose button casts a rose shadow and a dark button casts a violet one:
+     rose button casts a rose shadow and a dark button casts a neutral one:
 
        1. a darkened outer stroke, so the edge never dissolves into the page
        2. a small cast shadow in that same hue, so the slab floats
@@ -292,11 +311,11 @@
   --radius-pill: 999px;
 
   /* --- Type -------------------------------------------------------------- */
-  --font-display: 'Chivo', system-ui, sans-serif;
-  --font-eyebrow: 'Chivo Mono', ui-monospace, monospace;
-  --font-body: 'Schibsted Grotesk', system-ui, sans-serif;
-  --font-exercise: 'Manrope', 'Schibsted Grotesk', 'Chivo', system-ui, sans-serif;
-  --font-data: 'Space Mono', ui-monospace, monospace;
+  --font-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+  --font-eyebrow: 'JetBrains Mono', ui-monospace, monospace;
+  --font-body: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+  --font-exercise: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+  --font-data: 'JetBrains Mono', ui-monospace, monospace;
 
   /* --- Spacing aliases used by migrated arbitrary-value utilities ---------- */
   --space-2: 2px;
@@ -332,8 +351,8 @@
      the screen background so the capped content column never reads as a seam. */
   --app-backdrop: var(--surface);
 
-  --scrollbar-thumb: rgba(36, 27, 46, 0.18);
-  --scrollbar-thumb-hover: rgba(36, 27, 46, 0.32);
+  --scrollbar-thumb: rgba(35, 35, 35, 0.18);
+  --scrollbar-thumb-hover: rgba(35, 35, 35, 0.32);
 
   color-scheme: light;
 }
@@ -341,59 +360,60 @@
 /* =============================================================================
    Dark theme
    -----------------------------------------------------------------------------
-   Not an inversion. The page drops to a deep violet-black that keeps the
-   brand's warmth, cards rise *towards* the light rather than away from it, and
+   Not an inversion. The page drops to a neutral near-black rather than a
+   tinted one, cards rise *towards* the light rather than away from it, and
    the accent brightens for text while the button fill stays deep enough to
    carry white type.
    ========================================================================== */
 [data-theme='dark'] {
-  --surface: #14101a;
-  --surface-raised: #1e1826;
-  --surface-sunken: #0e0b13;
+  --surface: #161616;
+  --surface-raised: #1f1f1f;
+  --surface-sunken: #101010;
   /* Inverted panels invert again: on a dark page they lift, not sink. */
-  --surface-inverse: #2f2739;
-  --on-inverse: #f5f0ea;
-  --surface-overlay: #241d2d;
-  --scrim: rgba(6, 4, 9, 0.66);
+  --surface-inverse: #292929;
+  --on-inverse: #f2f2f2;
+  --surface-overlay: #232323;
+  --scrim: rgba(8, 8, 8, 0.66);
   --bubble-coach: #3d3120;
-  --on-inverse-muted: rgba(245, 240, 234, 0.6);
+  --on-inverse-muted: rgba(242, 242, 242, 0.6);
 
-  --text: #f5f0ea;
-  --text-soft: rgba(245, 240, 234, 0.78);
-  --text-muted: rgba(245, 240, 234, 0.62);
-  --text-faint: rgba(245, 240, 234, 0.45);
-  --text-placeholder: rgba(245, 240, 234, 0.58);
-  /* The ember is a deep orange; on a dark page it has to lift to stay legible
+  --text: #f2f2f2;
+  --text-soft: rgba(242, 242, 242, 0.78);
+  --text-muted: rgba(242, 242, 242, 0.62);
+  --text-faint: rgba(242, 242, 242, 0.45);
+  --text-placeholder: rgba(242, 242, 242, 0.58);
+  /* The ember is a deep coral; on a dark page it has to lift to stay legible
      where it is used as type (streak counters). */
-  --flame-ember: #ff8a4c;
+  --flame-ember: #e8878e;
 
-  --hairline: rgba(245, 240, 234, 0.12);
-  --hairline-strong: rgba(245, 240, 234, 0.24);
-  --fill-subtle: rgba(245, 240, 234, 0.07);
-  --fill-muted: rgba(245, 240, 234, 0.12);
+  --hairline: rgba(242, 242, 242, 0.12);
+  --hairline-strong: rgba(242, 242, 242, 0.24);
+  --fill-subtle: rgba(242, 242, 242, 0.07);
+  --fill-muted: rgba(242, 242, 242, 0.12);
 
-  /* Lifted far enough to stay legible even on its own tint (>=5.8:1)... */
-  --rose: #ff86a8;
-  /* ...while the solid fill stays deep enough for white type (~4.8:1). */
-  --rose-fill: #d6295f;
+  /* Lifted far enough to stay legible even on its own tint... */
+  --rose: #bc8fb2;
+  /* ...while the solid fill stays the same vivid magenta as light mode: it
+     sits directly on the button face either way, not on the page. */
+  --rose-fill: #9f5f91;
   --on-rose: #ffffff;
-  --rose-soft: rgba(255, 134, 168, 0.14);
-  --rose-softer: rgba(255, 134, 168, 0.09);
-  --rose-ring: rgba(255, 134, 168, 0.34);
+  --rose-soft: rgba(188, 143, 178, 0.14);
+  --rose-softer: rgba(188, 143, 178, 0.09);
+  --rose-ring: rgba(188, 143, 178, 0.34);
 
-  --rose-strong: rgba(255, 134, 168, 0.5);
+  --rose-strong: rgba(188, 143, 178, 0.5);
 
   /* On a dark ground the brand's own answer is the white lockup, so the mark
      stops being plum and joins the wordmark. Following `--text` rather than a
-     flat #fff keeps it the same warm off-white as the type beside it. */
+     flat #fff keeps it the same neutral off-white as the type beside it. */
   --brand-mark: var(--text);
 
-  --orange: #f0b45c;
-  --orange-soft: rgba(240, 180, 92, 0.16);
-  --orange-ring: rgba(240, 180, 92, 0.34);
+  --orange: #e8878e;
+  --orange-soft: rgba(232, 135, 142, 0.16);
+  --orange-ring: rgba(232, 135, 142, 0.34);
   /* Already bright enough to be type on a dark ground. */
-  --orange-text: #f0b45c;
-  --ember-text: #ff8a4c;
+  --orange-text: #e8878e;
+  --ember-text: #e8878e;
 
   --macro-fat: #e5b269;
   --macro-carbs: #a9bd7c;
@@ -407,23 +427,24 @@
   --set-drop: #7fc2e8;
   --set-drop-soft: rgba(127, 194, 232, 0.16);
 
-  --onboard-art: #3a2029;
-  --onboard-title: #ff9dbd;
-  --onboard-dot: rgba(245, 240, 234, 0.22);
+  --onboard-art: #3a1e27;
+  --onboard-title: #bc8fb2;
+  --onboard-dot: rgba(242, 242, 242, 0.22);
   --shadow-art: 0 18px 35px rgba(0, 0, 0, 0.5);
-  --drop-art: drop-shadow(0 12px 12px rgba(214, 41, 95, 0.3));
+  --drop-art: drop-shadow(0 12px 12px rgba(232, 135, 142, 0.3));
 
-  --surface-fade: rgba(20, 16, 26, 0);
-  --splash-glow-rose: rgba(255, 134, 168, 0.5);
-  --splash-glow-violet: rgba(150, 132, 172, 0.35);
-  --splash-ring: rgba(255, 134, 168, 0.6);
+  --surface-fade: rgba(22, 22, 22, 0);
+  --splash-glow-rose: rgba(188, 143, 178, 0.5);
+  --splash-glow-violet: rgba(232, 135, 142, 0.4);
+  --splash-ring: rgba(188, 143, 178, 0.6);
   --hairline-inverse: rgba(255, 255, 255, 0.14);
-  --on-inverse-soft: rgba(245, 240, 234, 0.7);
+  --on-inverse-soft: rgba(242, 242, 242, 0.7);
 
-  /* Violet-tinted shadows vanish on a dark ground, so go to true black, deeper. */
+  /* Ambient shadows go to true black on a dark ground; the glow keeps its
+     colour, since that one is meant to read as light, not shade. */
   --shadow-card: 0 8px 24px rgba(0, 0, 0, 0.45);
   --shadow-raised: 0 12px 32px rgba(0, 0, 0, 0.55);
-  --shadow-glow: 0 12px 28px rgba(214, 41, 95, 0.5);
+  --shadow-glow: 0 12px 28px rgba(188, 143, 178, 0.5);
   --shadow-hero: 0 18px 40px rgba(0, 0, 0, 0.6);
   --shadow-sheet: 0 -12px 40px rgba(0, 0, 0, 0.6);
   --shadow-dialog: 0 24px 60px rgba(0, 0, 0, 0.65);
@@ -456,8 +477,8 @@
   --grey-18: #d8d3cd;
   --grey-50: #9a938d;
 
-  --scrollbar-thumb: rgba(245, 240, 234, 0.2);
-  --scrollbar-thumb-hover: rgba(245, 240, 234, 0.34);
+  --scrollbar-thumb: rgba(242, 242, 242, 0.2);
+  --scrollbar-thumb-hover: rgba(242, 242, 242, 0.34);
 
   color-scheme: dark;
 }
