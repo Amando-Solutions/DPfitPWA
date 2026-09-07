@@ -54,9 +54,9 @@ const MARK_W = 90
 const MARK_H = 57
 const LOCKUP_W = 119
 const LOCKUP_H = 93
-const PLUM = '#430f32'
+const PLUM = '#572c57'
 /** `--surface-raised`, and the manifest's `background_color`. */
-const CREAM = '#fbf6f2'
+const CREAM = '#ffffff'
 
 /**
  * The mark, centred in a square.
@@ -147,16 +147,16 @@ const lockupH = 300
 const lockupW = (lockupH * LOCKUP_W) / LOCKUP_H
 
 const og = `<svg xmlns="http://www.w3.org/2000/svg" width="${OG_W}" height="${OG_H}" viewBox="0 0 ${OG_W} ${OG_H}">
-  <rect width="${OG_W}" height="${OG_H}" fill="#0f0a14"/>
+  <rect width="${OG_W}" height="${OG_H}" fill="#0d0d0d"/>
   <defs>
     <radialGradient id="rose" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#c81e5c" stop-opacity="0.34"/>
-      <stop offset="45%" stop-color="#c81e5c" stop-opacity="0.05"/>
-      <stop offset="70%" stop-color="#c81e5c" stop-opacity="0"/>
+      <stop offset="0%" stop-color="#9f5f91" stop-opacity="0.34"/>
+      <stop offset="45%" stop-color="#9f5f91" stop-opacity="0.05"/>
+      <stop offset="70%" stop-color="#9f5f91" stop-opacity="0"/>
     </radialGradient>
     <radialGradient id="amber" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#e8a33d" stop-opacity="0.18"/>
-      <stop offset="66%" stop-color="#e8a33d" stop-opacity="0"/>
+      <stop offset="0%" stop-color="#e26972" stop-opacity="0.18"/>
+      <stop offset="66%" stop-color="#e26972" stop-opacity="0"/>
     </radialGradient>
   </defs>
   <ellipse cx="${OG_W / 2}" cy="60" rx="700" ry="440" fill="url(#rose)"/>

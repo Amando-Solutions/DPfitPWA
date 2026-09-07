@@ -26,3 +26,4 @@ logs
 .claude*
 
 # Keep the original Figma source out of the build, but it stays tracked already
+bun.lock

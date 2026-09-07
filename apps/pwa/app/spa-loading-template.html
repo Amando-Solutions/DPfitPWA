@@ -57,15 +57,16 @@
     */
     --art: 1;
     /* The app's light palette, inlined: --surface, --text, --rose-fill and the
-       three splash-art colours. Keep in step with `assets/styles/main.css`. */
-    --boot-bg: #f3eae4;
-    --boot-ink: #241b2e;
-    /* The logo's plum. Mirrors `--brand-mark` in the design system. */
-    --boot-mark: #430f32;
-    --boot-accent: #c81e5c;
-    --boot-glow-rose: rgba(200, 30, 92, 0.5);
-    --boot-glow-violet: rgba(36, 27, 46, 0.8);
-    --boot-ring: rgba(200, 30, 92, 0.7);
+       two splash-glow colours. Keep in step with `packages/theme/styles/theme.css`. */
+    --boot-bg: #f5f5f5;
+    --boot-ink: #232323;
+    /* The logo's plum. Mirrors `--brand-mark` in the design system — the one
+       place this deep plum shows up; the wordmark beside it stays neutral. */
+    --boot-mark: #572c57;
+    --boot-accent: #9f5f91;
+    --boot-glow-rose: rgba(159, 95, 145, 0.5);
+    --boot-glow-violet: rgba(226, 105, 114, 0.45);
+    --boot-ring: rgba(159, 95, 145, 0.7);
 
     position: fixed;
     inset: 0;
@@ -76,21 +77,21 @@
     /* Matches `--font-data`. The webfont arrives with `display=swap`, so this
        may paint in the fallback for a frame, and the fallback is the same stack
        the app itself falls back to. */
-    font-family: "Space Mono", ui-monospace, monospace;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
   }
 
   [data-theme="dark"] .dp-boot {
-    --boot-bg: #14101a;
-    --boot-ink: #f5f0ea;
+    --boot-bg: #161616;
+    --boot-ink: #f2f2f2;
     /* On the near-black the brand's own answer is the all-white lockup, so the
        mark stops being plum and joins the wordmark. */
-    --boot-mark: #f5f0ea;
-    --boot-accent: #d6295f;
-    --boot-glow-rose: rgba(255, 134, 168, 0.5);
-    /* Dark mode flips the violet disc from ink to a lifted mauve, because a glow that
-       darkens is invisible on a dark page. */
-    --boot-glow-violet: rgba(150, 132, 172, 0.35);
-    --boot-ring: rgba(255, 134, 168, 0.6);
+    --boot-mark: #f2f2f2;
+    --boot-accent: #9f5f91;
+    --boot-glow-rose: rgba(188, 143, 178, 0.5);
+    /* The second corner glow stays coral rather than flipping to plum, so the
+       two glows read as two distinct hues in either theme. */
+    --boot-glow-violet: rgba(232, 135, 142, 0.4);
+    --boot-ring: rgba(188, 143, 178, 0.6);
   }
 
   .dp-boot__glow,
