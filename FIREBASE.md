@@ -10,6 +10,8 @@ one. Read them before changing anything in `app/lib/datasource/firestore.ts`.
 | Path | What it holds |
 | --- | --- |
 | `accessCodes/{code}` | One seat. Keyed by the code, so redemption is a single `getDoc` and uniqueness is the database's problem, not a query's. |
+| `registrations/{reference}` | One attempt to buy a seat: the form's answers plus the payment. Keyed by a reference the landing site generates before sending the buyer to Selar, because the document exists before the code does — `code` is `null` until money moves. Coach-readable; every client write is denied, since the only writer is the landing site's Admin SDK routes. |
+| `unmatchedSales/{id}` | A Selar sale that matched no registration — usually a buyer who changed their email address at checkout. Money received, nothing issued, and a queue for whoever fixes it by hand. Same rule shape as `registrations`. |
 | `cohorts/{cohortId}` | The cohort, with the coach denormalised onto it. |
 | `cohorts/{id}/notifications/{id}` | Coach-authored announcements. |
 | `cohorts/{id}/leaderboard/{uid}` | Name, avatar, qualifying-session count. A projection — see below. |
@@ -237,10 +239,27 @@ catch-all rewrite in `firebase.json`, so on a Firebase-hosted deploy this needs
 no extra configuration — just the changed value and that domain in the
 authorised list.
 
+## Where access codes come from
+
+Two places, and only one of them is a person.
+
+**A paid registration issues one.** `apps/web/server/utils/fulfilment.ts` mints a
+code when Selar's sale notification arrives at `api/payment/webhook`, which is
+the only path there is — Selar has no API to ask, so the notification is the
+evidence; `apps/web/server/utils/access-code.ts` writes the document. It
+runs on the Admin SDK for the same reason this section exists at all — `allow
+create` on `accessCodes` is coach-only, and a visitor buying a seat is not
+signed in — and it gets the shape right by construction, reading `cohortName`
+and the program pin off the cohort document rather than copying them by hand.
+That is the path to prefer. Nothing issues a code before money moves.
+
+**The console, for anything else** — a comped seat, a replacement, a code issued
+against a bank transfer. The table below is what that document has to contain.
+
 ## Creating an access code by hand
 
-The console is the only way to make one until there is a seed script, and a
-code written by hand is the easiest document in the system to leave incomplete.
+A code written by hand is the easiest document in the system to leave
+incomplete.
 
 Every field below must **exist**, including the ones whose value is null. A
 security rule that reads a field the document does not have errors rather than
@@ -259,6 +278,7 @@ first and logs the missing names, but the document still has to be right.
 | `cohortName` | string | e.g. `Cohort 01` |
 | `expiresAt` | timestamp | **a future date** — the rule refuses a past one |
 | `issuedToEmail` | string or null | the purchase email, or null for a generic code |
+| `issuedToWhatsapp` | string or null | the buyer's WhatsApp number, or null when none was asked for |
 | `status` | string | exactly `unused` |
 | `claimedByUid` | null | |
 | `claimedByName` | null | |
@@ -270,6 +290,18 @@ first and logs the missing names, but the document still has to be right.
 
 `cohortId` has to match a real cohort: the member-create rule re-reads this
 document and refuses to write a member into a cohort the code does not name.
+
+`issuedToWhatsapp` is not checked by any rule, so leaving it off will not deny
+anything — but it is what seeds `MemberProfile.whatsapp` at redemption, and a
+code issued without it produces a member the coach has no number for. Set it to
+`null` if you genuinely did not collect one; `backfill-access-codes.mjs` fills
+it in for codes written before the field existed.
+
+`programId` and `programVersion` are not in the table because they are not on
+`AccessCodeBase` — but set them anyway, to whatever the cohort names. The member
+document copies them out of the code at redemption, and `programs/''` is not a
+document path, so a code without them redeems fine and then throws on the first
+workout save. `backfill-access-codes.mjs` warns about exactly this.
 
 ## Seeding
 
