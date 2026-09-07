@@ -1,36 +1,57 @@
 <script setup lang="ts">
 /**
- * Where Paystack sends the buyer back to.
+ * Where Selar sends the buyer back to.
  *
- * Its whole job is to confirm the payment and then get out of the way. The
- * access code is not here and never was — it goes to the inbox — so there is
- * nothing on this page worth reading twice, which is why it takes itself back
- * to the site rather than sitting there waiting to be dismissed.
+ * It confirms nothing itself. Under Paystack this page held the reference and
+ * could ask whether it had been paid, so it either knew or it did not; Selar
+ * redirects to a fixed URL with nothing on it, and the sale notification
+ * arrives on a separate connection at its own pace. So the page waits: it polls
+ * our own database until a code exists, and it is careful never to tell anyone
+ * they have not paid — it cannot know that, and saying it to somebody who has
+ * just been charged would be the worst thing on this screen.
  *
- * Not prerendered: it exists only for a reference in a query string. See the
+ * The registration is identified by the cookie `POST /api/register` set, which
+ * is also why this page does nothing at all if somebody simply navigates to it.
+ *
+ * Not prerendered: it exists only for the moment after a payment. See the
  * `routeRules` entry in `nuxt.config.ts`.
  */
-const route = useRoute()
-
-type Phase = 'checking' | 'done' | 'unpaid' | 'error'
+type Phase = 'checking' | 'done' | 'waiting' | 'unknown'
 const phase = ref<Phase>('checking')
+const emailed = ref(true)
+
+/**
+ * How long to wait before saying so.
+ *
+ * A notification usually beats the redirect or lands a second or two behind it,
+ * so most people never see past the first poll. A minute is long enough to
+ * cover a slow one and short enough that nobody is left watching a spinner
+ * wondering whether the tab has hung.
+ */
+const POLL_EVERY_MS = 2500
+const GIVE_UP_AFTER_MS = 60_000
 
 /** How long the confirmation sits before it takes them back. */
 const RETURN_AFTER_SECONDS = 8
 const secondsLeft = ref(RETURN_AFTER_SECONDS)
 
 let ticker: ReturnType<typeof setInterval> | null = null
+let stopped = false
+
 const stopTicker = () => {
   if (ticker) clearInterval(ticker)
   ticker = null
 }
-onBeforeUnmount(stopTicker)
+onBeforeUnmount(() => {
+  stopped = true
+  stopTicker()
+})
 
 const goHome = () => {
   stopTicker()
   // A full navigation rather than a router push: this page is the end of a
   // journey that began on another origin, and leaving it in the history stack
-  // means Back lands on a spent Paystack reference.
+  // means Back lands on a spent checkout.
   window.location.replace('/')
 }
 
@@ -41,27 +62,44 @@ const startCountdown = () => {
   }, 1000)
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
 onMounted(async () => {
-  const reference = String(route.query.reference ?? route.query.trxref ?? '')
-  if (!reference) {
-    phase.value = 'error'
-    return
-  }
+  const until = Date.now() + GIVE_UP_AFTER_MS
 
-  try {
-    const result = await $fetch<{ ok: true; paid: boolean; emailed: boolean }>(
-      '/api/payment/verify',
-      { method: 'POST', body: { reference } },
-    )
-    phase.value = result.paid ? 'done' : 'unpaid'
-  } catch {
-    phase.value = 'error'
-  }
+  while (!stopped) {
+    try {
+      const result = await $fetch<{
+        ok: true
+        state: 'paid' | 'pending' | 'unknown'
+        emailed: boolean
+      }>('/api/payment/status')
 
-  // Only the settled outcome leaves on its own. Somebody whose payment did not
-  // go through, or whose confirmation failed, needs the page to stay put long
-  // enough to read it and decide what to do.
-  if (phase.value === 'done') startCountdown()
+      if (result.state === 'paid') {
+        emailed.value = result.emailed
+        phase.value = 'done'
+        startCountdown()
+        return
+      }
+
+      // Nothing to wait for: no cookie, or a reference this deployment never
+      // wrote. Polling will not turn that into a registration.
+      if (result.state === 'unknown') {
+        phase.value = 'unknown'
+        return
+      }
+    } catch {
+      // A failed poll is not an answer. Keep trying until the clock runs out —
+      // the alternative is telling somebody who has paid that something went
+      // wrong because one request out of twenty-four did.
+    }
+
+    if (Date.now() >= until) {
+      phase.value = 'waiting'
+      return
+    }
+    await sleep(POLL_EVERY_MS)
+  }
 })
 
 useHead({ title: 'Registration · DP Fitness' })
@@ -84,24 +122,36 @@ useHead({ title: 'Registration · DP Fitness' })
 
         <template v-else-if="phase === 'done'">
           <h1 class="title-section text-ink">Your slot is reserved.</h1>
-          <p class="mt-4 font-body text-[17px] leading-[1.7] text-soft">
+          <p v-if="emailed" class="mt-4 font-body text-[17px] leading-[1.7] text-soft">
             Check your email for your access code.
+          </p>
+          <!-- Paid, code minted, email refused. Saying "check your inbox" here
+               would send somebody to look for a message that is not coming. -->
+          <p v-else class="mt-4 font-body text-[17px] leading-[1.7] text-soft">
+            Your access code is issued, but we couldn't email it just yet. Get in
+            touch and we'll send it straight over.
           </p>
         </template>
 
-        <template v-else-if="phase === 'unpaid'">
-          <h1 class="title-section text-ink">Payment wasn't completed.</h1>
+        <!-- Deliberately not "payment failed". The wait running out means the
+             sale notification has not reached us, which is not the same as no
+             payment — and this page is read by people who have just been
+             charged. -->
+        <template v-else-if="phase === 'waiting'">
+          <h1 class="title-section text-ink">Still confirming.</h1>
           <p class="mt-4 font-body text-[17px] leading-[1.7] text-soft">
-            Nothing has been charged. You can start again from the registration
-            form.
+            If your payment went through, your access code is on its way by email
+            — it can take a few minutes. Nothing more to do here; get in touch if
+            it hasn't arrived.
           </p>
         </template>
 
         <template v-else>
-          <h1 class="title-section text-ink">We couldn't confirm that.</h1>
+          <h1 class="title-section text-ink">Nothing to confirm here.</h1>
           <p class="mt-4 font-body text-[17px] leading-[1.7] text-soft">
-            If you were charged, your access code is still on its way — give it
-            a few minutes, then get in touch.
+            We can't match this to a registration. If you were charged, your
+            access code is still on its way — give it a few minutes, then get in
+            touch.
           </p>
         </template>
       </div>

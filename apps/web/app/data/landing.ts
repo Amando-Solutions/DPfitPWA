@@ -14,20 +14,31 @@
 /**
  * The one-time price, in the smallest unit of `PRICE_CURRENCY`.
  *
- * Kobo, not naira. Paystack charges in minor units and so does every other
- * processor, and this is the number that actually leaves somebody's account —
- * so it is the one that is authored, and the string below is derived from it.
- * The alternative, a display string beside a separate amount constant, is two
- * numbers that must agree and a page that can advertise one price while
- * charging another.
+ * Kobo, not naira, because that is how money is counted anywhere it is counted
+ * exactly. The display string below is derived from this rather than authored
+ * beside it: two numbers that must agree is a page that can advertise one
+ * price while charging another.
  *
- * `server/api/register.post.ts` imports this directly rather than taking it
- * from configuration, so the amount initialised with Paystack is by
- * construction the amount on the page.
+ * BUT READ THIS BEFORE CHANGING IT. Under Paystack this number *was* the
+ * price — `register.post.ts` handed it over and that is what was charged.
+ * Selar does not work that way. The product is created in Selar's dashboard
+ * and carries its own price, so this constant no longer instructs anything; it
+ * is what the page promises, and what a sale is checked against in
+ * `describeAmount`. Changing it changes the promise and not the charge. The
+ * two are kept equal by hand, and a sale that comes in under this amount in
+ * this currency is logged as a mismatch — which is the only warning there is
+ * that the dashboard and the page have drifted apart.
  */
 export const PRICE_MINOR = 3_000_000
 
-/** ISO 4217. Paystack validates the pair, so this travels with the amount. */
+/**
+ * ISO 4217, and only the currency the price is *quoted* in.
+ *
+ * Selar converts prices into the buyer's own currency at checkout, so a real
+ * sale can and often does arrive in something else. Nothing refuses it: see
+ * `describeAmount`, which reports an amount in another currency as unchecked
+ * rather than as a failure.
+ */
 export const PRICE_CURRENCY = 'NGN'
 
 /** The one-time price of the challenge, formatted for display. */

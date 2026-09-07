@@ -119,8 +119,8 @@ service cloud.firestore {
     }
 
     // --- Registrations -----------------------------------------------------
-    // `registrations/{reference}` — one attempt to buy a seat, keyed by the
-    // Paystack transaction reference.
+    // `registrations/{reference}` — one attempt to buy a seat, keyed by a
+    // reference the landing site generates before the buyer is sent to Selar.
     //
     // Written only by `apps/web/server/api/register.post.ts` on the Admin SDK,
     // which bypasses these rules entirely. That is why every client write is
@@ -137,6 +137,25 @@ service cloud.firestore {
     // copied onto the access code as `issuedToWhatsapp`, which they can already
     // read, and from there into their own profile at redemption.
     match /registrations/{reference} {
+      allow get, list: if isCoach();
+      allow write: if false;
+    }
+
+    // --- Unmatched sales ---------------------------------------------------
+    // `unmatchedSales/{id}` — money that arrived with nothing to attach it to.
+    //
+    // Selar cannot be told our reference, so a sale is matched back to a
+    // registration by the buyer's email address. Somebody who edits that
+    // address on Selar's checkout form, or who buys from the product link
+    // without ever filling in the form, produces a payment this site cannot
+    // fulfil. Rather than lose it to a log line, `api/payment/webhook` writes
+    // it here: a short queue of people who have paid and are owed a code by
+    // hand.
+    //
+    // Same shape of rule as `registrations` above, and for the same reason —
+    // the only writer is the Admin SDK, which bypasses these rules entirely,
+    // so there is no legitimate client write to allow.
+    match /unmatchedSales/{saleId} {
       allow get, list: if isCoach();
       allow write: if false;
     }

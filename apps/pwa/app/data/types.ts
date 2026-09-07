@@ -134,19 +134,22 @@ export type AccessCode = WithId<AccessCodeDoc>
 //
 // One attempt to buy a seat, from the moment the landing form is submitted.
 // Written by `apps/web/server/api/register.post.ts` on the Admin SDK and
-// completed by `api/payment/verify` or the Paystack webhook, whichever arrives
-// first.
+// completed by `api/payment/webhook` when Selar reports the sale.
 //
-// Keyed by the Paystack transaction reference, which this side generates before
-// the transaction exists. That ordering is the point: the document is what a
-// payment is later matched *back* to, so it cannot be keyed by anything the
-// payment produces — including the access code, which does not exist yet and
-// deliberately is not minted until money has moved.
+// Keyed by a reference the landing site generates before the buyer is sent to
+// Selar. That ordering is the point: the document is what a payment is later
+// matched *back* to, so it cannot be keyed by anything the payment produces —
+// including the access code, which does not exist yet and deliberately is not
+// minted until money has moved.
+//
+// Selar has no field for that reference, so the match is made on the email
+// address instead. A sale that matches nothing lands in `unmatchedSales`
+// rather than being dropped.
 //
 // It exists separately from `AccessCodeDoc` because a code is a seat and this
 // is a person mid-purchase: the time zone decides which live-call slot they are
 // pointed at, the WhatsApp number is how they get into the group chat, and the
-// payment fields are a record nobody should have to reconstruct from Paystack's
+// payment fields are a record nobody should have to reconstruct from Selar's
 // dashboard. The number is the one field that travels onward — onto the code as
 // `issuedToWhatsapp`, and from there into `MemberProfile.whatsapp` — because
 // the member needs it and cannot read this.
@@ -160,25 +163,28 @@ export type RegistrationSource = 'landing'
 /**
  * Where a registration is in the one flow it has.
  *
- * `pending` is written before the buyer is sent to Paystack and is the state
+ * `pending` is written before the buyer is sent to Selar, and is the state
  * anyone who abandons checkout is left in — a real and common outcome, not an
- * error. `paid` is set only after Paystack has been asked directly what
- * happened. `failed` records a verification that came back as something other
- * than a success, so an unhappy buyer's reference can be looked up rather than
- * guessed at.
+ * error. `paid` is set when Selar's sale notification arrives.
+ *
+ * `failed` is now never written by anything. Under Paystack it recorded a
+ * verification that came back as something other than a success; Selar has no
+ * verification call and only ever announces sales that happened, so there is
+ * nothing to record. It stays in the union because documents written by the
+ * old flow still carry it.
  */
 export type RegistrationPaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded'
 
 export interface RegistrationDoc {
-  /** Mirrors the document id, and the Paystack transaction reference. */
+  /** Mirrors the document id. Ours alone — Selar never sees it. */
   reference: string
   /**
    * The access code, once one exists.
    *
-   * `null` until the payment is confirmed, which is the whole shape of the
-   * flow: no money, no code. Writing it is also what makes fulfilment
-   * idempotent — the callback and the webhook both run, and whichever is
-   * second finds this already set and stops.
+   * `null` until the sale arrives, which is the whole shape of the flow: no
+   * money, no code. Writing it is also what makes fulfilment idempotent — a
+   * notification can be delivered twice or replayed by hand, and whichever run
+   * is second finds this already set and stops.
    */
   code: string | null
   fullName: string
@@ -191,10 +197,24 @@ export interface RegistrationDoc {
   cohortId: string
   source: RegistrationSource
   paymentStatus: RegistrationPaymentStatus
-  /** Minor units — kobo for NGN. What was asked for, not what arrived. */
+  /** Which checkout took the money. `undefined` on documents from before Selar. */
+  provider?: 'selar'
+  /**
+   * Minor units — kobo for NGN. What the page advertised, not what arrived.
+   *
+   * The distinction is new with Selar and it is real: the price lives in
+   * Selar's dashboard and is converted into the buyer's own currency at
+   * checkout, so a member paying from London is charged in pounds. This pair
+   * is the promise; `paidAmountMinor` and `paidCurrency` are what happened.
+   */
   amountMinor: number
   currency: string
-  /** From Paystack: 'card', 'bank_transfer', … `null` until it settles. */
+  /** What Selar reported taking. `null` until the sale arrives. */
+  paidAmountMinor?: number | null
+  paidCurrency?: string | null
+  /** Selar's own purchase code — the handle their dashboard search understands. */
+  saleReference?: string | null
+  /** From the sale notification: 'card', 'bank_transfer', … when it says. */
   paymentChannel: string | null
   paidAt: Timestamp | null
   /** Whether the access-code email went out. False is worth being able to find. */

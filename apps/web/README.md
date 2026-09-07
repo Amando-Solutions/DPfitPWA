@@ -29,61 +29,83 @@ The same split the member app makes between `data/` and `components/`: the
 components own layout and behaviour, `data/landing.ts` owns the copy. A price
 change is one edit, and the three places the price appears cannot drift apart.
 
-`PageContainer`, `CtaButton` and `BrandMark` are the only shared pieces. Every
-other component is a section, named for what it says rather than where it sits,
-so re-ordering the argument is a matter of moving a line in `index.vue`.
+`PageContainer` and `CtaButton` are the only shared pieces in this app, and
+`BrandLogo` comes from the design-system layer rather than from here — the mark
+is authored once in `packages/theme` and both apps import it. Every other
+component is a section, named for what it says rather than where it sits, so
+re-ordering the argument is a matter of moving a line in `index.vue`.
 
 ## Registration and payment
 
 One section on this page does more than render copy. Registering is three
-things: the form, a Paystack checkout, and an access code that arrives by email.
+things: the form, a Selar checkout, and an access code that arrives by email.
 
 ```
-RegisterSection.vue              validates, POSTs, then leaves for Paystack
+RegisterSection.vue              validates, POSTs, then leaves for Selar
         ↓
 POST /api/register               writes registrations/{reference}, pending
-        ↓                        initialises Paystack, returns a checkout URL
-   [ Paystack checkout ]
-        ↓
-pages/registration/complete.vue  ← callback_url, carrying ?reference=
-        ↓
-POST /api/payment/verify   ─┐
-POST /api/payment/webhook  ─┴→   utils/fulfilment.ts
-                                   mints accessCodes/{CODE}
-                                   marks the registration paid
-                                   emails the code via Brevo
+        ↓                        sets the dpf_ref cookie
+        ↓                        returns a pre-filled Selar checkout URL
+   [ Selar checkout ]
+        ↓                        ┌────────────────────────────────────┐
+        ↓                        │ POST /api/payment/webhook          │
+pages/registration/complete.vue  │   utils/fulfilment.ts              │
+   polls GET /api/payment/status │     mints accessCodes/{CODE}       │
+   until a code exists           │     marks the registration paid    │
+                                 │     emails the code via Brevo      │
+                                 └────────────────────────────────────┘
 ```
 
-**No money, no code.** The form issues nothing. `/api/register` records the
-attempt and hands back a checkout URL; the code is minted only after Paystack
-has been asked directly whether the money moved. An earlier version issued a
-live code the moment the form was submitted, which meant anyone who filled it in
-and walked away held a seat.
+The two columns are independent: the browser's return tells us nothing, and the
+sale notification is what issues the seat. That is not a design preference, it
+is what Selar leaves us with.
 
-**The price is one number.** `PRICE_MINOR` in `app/data/landing.ts` is kobo, and
-the `₦30,000` on the page is derived from it. The server imports the same
-constant, so the amount charged cannot drift from the amount advertised, and
-nothing about the price reaches the route from the browser.
+**Selar is a storefront, not a payments API.** There is no call that starts a
+transaction and none that asks whether one was paid. The product is created once
+in the Selar dashboard, carries its own price, and is sold from a hosted page;
+`/api/register` only pre-fills that page (`?add_to_cart=1&email=…`) and sends
+the browser to it. Everything below follows from that.
 
-**Two things confirm a payment, because a browser is not a witness.** The
-callback fires when the buyer's browser comes back; the webhook fires
-server-to-server and covers the buyer who paid and closed the tab. In the normal
-case both run, which is why fulfilment is idempotent: it turns on
-`registrations/{reference}.code` being `null`, set inside a transaction, so
-whichever arrives second finds a code already there and stops. **The webhook is
-not optional in production** — without it, a closed tab means somebody is
-charged and never gets a code.
+**No money, no code.** The form issues nothing. An earlier version issued a live
+code the moment the form was submitted, which meant anyone who filled it in and
+walked away held a seat. What confirms the money now is the sale notification,
+and nothing else.
 
-**A reference is not a receipt.** It arrives in a query string where anyone can
-type one, so `/api/payment/verify` asks Paystack, and re-checks the amount and
-currency: a transaction can be `success` at Paystack for the wrong sum. The
-webhook verifies too, even though its signature already proved the sender, which
-removes replay from the threat model.
+**The webhook is the whole mechanism, not a backstop.** Under Paystack the
+browser callback could fulfil on its own, and the webhook covered the buyer who
+closed the tab. Here there is only one path: if `/api/payment/webhook` is not
+wired up in Selar, every buyer pays and receives nothing. Fulfilment is still
+idempotent — it turns on `registrations/{reference}.code` being `null`, set
+inside a transaction — because notifications are retried and replayed by hand.
 
-**The webhook is signed with the Paystack secret key** — HMAC-SHA512 of the raw
-body, compared in constant time. Raw, not re-serialised: changing key order or
-whitespace changes the digest, which is the usual way a webhook verifier ends up
-rejecting every legitimate call.
+**A shared secret is all the authentication there is.** Selar signs nothing, so
+`X-Selar-Token` is compared against `NUXT_SELAR_WEBHOOK_SECRET` in constant
+time and that is the end of it. There is no second check behind it: Paystack's
+webhook could be re-verified against the API, and this one cannot. Anybody who
+learns the token can mint free seats, so it wants to be long, random, and
+rotated in both places at once.
+
+**Sales are matched to registrations by email.** Selar has no field for our
+reference — the checkout URL carries `dpf_ref` on the off chance it survives,
+and it is read first, but the address is what actually does the work. A buyer
+who edits their email on Selar's checkout form produces a sale that matches
+nothing; rather than lose it, the webhook writes it to `unmatchedSales`, which
+is a short queue of people who have paid and are owed a code by hand.
+
+**The price is advertised here and charged there.** `PRICE_MINOR` in
+`app/data/landing.ts` is kobo and the `₦30,000` on the page is derived from it,
+but Selar's dashboard is what actually charges. The two are kept equal by hand.
+A sale that comes in under the advertised amount *in the same currency* is
+logged as a mismatch and issued anyway — and it is issued anyway because Selar
+converts prices into the buyer's own currency, so a member paying from London
+legitimately pays in pounds, and a strict check would refuse every
+international sale.
+
+**The confirmation page waits rather than knows.** Selar redirects to a fixed
+URL with nothing appended, so the page identifies the buyer from the `dpf_ref`
+cookie and polls `/api/payment/status` for up to a minute. It never says a
+payment failed — it cannot know that, and the person reading it has usually
+just been charged. If the wait runs out it says the code is still on its way.
 
 **Email is the only way the code reaches anyone.** It is never rendered and never
 returned by any route. The confirmation page says the slot is reserved and to
@@ -132,16 +154,23 @@ thing written by hand is the rotation of the `+`.
   to the person who registered, so a forwarded code is refused, but somebody who
   registers and never pays still holds a seat. Whatever takes payment is where
   that closes; the note is repeated at the top of `register.post.ts`.
-- **Nothing reconciles abandoned checkouts.** A buyer who opens Paystack and
+- **Nothing reconciles abandoned checkouts.** A buyer who opens Selar and
   leaves is stuck at `paymentStatus: 'pending'` forever. Harmless, but the
   collection accumulates them, and nobody is reminded to come back.
+- **A missed notification is invisible.** Selar cannot be asked what it sold, so
+  a Zap that was switched off, or a webhook that failed every retry, looks
+  exactly like nobody buying. The only symptom is a buyer getting in touch. A
+  weekly eyeball over Selar's own sales list against `registrations` where
+  `paymentStatus == 'paid'` is the whole reconciliation story.
+- **`unmatchedSales` has no screen.** It is written and nothing reads it. Until
+  something does, it is a Firestore console job.
 - **A paid seat whose email failed is only findable by query.** `fulfilment.ts`
   records `emailed: false` and logs loudly, but nothing retries and nothing
   alerts. The query is `registrations` where `paymentStatus == 'paid'` and
   `emailed == false`, and it needs a composite index to run.
 - **Refunds are manual.** `RegistrationPaymentStatus` has a `refunded` value and
-  nothing ever sets it; Paystack's `refund.processed` webhook event is not
-  handled, and revoking the access code that went with it is a console job.
+  nothing ever sets it. Selar has no refund notification to subscribe to, so
+  both marking the registration and revoking the access code are console jobs.
 - **The refund answer is placeholder copy.** The Figma frame draws the FAQ
   collapsed, so it carries the questions but no answers. Every other answer is
   written from what the page already commits to; the refund one needs the real

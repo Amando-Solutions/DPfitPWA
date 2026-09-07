@@ -3,7 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "DP Fitness design system · the semantic token layer, type scale and control recipes both apps are built from",
+  "description": "DP Fitness design system \u00b7 the semantic token layer, type scale and control recipes both apps are built from",
+  "scripts": {
+    "brand:assets": "node scripts/generate-brand-assets.mjs"
+  },
   "exports": {
     ".": "./nuxt.config.ts",
     "./styles/theme.css": "./styles/theme.css",
@@ -12,5 +15,8 @@
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "tailwindcss": "^4.3.3"
+  },
+  "devDependencies": {
+    "playwright-core": "1.62.1"
   }
 }

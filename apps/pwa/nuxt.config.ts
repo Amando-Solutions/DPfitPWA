@@ -193,30 +193,29 @@ export default defineNuxtConfig({
       // to the OS preference. Kept inline and dependency-free on purpose, since it
       // has to run ahead of every bundle.
       //
-      // It also preloads the boot splash's wordmark. The splash picks between
-      // the light and dark export in CSS, so the correct file is only knowable
-      // once `d` is resolved. A static <link> would have to guess, and getting
-      // it wrong costs a wasted fetch plus a late-painting logo. Reusing `d`
-      // also means the preload honours a stored override, so a member who
-      // forces light on a dark phone still gets the light wordmark.
+      // It used to preload the splash's wordmark too, because that was a PNG
+      // per theme and which one to fetch was only knowable once `d` had been
+      // resolved. The splash draws its lockup inline now and colours it from
+      // the same `data-theme` this sets, so there is no file to preload.
       script: [
         {
           key: 'theme-boot',
           tagPosition: 'head',
-          innerHTML: `(function(){try{var s=localStorage.getItem('dpfit:theme');var p=s?JSON.parse(s):'system';var d=p==='dark'||(p!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=d?'dark':'light';var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',d?'#14101a':'#f3eae4');var l=document.createElement('link');l.rel='preload';l.as='image';l.href=d?'/DP_wordmark_dark.png':'/DP_wordmark_light.png';document.head.appendChild(l);}catch(e){document.documentElement.dataset.theme='light';}})();`,
+          innerHTML: `(function(){try{var s=localStorage.getItem('dpfit:theme');var p=s?JSON.parse(s):'system';var d=p==='dark'||(p!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=d?'dark':'light';var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',d?'#14101a':'#f3eae4');}catch(e){document.documentElement.dataset.theme='light';}})();`,
         },
       ],
 
       link: [
-        // Files in `public/` are served at the web root as-is, so these resolve
-        // to `/favicon.svg`, `/icons/…` etc. Everything under `/icons/` is
-        // generated from `public/DP.png`, which is the source of truth for
-        // the mark, so regenerate the set rather than editing a PNG by hand.
-        { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' },
+        // Everything under `/brand/` comes out of the shared design-system
+        // layer's `public/`, not this app's, so the landing site and the member
+        // app cannot end up on two different versions of the mark. The source
+        // of truth is `/logo` at the repo root; regenerate the set with
+        // `bun run brand:assets` rather than editing a PNG by hand.
+        { rel: 'icon', type: 'image/svg+xml', href: '/brand/favicon.svg' },
         // Safari ignores SVG icons for the home screen, so the raster ones are
         // what an iOS member actually gets when they "Add to Home Screen".
-        { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/icons/favicon-32.png' },
-        { rel: 'apple-touch-icon', sizes: '180x180', href: '/icons/apple-touch-icon.png' },
+        { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/brand/favicon-32.png' },
+        { rel: 'apple-touch-icon', sizes: '180x180', href: '/brand/apple-touch-icon.png' },
         // The boot splash's own wordmark is preloaded from the theme script
         // below, because which file it needs isn't known until the theme is resolved.
         // Cohort avatars and the two photographic card washes all come from
@@ -248,17 +247,17 @@ pwa: {
 
     icons: [
       {
-        src: '/icons/icon-192.png',
+        src: '/brand/icon-192.png',
         sizes: '192x192',
         type: 'image/png',
       },
       {
-        src: '/icons/icon-512.png',
+        src: '/brand/icon-512.png',
         sizes: '512x512',
         type: 'image/png',
       },
       {
-        src: '/icons/icon-512-maskable.png',
+        src: '/brand/icon-512-maskable.png',
         sizes: '512x512',
         type: 'image/png',
         purpose: 'maskable',

@@ -44,12 +44,22 @@ function closeMenu() {
   >
     <PageContainer>
       <div class="flex h-[72px] items-center justify-between">
+        <!--
+          `mono` because the header only ever sits on the hero or on the night
+          panel it fades into, and the mark's plum is a deep violet that would
+          disappear into either. The brand ships an all-white lockup for exactly
+          this, and that is what `mono` plus `text-white` is.
+
+          Centred rather than baseline-aligned: the lockup is artwork with no
+          baseline to align the standfirst to, so `items-baseline` would hang it
+          off the bottom of the bar.
+        -->
         <a
           :href="REGISTER_ANCHOR"
-          class="flex items-baseline gap-3"
+          class="flex items-center gap-3"
           @click="closeMenu"
         >
-          <BrandMark />
+          <BrandLogo mono :size="44" class="text-white" label="DP Fitness" />
           <span class="meta hidden text-white/72 sm:inline">Recomp Challenge</span>
         </a>
 

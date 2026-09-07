@@ -4,14 +4,14 @@ import { PRICE, REGISTER_STEPS } from '~/data/landing'
 /**
  * Step one of three: the details the coach needs before anyone pays.
  *
- * The step it ends on is the handover to Paystack. `POST /api/register`
- * records the attempt and answers with a checkout URL, and this component's
- * last act is to navigate to it — so there is no success state here at all.
- * What happens after payment belongs to `pages/registration/complete.vue`.
+ * The step it ends on is the handover to Selar. `POST /api/register` records
+ * the attempt and answers with a checkout URL, and this component's last act is
+ * to navigate to it — so there is no success state here at all. What happens
+ * after payment belongs to `pages/registration/complete.vue`.
  *
  * Nothing about the access code passes through this component. It is not
- * minted until Paystack confirms the money moved, it is delivered by email,
- * and the browser is never told what it is.
+ * minted until Selar reports the sale, it is delivered by email, and the
+ * browser is never told what it is.
  */
 
 interface RegistrationStepOne {
@@ -22,7 +22,7 @@ interface RegistrationStepOne {
 }
 
 /**
- * Fired with the validated answers just before the browser leaves for Paystack.
+ * Fired with the validated answers just before the browser leaves for Selar.
  *
  * Nothing listens to it today. It is kept because it is the only moment the
  * page knows who is about to pay, which is what an analytics or pixel call
@@ -114,9 +114,9 @@ const done = ref(false)
 /**
  * In flight, and stays true once a checkout URL is in hand.
  *
- * Never reset on the success path: the browser is on its way to Paystack, and
- * a button that springs back to life during that navigation is an invitation
- * to start a second transaction.
+ * Never reset on the success path: the browser is on its way to Selar, and a
+ * button that springs back to life during that navigation is an invitation to
+ * start a second checkout.
  */
 const submitting = ref(false)
 
@@ -175,7 +175,7 @@ async function onSubmit() {
 
   submitting.value = true
   try {
-    const result = await $fetch<{ ok: true; authorizationUrl: string }>('/api/register', {
+    const result = await $fetch<{ ok: true; checkoutUrl: string }>('/api/register', {
       method: 'POST',
       body: { ...form },
     })
@@ -183,15 +183,15 @@ async function onSubmit() {
     emit('submit', { ...form })
     done.value = true
 
-    // `assign`, not `replace`: Paystack's own back button and the browser's
-    // both need somewhere to return to, and that somewhere is this page with
-    // the form still filled in.
-    window.location.assign(result.authorizationUrl)
+    // `assign`, not `replace`: Selar's checkout has its own way back and so
+    // does the browser, and that somewhere is this page with the form still
+    // filled in.
+    window.location.assign(result.checkoutUrl)
   } catch (cause) {
     failure.value = failureMessage(cause)
-    // Reset only on failure. On the way to Paystack the button stays disabled,
+    // Reset only on failure. On the way to Selar the button stays disabled,
     // because the navigation has not visibly started yet and a second press
-    // would open a second transaction.
+    // would open a second registration.
     submitting.value = false
   }
 }
@@ -274,14 +274,14 @@ async function onSubmit() {
           </div>
 
           <!-- Stays put and stays disabled once a checkout URL is in hand.
-               The browser is mid-navigation to Paystack at that point, and a
-               button that springs back to life opens a second transaction. -->
+               The browser is mid-navigation to Selar at that point, and a
+               button that springs back to life opens a second checkout. -->
           <div class="mt-7 flex flex-wrap items-center gap-3.5 lg:mt-7">
             <CtaButton type="submit" variant="ink" :disabled="submitting || done">
               {{ submitting ? 'Taking you to payment…' : `Continue to payment · ${PRICE}` }}
             </CtaButton>
             <p class="font-body text-[13.5px] text-ink-mute">
-              Secure checkout with Paystack. Your access code is emailed once
+              Secure checkout with Selar. Your access code is emailed once
               payment clears.
             </p>
           </div>

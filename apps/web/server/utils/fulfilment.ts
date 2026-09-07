@@ -1,27 +1,33 @@
 // =============================================================================
-// Turning a confirmed payment into a seat.
+// Turning a confirmed sale into a seat.
 //
-// One function, reached from two places that both fire in the normal case: the
-// buyer's browser coming back through `callback_url`, and Paystack's webhook
-// arriving server-to-server. Neither is reliable alone — a browser can be
-// closed before it redirects, and a webhook can be delayed — so both run, and
-// the interesting property of everything below is that running twice does the
-// same thing as running once.
+// One function, reached from one place: the sale notification Selar sends when
+// somebody pays. Under Paystack there were two callers — the buyer's browser
+// coming back through `callback_url` and the webhook — and either could fulfil,
+// because either could ask Paystack directly whether money moved. Selar can be
+// asked nothing, so the notification is the only evidence there is and the
+// browser's return does nothing but poll for the result.
+//
+// Idempotency still matters, and for a plainer reason than before: notification
+// delivery retries. A Zap that times out on our side is re-sent, Selar's own
+// hook may repeat, and an operator re-running a failed task by hand is a normal
+// Tuesday. The interesting property of everything below is that running twice
+// does the same thing as running once.
 //
 // Idempotency turns on `registrations/{reference}.code`. It is `null` until a
-// payment is confirmed and set inside a transaction; whichever of the two
-// callers gets there second reads a code already present and stops. The
-// alternative — checking `paymentStatus` — has a window between the status
-// write and the code write where a second caller mints a second seat.
+// sale is fulfilled and set inside a transaction; whichever caller gets there
+// second reads a code already present and stops. The alternative — checking
+// `paymentStatus` — has a window between the status write and the code write
+// where a second caller mints a second seat.
 // =============================================================================
 import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore'
 import { issueAccessCode, readCohort, type Registration } from './access-code'
 import { sendAccessCodeEmail, type BrevoConfig } from './email'
-import type { VerifiedPayment } from './paystack'
+import type { ConfirmedSale, SaleEvent } from './selar'
 
 export interface FulfilResult {
   /** What happened, for the log and for the confirmation screen. */
-  outcome: 'issued' | 'already-issued' | 'not-paid' | 'unknown-reference'
+  outcome: 'issued' | 'already-issued' | 'unknown-reference'
   emailed: boolean
 }
 
@@ -33,7 +39,54 @@ export interface FulfilOptions {
 }
 
 /**
- * Confirm, mint, record, send — in that order, and only once.
+ * Which registration a sale belongs to.
+ *
+ * The hard part of the Selar flow, and the part Paystack made trivial. There,
+ * the reference we generated *was* the transaction reference, so a payment
+ * carried the answer with it. Selar has no field for it: the checkout URL
+ * carries `dpf_ref`, but nothing promises it survives to the notification, so
+ * that is tried first and then the real work begins.
+ *
+ * The real work is the email address, which is the only thing both sides
+ * always have. It is pre-filled at checkout and the buyer can change it — so
+ * this matches on the address that came back, and a buyer who paid under a
+ * different address than they registered with is a support job, logged as
+ * such, rather than a seat quietly issued to the wrong person.
+ *
+ * One equality filter, settled in memory, for the same reason as
+ * `existingCode`: it keeps the automatic single-field index sufficient and
+ * avoids a composite index for a query that returns one or two documents.
+ */
+export const findRegistrationForSale = async (
+  db: Firestore,
+  sale: SaleEvent,
+): Promise<string | null> => {
+  if (sale.reference) {
+    const direct = await db.doc(`registrations/${sale.reference}`).get()
+    if (direct.exists) return direct.id
+  }
+
+  const snap = await db
+    .collection('registrations')
+    .where('email', '==', sale.email)
+    .limit(25)
+    .get()
+  if (snap.empty) return null
+
+  const at = (doc: FirebaseFirestore.QueryDocumentSnapshot) =>
+    (doc.data().createdAt as Timestamp | undefined)?.toMillis() ?? 0
+
+  // Newest first, and an unfulfilled one in preference to a fulfilled one. A
+  // buyer who has registered twice — abandoned checkout, came back, paid — has
+  // two pending documents, and the seat belongs on the attempt they just paid
+  // for. If every one of them already holds a code, the newest is returned
+  // anyway so the caller reports `already-issued` rather than losing the sale.
+  const docs = [...snap.docs].sort((a, b) => at(b) - at(a))
+  return (docs.find((doc) => !doc.data().code) ?? docs[0]!).id
+}
+
+/**
+ * Record, mint, send — in that order, and only once.
  *
  * The email is sent *outside* the transaction on purpose. A Firestore
  * transaction may be retried, and a retried transaction that sends email sends
@@ -42,10 +95,10 @@ export interface FulfilOptions {
  */
 export const fulfilRegistration = async (
   db: Firestore,
-  payment: VerifiedPayment,
+  sale: ConfirmedSale,
   options: FulfilOptions,
 ): Promise<FulfilResult> => {
-  const ref = db.doc(`registrations/${payment.reference}`)
+  const ref = db.doc(`registrations/${sale.reference}`)
 
   // --- Everything that must happen exactly once ----------------------------
   const claim = await db.runTransaction(async (tx) => {
@@ -62,7 +115,7 @@ export const fulfilRegistration = async (
     }
 
     // Somebody already fulfilled this. Return what they issued so the caller
-    // can still answer the buyer, but do not mint or charge anything again.
+    // can still answer, but do not mint or send anything again.
     if (data.code) {
       return {
         outcome: 'already-issued' as const,
@@ -108,8 +161,17 @@ export const fulfilRegistration = async (
       code,
       cohortId: cohort.id,
       paymentStatus: 'paid',
-      paymentChannel: payment.channel,
-      paidAt: payment.paidAt ? Timestamp.fromDate(new Date(payment.paidAt)) : Timestamp.now(),
+      paymentChannel: sale.channel,
+      // What Selar reported, kept beside the advertised `amountMinor` rather
+      // than overwriting it. Selar converts prices into the buyer's currency,
+      // so these two legitimately differ and the pair is the only readable
+      // record of what actually changed hands.
+      paidAmountMinor: sale.amountMinor,
+      paidCurrency: sale.currency,
+      // Selar's own purchase code. The only handle their dashboard search
+      // understands, so it is the first thing any support conversation needs.
+      saleReference: sale.saleReference,
+      paidAt: parsePaidAt(sale.paidAt),
       updatedAt: FieldValue.serverTimestamp(),
     })
     return true
@@ -121,7 +183,7 @@ export const fulfilRegistration = async (
   // be revoked if it ever happens often.
   if (!won) {
     console.warn(
-      `[fulfil] ${payment.reference} was fulfilled concurrently; ${code} was minted and ` +
+      `[fulfil] ${sale.reference} was fulfilled concurrently; ${code} was minted and ` +
         'is not being delivered. It can be revoked in the console.',
     )
     return { outcome: 'already-issued', emailed: true }
@@ -141,7 +203,7 @@ export const fulfilRegistration = async (
   await ref.update({ emailed, updatedAt: FieldValue.serverTimestamp() })
   if (!emailed) {
     console.error(
-      `[fulfil] ${payment.reference} is PAID but the access code email did not send. ` +
+      `[fulfil] ${sale.reference} is PAID but the access code email did not send. ` +
         `Code ${code} is issued and valid; it has to be sent by hand.`,
     )
   }
@@ -150,28 +212,16 @@ export const fulfilRegistration = async (
 }
 
 /**
- * Records a verification that did not clear.
+ * The sale's timestamp, or ours.
  *
- * `reason` rather than just the status, because "success" is a status that
- * still fails this check: a transaction can complete at Paystack for the wrong
- * amount or in the wrong currency, and a log saying `verified as "success" —
- * no code issued` reads like a bug in our own code rather than the mismatch it
- * actually is.
+ * Selar's notification dates arrive in whatever format the sending end chose —
+ * ISO, `2026-09-06 14:03:11`, a human-readable string from a Zap. An
+ * unparseable one becomes "now", which is off by seconds rather than wrong,
+ * and is a great deal better than writing an Invalid Date into Firestore and
+ * having every later read of the field throw.
  */
-export const recordFailedPayment = async (
-  db: Firestore,
-  reference: string,
-  reason: string,
-) => {
-  try {
-    await db.doc(`registrations/${reference}`).update({
-      paymentStatus: 'failed',
-      updatedAt: FieldValue.serverTimestamp(),
-    })
-  } catch {
-    // An unknown reference is not worth an error: anyone can put one in a
-    // query string, and there is nothing to record about a document that does
-    // not exist.
-  }
-  console.warn(`[fulfil] ${reference} did not clear (${reason}) — no code issued.`)
+const parsePaidAt = (raw: string | null): Timestamp => {
+  if (!raw) return Timestamp.now()
+  const at = new Date(raw)
+  return Number.isNaN(at.getTime()) ? Timestamp.now() : Timestamp.fromDate(at)
 }

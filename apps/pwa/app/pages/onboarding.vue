@@ -22,7 +22,7 @@ const skip = () => router.push('/access-code')
 <template>
   <div class="onb flex-1 flex flex-col pt-(--screen-pad-top) px-5 pb-4.5 [&_.fade-enter-active]:transition-opacity [&_.fade-enter-active]:duration-250 [&_.fade-enter-active]:ease-[ease] [&_.fade-leave-active]:transition-opacity [&_.fade-leave-active]:duration-250 [&_.fade-leave-active]:ease-[ease] [&_.fade-enter-from]:opacity-0 [&_.fade-leave-to]:opacity-0 lg:pt-7 lg:px-7 lg:pb-6">
     <header class="onb__top h-10.5 flex items-center justify-between shrink-0">
-      <BrandWordmark size="sm" />
+      <BrandLogo :size="34" class="text-ink" label="DP Fitness" />
       <button class="onb__skip pt-2 pr-0 pb-2 pl-3 font-data text-[10px] tracking-[1.2px] text-muted" @click="skip">SKIP</button>
     </header>
 

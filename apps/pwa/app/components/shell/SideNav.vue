@@ -28,7 +28,10 @@ const initials = computed(() =>
 <template>
   <aside class="sidenav hidden lg:flex lg:flex-col lg:gap-1 lg:w-(--sidenav-width) lg:shrink-0 lg:pt-6.5 lg:px-4.5 lg:pb-5.5 lg:bg-raised lg:border-r lg:border-hairline lg:overflow-y-auto">
     <NuxtLink to="/home" class="sidenav__brand lg:pt-0 lg:px-2.5 lg:pb-5.5">
-      <BrandWordmark size="sm" />
+      <!-- No `mono`: the rail is a themed surface, so the mark takes
+           `--brand-mark`, which is the plum on light and lifts to the wordmark's
+           off-white on dark. `text-ink` is the wordmark half. -->
+      <BrandLogo :size="40" class="text-ink" label="DP Fitness" />
     </NuxtLink>
 
     <nav class="sidenav__nav lg:flex lg:flex-col lg:gap-0.5">

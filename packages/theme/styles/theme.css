@@ -97,6 +97,14 @@
 
   --rose-strong: rgba(200, 30, 92, 0.55);
 
+  /* --- The logo -----------------------------------------------------------
+     The plum the mark is drawn in, and the only colour the brand files carry
+     that is not already an accent here. It is a token rather than a literal
+     inside `BrandLogo` so the mark can lift in dark mode, where #430f32 would
+     be a deep violet on a deeper one. Nothing but the logo should use it: the
+     accent for everything else is the rose. */
+  --brand-mark: #430f32;
+
   --orange: #e8a33d;
   --orange-soft: rgba(232, 163, 61, 0.16);
   --orange-ring: rgba(232, 163, 61, 0.32);
@@ -360,6 +368,11 @@
 
   --rose-strong: rgba(255, 134, 168, 0.5);
 
+  /* On a dark ground the brand's own answer is the white lockup, so the mark
+     stops being plum and joins the wordmark. Following `--text` rather than a
+     flat #fff keeps it the same warm off-white as the type beside it. */
+  --brand-mark: var(--text);
+
   --orange: #f0b45c;
   --orange-soft: rgba(240, 180, 92, 0.16);
   --orange-ring: rgba(240, 180, 92, 0.34);
@@ -482,6 +495,8 @@
   --color-orange-soft: var(--orange-soft);
   --color-orange-text: var(--orange-text);
   --color-ember-text: var(--ember-text);
+  --color-brand-mark: var(--brand-mark);
+
   --color-rose-on-inverse: var(--rose-on-inverse);
   --color-ember: var(--flame-ember);
   --color-flame-core: var(--flame-core);

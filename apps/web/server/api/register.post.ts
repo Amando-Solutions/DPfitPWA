@@ -1,21 +1,32 @@
 // =============================================================================
-// POST /api/register — step one: take the details, start the payment.
+// POST /api/register — step one: take the details, send them to Selar.
 //
-// This route no longer issues anything. It records the attempt and hands back a
-// Paystack checkout URL; the access code is minted by `fulfilRegistration`,
-// after Paystack has been asked directly whether money moved. That ordering is
-// the point of the rewrite — the earlier version issued a live, redeemable code
-// the moment the form was submitted, which meant anyone who filled it in and
-// walked away held a seat.
+// This route issues nothing. It records the attempt and hands back a Selar
+// checkout URL; the access code is minted by `fulfilRegistration`, and only
+// when Selar's sale notification arrives. That ordering is the point — an
+// earlier version issued a live, redeemable code the moment the form was
+// submitted, which meant anyone who filled it in and walked away held a seat.
 //
-// The amount is read from `PRICE_MINOR`, the same constant the page prints, so
-// the sum initialised here cannot drift from the sum advertised. Nothing about
-// what is charged reaches this route from the browser.
+// What changed with Selar is where the amount comes from. Paystack was handed
+// `PRICE_MINOR` here, so the sum charged could not drift from the sum
+// advertised. Selar owns its own price: the product is created once in their
+// dashboard and this route only points a browser at it. `PRICE_MINOR` is still
+// written onto the registration, but now as a record of what the page promised
+// rather than as an instruction — see the note on the constant itself.
+//
+// The cookie set at the end is the other thing Selar forces. Paystack redirected
+// the buyer back with the reference in the query string; Selar redirects to a
+// fixed URL and says nothing, so this is the only way the confirmation page can
+// know which registration to watch.
 // =============================================================================
 import { PRICE_MINOR, PRICE_CURRENCY } from '../../app/data/landing'
 import { firestore } from '../utils/firebase'
-import { initialiseTransaction, newReference, PaystackError } from '../utils/paystack'
+import { checkoutUrl, newReference, SelarError } from '../utils/selar'
 import type { Registration } from '../utils/access-code'
+
+/** How long the confirmation page has to find its registration. */
+const REFERENCE_COOKIE = 'dpf_ref'
+const REFERENCE_COOKIE_MAX_AGE = 3 * 60 * 60
 
 /**
  * The same four checks the form makes, made again.
@@ -55,10 +66,10 @@ const validate = (body: Record<string, unknown>): Registration => {
  *
  * In-memory and therefore per-instance, which on a serverless deploy means it
  * is bypassed by anything patient enough to be spread across cold starts. It is
- * worth the fifteen lines anyway: every call here creates a document and a
- * Paystack transaction, and this stops a stuck retry loop or a single script
- * doing that in a tight cycle. Proper protection is a captcha or a WAF rule at
- * the edge, neither of which belongs in this file.
+ * worth the fifteen lines anyway: every call here creates a document, and this
+ * stops a stuck retry loop or a single script doing that in a tight cycle.
+ * Proper protection is a captcha or a WAF rule at the edge, neither of which
+ * belongs in this file.
  */
 const WINDOW_MS = 60_000
 const MAX_PER_WINDOW = 5
@@ -84,9 +95,9 @@ export default defineEventHandler(async (event) => {
   const registration = validate((await readBody(event)) ?? {})
   const config = useRuntimeConfig()
 
-  if (!config.paystackSecretKey) {
+  if (!config.selarProductUrl) {
     console.error(
-      '[register] NUXT_PAYSTACK_SECRET_KEY is not set, so no payment can be started. ' +
+      '[register] NUXT_SELAR_PRODUCT_URL is not set, so there is nowhere to send a buyer. ' +
         'Registration is blocked until it is.',
     )
     throw createError({
@@ -95,59 +106,89 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  // Chosen here rather than by Paystack, because it is also the id of the
-  // document the payment will later be matched back to — so it has to exist
-  // before the transaction does.
+  // A second thing worth failing loudly on. The form would work without it —
+  // a buyer could register and pay — but no notification could ever be
+  // believed, so every one of those payments would end in silence. Better to
+  // stop before taking anybody's money.
+  if (!config.selarWebhookSecret) {
+    console.error(
+      '[register] NUXT_SELAR_WEBHOOK_SECRET is not set, so no sale could be fulfilled even ' +
+        'if it were paid. Registration is blocked until it is.',
+    )
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Payment is temporarily unavailable. Please try again shortly.',
+    })
+  }
+
+  // Ours alone now. Under Paystack this doubled as the transaction reference;
+  // Selar has no field for it, so it is the id of the document a sale is later
+  // matched back to by email, and nothing else.
   const reference = newReference()
 
   try {
-    const db = firestore()
+    // Written first. A registration with no payment behind it is an abandoned
+    // form, which is readable and harmless; a payment with no registration
+    // behind it is money nobody can fulfil.
+    await firestore()
+      .doc(`registrations/${reference}`)
+      .create({
+        reference,
+        code: null,
+        ...registration,
+        cohortId: config.registrationCohortId,
+        source: 'landing',
+        provider: 'selar',
+        paymentStatus: 'pending',
+        // What the page advertised. `paidAmountMinor` and `paidCurrency` are
+        // written beside these when the sale arrives, and the two legitimately
+        // differ: Selar converts the price into the buyer's own currency.
+        amountMinor: PRICE_MINOR,
+        currency: PRICE_CURRENCY,
+        paidAmountMinor: null,
+        paidCurrency: null,
+        saleReference: null,
+        paymentChannel: null,
+        paidAt: null,
+        emailed: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
 
-    // Written first. A registration with no transaction behind it is an
-    // abandoned form, which is readable and harmless; a transaction with no
-    // registration behind it is a payment nobody can fulfil.
-    await db.doc(`registrations/${reference}`).create({
-      reference,
-      code: null,
-      ...registration,
-      cohortId: config.registrationCohortId,
-      source: 'landing',
-      paymentStatus: 'pending',
-      amountMinor: PRICE_MINOR,
-      currency: PRICE_CURRENCY,
-      paymentChannel: null,
-      paidAt: null,
-      emailed: false,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+    // The only thread back to this registration. Selar's redirect goes to a
+    // fixed URL configured on the product with nothing appended, so without
+    // this the confirmation page has no idea who just came back.
+    //
+    // `lax` rather than `strict`: the return is a top-level navigation from
+    // selar.co, and a strict cookie is withheld on exactly that, which would
+    // leave every buyer looking at a page that cannot find them.
+    setCookie(event, REFERENCE_COOKIE, reference, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: !import.meta.dev,
+      path: '/',
+      maxAge: REFERENCE_COOKIE_MAX_AGE,
     })
 
-    const authorizationUrl = await initialiseTransaction(config.paystackSecretKey, {
-      email: registration.email,
-      amountMinor: PRICE_MINOR,
-      currency: PRICE_CURRENCY,
-      reference,
-      // Absolute, because Paystack redirects a browser to it from its own
-      // origin. `siteUrl` is this deployment; `appUrl` is the member app.
-      callbackUrl: `${config.public.siteUrl.replace(/\/$/, '')}/registration/complete`,
-      metadata: {
+    // Only the URL. Nothing about the amount is decided here, and there is
+    // nothing else worth reading off a network tab.
+    return {
+      ok: true,
+      checkoutUrl: checkoutUrl({
+        productUrl: config.selarProductUrl,
+        reference,
+        email: registration.email,
         fullName: registration.fullName,
         whatsapp: registration.whatsapp,
-        timezone: registration.timezone,
-        cohortId: config.registrationCohortId,
-      },
-    })
-
-    // Only the URL. No reference, no amount, nothing the browser could alter
-    // and nothing worth reading off a network tab.
-    return { ok: true, authorizationUrl }
+      }),
+    }
   } catch (cause) {
     console.error('[register] could not start the payment:', cause)
     throw createError({
       statusCode: 500,
       statusMessage:
-        cause instanceof PaystackError
-          ? 'We could not reach the payment provider. Please try again.'
+        cause instanceof SelarError
+          ? 'Payment is temporarily unavailable. Please try again shortly.'
           : 'We could not complete your registration. Please try again.',
     })
   }

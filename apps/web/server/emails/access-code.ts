@@ -173,8 +173,10 @@ export const html = (data: AccessCodeTemplate) => {
   <!--[if mso]><table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
   <table role="presentation" class="container" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;">
 
-    <!-- Masthead. The wordmark as live text: DP, a rose full stop, FITNESS —
-         the same three parts as BrandMark.vue, and no image to be blocked. -->
+    <!-- Masthead. Deliberately NOT the <BrandLogo> artwork the apps use: a
+         mail client blocks remote images by default, and a masthead that
+         resolves to a broken-image icon is worse than no masthead. Live text
+         always renders — DP, a rose full stop, FITNESS. -->
     <tr>
       <td align="center" style="background:${NIGHT};border-radius:14px 14px 0 0;padding:26px 24px;">
         <span style="font-family:${DISPLAY};font-size:19px;font-weight:900;letter-spacing:-0.02em;color:${PAPER};">DP<span style="color:${ROSE};">.</span>FITNESS</span>

@@ -1,4 +1,13 @@
+import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
+
+/**
+ * Resolved from this file rather than written as `~/components`, because `~`
+ * in a merged array is the *consuming app's* srcDir: both apps declare their
+ * own `~/components` entry, and a second one here would just be a duplicate of
+ * theirs and never find the layer's.
+ */
+const componentsDir = fileURLToPath(new URL('./components', import.meta.url))
 
 /**
  * DP Fitness design system, as a Nuxt layer.
@@ -22,6 +31,21 @@ export default defineNuxtConfig({
   vite: {
     plugins: [tailwindcss()],
   },
+
+  /**
+   * The brand artwork, as components rather than files.
+   *
+   * `BrandLogo` and `BrandIcon` are `currentColor` drawings of the two
+   * geometries the brand ships, which is why they live in the layer next to
+   * the tokens instead of being copied into each app's `public/`: the eight
+   * SVG exports are those two shapes under three fills, so a colourway is a
+   * class here and the two apps cannot end up on different versions of the
+   * mark. Both apps set `pathPrefix: false`, and this matches, so they are
+   * `<BrandLogo/>` and `<BrandIcon/>` in either one.
+   */
+  components: [
+    { path: componentsDir, pathPrefix: false, extensions: ['vue'] },
+  ],
 
   app: {
     head: {

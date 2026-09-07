@@ -253,10 +253,12 @@ watch([code, email], () => {
     <div class="access__glow absolute w-65 h-65 -top-20 -right-20 rounded-[50%] bg-[radial-gradient(circle,var(--rose-ring),transparent_70%)] filter-[blur(8px)] pointer-events-none" />
 
     <div class="access__intro relative mt-auto mb-6 flex flex-col gap-2 lg:mt-0 lg:mb-7">
-      <!-- Laid out on one line rather than stacked. The identity is worth a
-           mark on the first screen a member ever sees; it is not worth two
-           lines and a third announcing which cohort they are in. -->
-      <BrandWordmark size="md" />
+      <!-- The brand's own lockup, at the one screen that earns it: this is the
+           first thing a member ever sees. It reads as one block, not the two
+           lines the type version would have cost, because the wordmark sits
+           under the mark rather than beside it — so it still does not need a
+           third line announcing which cohort they are in. -->
+      <BrandLogo :size="56" class="text-ink" label="DP Fitness" />
 
       <h1
         class="access__title m-[10px_0_0] font-display font-black text-[27px] leading-[1.12] tracking-[-0.4px] text-ink lg:text-[30px]"

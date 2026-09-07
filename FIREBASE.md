@@ -10,7 +10,8 @@ one. Read them before changing anything in `app/lib/datasource/firestore.ts`.
 | Path | What it holds |
 | --- | --- |
 | `accessCodes/{code}` | One seat. Keyed by the code, so redemption is a single `getDoc` and uniqueness is the database's problem, not a query's. |
-| `registrations/{reference}` | One attempt to buy a seat: the form's answers plus the payment. Keyed by the Paystack transaction reference, because the document exists before the code does — `code` is `null` until money moves. Coach-readable; every client write is denied, since the only writer is the landing site's Admin SDK routes. |
+| `registrations/{reference}` | One attempt to buy a seat: the form's answers plus the payment. Keyed by a reference the landing site generates before sending the buyer to Selar, because the document exists before the code does — `code` is `null` until money moves. Coach-readable; every client write is denied, since the only writer is the landing site's Admin SDK routes. |
+| `unmatchedSales/{id}` | A Selar sale that matched no registration — usually a buyer who changed their email address at checkout. Money received, nothing issued, and a queue for whoever fixes it by hand. Same rule shape as `registrations`. |
 | `cohorts/{cohortId}` | The cohort, with the coach denormalised onto it. |
 | `cohorts/{id}/notifications/{id}` | Coach-authored announcements. |
 | `cohorts/{id}/leaderboard/{uid}` | Name, avatar, qualifying-session count. A projection — see below. |
@@ -243,8 +244,9 @@ authorised list.
 Two places, and only one of them is a person.
 
 **A paid registration issues one.** `apps/web/server/utils/fulfilment.ts` mints a
-code once Paystack confirms a payment, reached from both the checkout callback
-and the webhook; `apps/web/server/utils/access-code.ts` writes the document. It
+code when Selar's sale notification arrives at `api/payment/webhook`, which is
+the only path there is — Selar has no API to ask, so the notification is the
+evidence; `apps/web/server/utils/access-code.ts` writes the document. It
 runs on the Admin SDK for the same reason this section exists at all — `allow
 create` on `accessCodes` is coach-only, and a visitor buying a seat is not
 signed in — and it gets the shape right by construction, reading `cohortName`
