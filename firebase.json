@@ -12,9 +12,17 @@
       "indexes": "firestore.indexes.json"
     }
   ],
-  "storage": {
-    "rules": "storage.rules"
-  },
+  "_comment_storage": "An ARRAY, for the same reason `firestore` above is one, and it bit us the same way. The project has two buckets — the default one and `recomp-48b7b-staging`, which is what NUXT_PUBLIC_FIREBASE_STORAGE_BUCKET points at outside production. The single-object form has no `bucket` field to name, so `firebase deploy --only storage` published `storage.rules` to the DEFAULT bucket alone and silently left staging on the deny-all template the console creates a new bucket with. Every chat attachment in staging failed with `storage/unauthorized`, and nothing in the deploy output said so. Both buckets are named here, and both read the same file: unlike the Firestore pair there is nothing about a bucket that wants to diverge, and a second rules file is a second thing to forget to point at a bucket. Add the bucket here when you add a bucket.",
+  "storage": [
+    {
+      "bucket": "recomp-48b7b.firebasestorage.app",
+      "rules": "storage.rules"
+    },
+    {
+      "bucket": "recomp-48b7b-staging",
+      "rules": "storage.rules"
+    }
+  ],
   "hosting": {
     "public": "apps/pwa/.output/public",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
