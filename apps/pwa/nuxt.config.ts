@@ -90,6 +90,7 @@ export default defineNuxtConfig({
 
   modules: [
     '@vite-pwa/nuxt',
+    '@vercel/analytics',
     // Nuxt's app manifest lives at `.nuxt/manifest/meta/<buildId>.json` and is
     // reached through the server-only `#app-manifest` alias. Nitro writes that
     // file when it bundles, which during `nuxt dev` happens *after* Vite has

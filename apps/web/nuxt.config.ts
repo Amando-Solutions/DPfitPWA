@@ -59,7 +59,7 @@ export default defineNuxtConfig({
       headers: { 'X-Robots-Tag': 'noindex, nofollow' },
     },
   },
-
+  modules: ['@vercel/analytics'],
   // NOTE: `server/api/register.post.ts` needs a server runtime. Prerendering
   // `/` is fine — it renders the page to HTML at build time and the route is
   // still served at request time — but `nuxt generate` is not: it produces a
