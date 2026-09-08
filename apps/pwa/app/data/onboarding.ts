@@ -1,4 +1,4 @@
-import type { ActivityLevel, Goal, Sex } from './types'
+import type { ActivityLevel, Goal, Sex, TrainingFeel } from './types'
 
 // Content for the intro carousel + access-code screens.
 export interface OnboardingSlide {
@@ -76,4 +76,19 @@ export const trainingDayOptions = [2, 3, 4, 5, 6]
 export const sexOptions: { id: Sex; label: string }[] = [
   { id: 'female', label: 'Female' },
   { id: 'male', label: 'Male' },
+]
+
+/**
+ * How training felt, offered as a choice on the weekly check-in.
+ *
+ * Here rather than with the program content for the same reason as the lists
+ * above: `TrainingFeel` is a union in `types.ts`, so these are the labels for
+ * values the *schema* already fixes. Nothing a coach authors can add a fourth,
+ * and reading them from Firestore would mean a cohort could offer an option the
+ * type system says cannot be stored.
+ */
+export const trainingFeelOptions: { id: TrainingFeel; label: string; desc: string }[] = [
+  { id: 'too-easy', label: 'Too easy', desc: 'You had plenty left in the tank.' },
+  { id: 'just-right', label: 'Just right', desc: 'Hard, but every set was clean.' },
+  { id: 'too-hard', label: 'Too hard', desc: 'Form or recovery started slipping.' },
 ]

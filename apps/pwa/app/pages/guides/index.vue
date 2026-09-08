@@ -2,8 +2,6 @@
 // 25 · Program Guides (+ 27/28 locked & unlocked states)
 definePageMeta({ layout: 'app' })
 
-import { guideCategories, guides } from '~/data/program'
-
 const store = useAppStore()
 
 // Resolved once in setup, because `resolveComponent` isn't usable from a v-for render.
@@ -11,10 +9,23 @@ const NuxtLink = resolveComponent('NuxtLink')
 
 const filter = ref('All')
 
+/**
+ * The chips, from the guides that were actually authored.
+ *
+ * This was a hand-kept list, which is a list that goes wrong in both
+ * directions: a chip for a category with nothing behind it, and a new category
+ * of guides with no chip to reach it by. A filter that no longer matches
+ * anything — because the category it named went away — falls back to All.
+ */
+const categories = computed(() => store.guideCategories.value)
+watchEffect(() => {
+  if (!categories.value.includes(filter.value)) filter.value = 'All'
+})
+
 const stepsOf = (body: string) => body.split('\n\n').filter(Boolean).length
 
 const rows = computed(() =>
-  guides
+  store.guides.value
     .map((guide) => ({
       ...guide,
       steps: stepsOf(guide.body),
@@ -37,7 +48,7 @@ const rows = computed(() =>
 
     <div class="guides__filters scroll-x mt-4 flex gap-2 overflow-x-auto pb-1 mb-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       <button
-        v-for="category in guideCategories"
+        v-for="category in categories"
         :key="category"
         class="chip shrink-0 py-2 px-3.5 rounded-pill bg-raised text-[12.5px] text-muted whitespace-nowrap [&.chip--on]:bg-inverse [&.chip--on]:text-on-inverse [&.chip--on]:font-semibold"
         :class="{ 'chip--on': filter === category }"

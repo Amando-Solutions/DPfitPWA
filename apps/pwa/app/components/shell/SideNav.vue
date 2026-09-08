@@ -102,7 +102,7 @@ const initials = computed(() =>
       <span class="sidenav__member-text lg:flex lg:flex-col lg:gap-0.5 lg:min-w-0">
         <span class="sidenav__member-name lg:text-[13.5px] lg:font-bold lg:text-ink lg:whitespace-nowrap lg:overflow-hidden lg:text-ellipsis">{{ store.displayName.value }}</span>
         <span class="sidenav__member-meta lg:font-eyebrow lg:uppercase lg:tracking-[0.5px] lg:text-[8.5px] lg:font-bold lg:text-muted">
-          Week {{ store.clock.value.week }} · {{ store.clock.value.title }}
+          {{ store.clock.value.label }}
         </span>
       </span>
     </NuxtLink>

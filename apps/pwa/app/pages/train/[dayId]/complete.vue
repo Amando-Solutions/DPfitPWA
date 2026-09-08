@@ -3,7 +3,7 @@
 definePageMeta({ layout: false })
 
 import { processImage } from '~/lib/image'
-import { QUALIFYING_SET_PERCENT, sessionQualifies } from '~/lib/domain/rewards'
+import { sessionQualifies } from '~/lib/domain/rewards'
 
 const route = useRoute()
 const router = useRouter()
@@ -48,7 +48,14 @@ const totals = computed(() => {
  * member can still go back and finish the sets they left.
  */
 const willCount = computed(() =>
-  sessionQualifies(totals.value.setsDone, totals.value.setsPrescribed || totals.value.setsTotal),
+  sessionQualifies(
+    totals.value.setsDone,
+    totals.value.setsPrescribed || totals.value.setsTotal,
+    // The member's own program's threshold, which is the one the write will
+    // actually be judged against — this screen's job is to predict that answer,
+    // so it has to be asking the same question.
+    store.qualifyingSetPercent.value,
+  ),
 )
 
 const durationLabel = computed(() => {
@@ -183,9 +190,12 @@ const discard = async () => {
       <!-- Informational, not an error, so it reads in ink on a neutral well
            rather than borrowing the gold this flow no longer uses. -->
       <p v-if="!willCount" class="complete__short m-0 rounded-md bg-sunken p-[12px_14px] text-[12.5px] leading-[1.45] text-soft shadow-[inset_0_0_0_1px_var(--hairline)]">
-        You’ve logged {{ totals.setsDone }} of {{ totals.setsPrescribed }} sets. Under
-        {{ QUALIFYING_SET_PERCENT }}% this still saves for your coach, but it earns no RP
-        and won’t count toward badges or your streak.
+        You’ve logged {{ totals.setsDone }} of {{ totals.setsPrescribed }} sets.<template
+          v-if="store.qualifyingSetPercent.value"
+        >
+          Under {{ store.qualifyingSetPercent.value }}%</template
+        ><template v-else> As it stands</template> this still saves for your coach, but it
+        earns no RP and won’t count toward badges or your streak.
       </p>
 
       <AppCard variant="raised" class="complete__logged flex items-center gap-3 text-(--violet-45) [&_div]:flex [&_div]:flex-col [&_div]:gap-0.5">

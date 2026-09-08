@@ -2,13 +2,16 @@ import type { Timestamp } from 'firebase/firestore'
 
 import type {
   ActiveSessionDoc,
+  Announcement,
   AuthUser,
   ChatAttachment,
   ChatMessageView,
   ChatReaction,
   CheckIn,
   CheckInDoc,
+  Cohort,
   EarnedBadge,
+  Guide,
   LeaderboardEntry,
   Member,
   MemberDoc,
@@ -16,11 +19,13 @@ import type {
   MemberProfile,
   Notification,
   PhotoPose,
+  Program,
   ProgressPhoto,
   SessionLog,
   SessionLogDoc,
   StoredImage,
   ThreadId,
+  WorkoutDay,
 } from '~/data/types'
 import type { ProcessedImage } from '~/lib/image'
 
@@ -155,6 +160,56 @@ export interface DataSource {
 
   /** Ends onboarding: `status` becomes `active` and a lifecycle event is written. */
   completeSetup(): Promise<Member>
+
+  // =========================================================================
+  // Authored content — the program and the cohort
+  //
+  // Everything the coach writes and every member reads: the plan, the guide
+  // library, the reward economy, the live call, the announcement deck. None of
+  // it is member state, so none of it is derived here — it is read as authored
+  // and the screens render it.
+  //
+  // All five are read once per load, in `hydrate`, because they change on the
+  // coach's timescale rather than the member's. Nothing polls them; a member
+  // who reloads gets the current version, which is the same guarantee the
+  // program has always had.
+  // =========================================================================
+
+  /**
+   * The program the member's cohort is running, at the version pinned on their
+   * member document.
+   *
+   * The source of `qualifyingSetPercent`, the reward values, the badge ladder
+   * and the rank ladder — so nothing in `lib/domain/rewards` decides a number
+   * any more, it only applies the ones authored here.
+   */
+  getProgram(): Promise<Program>
+
+  /**
+   * The training week, in `dayNumber` order.
+   *
+   * Includes the optional core & cardio finisher, which is a day like any
+   * other with `optional: true` — `days` in the store filters it out of the
+   * weekly quota, and `getDay` can still resolve it by id for a member who
+   * opens it deliberately.
+   */
+  listWorkoutDays(): Promise<WorkoutDay[]>
+
+  /** The guide library. Unlocking is per member and stays in the store. */
+  listGuides(): Promise<Guide[]>
+
+  /**
+   * The member's cohort: the coach, the live call, whether the board is on.
+   *
+   * `null` when the document is missing rather than a throw, because every one
+   * of those has a defined "not set" rendering — no call card, no board, the
+   * member's own `cohortName` in the chat header — and a cohort that has not
+   * been written yet should not take the app down.
+   */
+  getCohort(): Promise<Cohort | null>
+
+  /** The announcement deck, newest first. Empty is a normal answer. */
+  listAnnouncements(): Promise<Announcement[]>
 
   // =========================================================================
   // Uploads — Cloud Storage

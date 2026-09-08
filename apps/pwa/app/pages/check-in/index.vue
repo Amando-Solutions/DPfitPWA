@@ -2,7 +2,7 @@
 // 21 · Weekly Check-in
 definePageMeta({ layout: 'app' })
 
-import { trainingFeelOptions } from '~/data/program'
+import { trainingFeelOptions } from '~/data/onboarding'
 import type { TrainingFeel } from '~/data/types'
 
 const router = useRouter()
@@ -43,7 +43,7 @@ const submit = async () => {
 </script>
 
 <template>
-  <div class="checkin pt-(--screen-pad-top) px-5 pb-0 [&_.checkin__title]:mt-1.25 [&_.checkin__title]:mx-0 [&_.checkin__title]:mb-0 [&_.checkin__title]:font-display [&_.checkin__title]:font-black [&_.checkin__title]:text-[24px] [&_.checkin__title]:leading-[1.08] [&_.checkin__title]:tracking-[-0.48px] [&_.checkin__title]:text-ink [&_.checkin__sub]:mt-0.75 [&_.checkin__sub]:mx-0 [&_.checkin__sub]:mb-0 [&_.checkin__sub]:text-[13.5px] [&_.checkin__sub]:leading-[1.45] [&_.checkin__sub]:text-soft lg:p-0 lg:max-w-[640px] lg:[&_.checkin__title]:text-[30px] lg:[&_.checkin__sub]:text-[15px]">
+  <div class="checkin pt-(--screen-pad-top) px-5 pb-0 [&_.checkin__title]:mt-1.25 [&_.checkin__title]:mx-0 [&_.checkin__title]:mb-0 [&_.checkin__title]:font-display [&_.checkin__title]:font-black [&_.checkin__title]:text-[24px] [&_.checkin__title]:leading-[1.08] [&_.checkin__title]:tracking-[-0.48px] [&_.checkin__title]:text-ink [&_.checkin__sub]:mt-0.75 [&_.checkin__sub]:mx-0 [&_.checkin__sub]:mb-0 [&_.checkin__sub]:text-[13.5px] [&_.checkin__sub]:leading-[1.45] [&_.checkin__sub]:text-soft lg:p-0 lg:max-w-160 lg:[&_.checkin__title]:text-[30px] lg:[&_.checkin__sub]:text-[15px]">
     <!-- No berry eyebrow: the week is already in the line below the title, and
          a pink label above every heading stops meaning anything. -->
     <ScreenIntro

@@ -10,7 +10,10 @@
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "typecheck": "nuxt prepare && vue-tsc -b --noEmit",
-    "backfill:codes": "node scripts/backfill-access-codes.mjs"
+    "backfill:codes": "node scripts/backfill-access-codes.mjs",
+    "seed:program": "bun run scripts/seed-program.ts",
+    "live-call": "node scripts/set-live-call.mjs",
+    "repair:members": "node scripts/repair-members.mjs"
   },
   "dependencies": {
     "@dpfit/theme": "workspace:*",
