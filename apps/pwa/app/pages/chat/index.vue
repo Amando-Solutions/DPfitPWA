@@ -2,7 +2,6 @@
 // 20 · Cohort Chat
 definePageMeta({ layout: false })
 
-import { cohort } from '~/data/program'
 import { useDataSourceClient } from '~/lib/datasource'
 import type { ChatAttachment, ChatMessageView } from '~/data/types'
 import type { PendingAttachment } from '~/lib/attachments'
@@ -21,12 +20,14 @@ onMounted(async () => {
 /**
  * The thread's name, from the member's own membership.
  *
- * `cohort` in `data/program.ts` is a fixture, so its name is "Cohort 01" for
- * everybody. The member document records which cohort they actually bought a
- * seat in, so that is what the header says; the fixture is the fallback for
- * mock mode, where there is no member document to ask.
+ * The member document records which cohort they bought a seat in and carries
+ * its name denormalised, so this needs no second read; the cohort document is
+ * the fallback for a member whose copy predates that field, and the generic
+ * last resort covers a header that would otherwise be blank.
  */
-const title = computed(() => store.member.value?.cohortName || cohort.name)
+const title = computed(
+  () => store.member.value?.cohortName || store.cohort.value?.name || 'Cohort chat',
+)
 
 /**
  * "Coach and 12 members", counted rather than declared.

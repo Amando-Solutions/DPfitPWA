@@ -2,7 +2,6 @@
 // 10 · Home · Default
 definePageMeta({ layout: 'app' })
 
-import { liveCall, rewardValues } from '~/data/program'
 import { useDataSourceClient } from '~/lib/datasource'
 import type { ChatMessageView } from '~/data/types'
 
@@ -29,9 +28,13 @@ const nextSessionLabel = computed(() =>
 // Qualifying sessions, so this agrees with the badge and leaderboard counts
 // rather than quietly using a second, more generous definition of "logged".
 const sessionsLogged = computed(() => store.rewards.value.sessionsQualified)
-const challengePct = computed(() =>
-  Math.round((sessionsLogged.value / store.totalSessions.value) * 100),
-)
+// Zero rather than NaN when the program has not loaded and there is no total
+// to divide by. The ring reads 0% for a moment either way; `x / 0` renders the
+// word "NaN" into the middle of it.
+const challengePct = computed(() => {
+  const total = store.totalSessions.value
+  return total > 0 ? Math.round((sessionsLogged.value / total) * 100) : 0
+})
 const doneThisWeek = computed(
   () => store.days.value.filter((d) => d.status === 'completed').length,
 )
@@ -79,7 +82,7 @@ const STAT_VALUE =
       attached to it.
     -->
     <ScreenIntro
-      :eyebrow="`Week ${store.clock.value.week} · ${store.clock.value.title}`"
+      :eyebrow="store.clock.value.label"
       :title="`${greeting}, ${store.displayName.value}`"
       class="home__intro order-0 lg:[grid-area:intro]"
     />
@@ -88,8 +91,12 @@ const STAT_VALUE =
          wrappers dissolve and `order` restores the design's single-column
          sequence. -->
     <div class="home__col home__col--main contents lg:flex lg:flex-col lg:gap-4.5 lg:self-start lg:[grid-area:main]">
-      <!-- Hero workout -->
-      <section class="home__section home__section--hero order-1 mt-3.25 lg:mt-0">
+      <!-- Hero workout. Nothing to lead with until the program's training week
+           has been authored, and an empty hero is worse than none. -->
+      <section
+        v-if="store.today.value"
+        class="home__section home__section--hero order-1 mt-3.25 lg:mt-0"
+      >
         <WorkoutHeroCard
           :day="store.today.value"
           :all-done="store.weekComplete.value"
@@ -99,7 +106,10 @@ const STAT_VALUE =
       </section>
 
       <!-- This week at a glance -->
-      <section class="home__section home__section--glance mt-3.25 lg:mt-0 order-3">
+      <section
+        v-if="store.days.value.length"
+        class="home__section home__section--glance mt-3.25 lg:mt-0 order-3"
+      >
         <div :class="CARD" class="p-4.5">
           <!-- The "0/4" that used to sit in this corner is gone: the sentence
                immediately below it is the same two numbers, spelled out. -->
@@ -181,15 +191,23 @@ const STAT_VALUE =
       </section>
 
       <!--
-        The weekly live call.
+        The weekly live call, read off the cohort document.
 
-        Deliberately the same card for everybody, every week. There is no slot
-        to be assigned, no attendance to track and nothing to dismiss: one time,
-        set by the coach, that stays on Home whether or not they made it last
-        week. A card that disappeared once you had attended would be a card that
-        stopped reminding you the week you most needed it.
+        Deliberately the same card for everybody, every week: there is no slot
+        to be assigned, no attendance to track and nothing to dismiss, so it
+        stays on Home whether or not they made it last week. A card that
+        disappeared once you had attended would be a card that stopped
+        reminding you the week you most needed it.
+
+        `v-if` is the whole feature, though. A cohort with no call set — between
+        blocks, or one that never runs them — has `liveCall: null`, and this
+        renders nothing at all rather than a card whose button goes nowhere.
+        The coach sets it on `cohorts/{id}.liveCall`; see FIREBASE.md.
       -->
-      <section class="home__section home__section--live order-3 mt-3.25 lg:mt-0 lg:order-3">
+      <section
+        v-if="store.liveCall.value"
+        class="home__section home__section--live order-3 mt-3.25 lg:mt-0 lg:order-3"
+      >
         <div :class="CARD" class="flex flex-col gap-3">
           <div class="flex gap-3">
             <span class="grid size-9 shrink-0 place-items-center rounded-pill bg-rose-soft text-rose">
@@ -200,14 +218,14 @@ const STAT_VALUE =
                 Join the live call
               </h2>
               <p class="mt-1 mb-0 text-[13px] leading-[1.45] text-muted">
-                {{ liveCall.when }}
+                {{ store.liveCall.value.when }}
               </p>
             </div>
           </div>
           <!-- An outside link, so it opens away from the app rather than
                replacing the session the member is in the middle of. -->
           <AppButton
-            :to="liveCall.joinUrl"
+            :to="store.liveCall.value.joinUrl"
             size="md"
             target="_blank"
             rel="noopener noreferrer"
@@ -225,8 +243,11 @@ const STAT_VALUE =
             <div class="checkin__text flex-1 min-w-0">
               <div class="checkin__head flex items-center gap-2">
                 <h2 class="checkin__title m-0 font-display font-black text-[16px] tracking-[-0.24px] text-ink">Week {{ store.clock.value.week }} check-in</h2>
-                <span v-if="store.checkInDue.value" class="shrink-0 py-0.75 px-2 rounded-pill bg-rose-soft text-rose text-[11px] tabular-nums">
-                  +{{ rewardValues.checkIn }} RP
+                <span
+                  v-if="store.checkInDue.value && store.rewardValues.value"
+                  class="shrink-0 py-0.75 px-2 rounded-pill bg-rose-soft text-rose text-[11px] tabular-nums"
+                >
+                  +{{ store.rewardValues.value.checkIn }} RP
                 </span>
               </div>
               <p class="checkin__body mt-1 mx-0 mb-0 text-[13px] leading-[1.45] text-muted">

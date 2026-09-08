@@ -386,7 +386,7 @@ const TOOL =
         <AppIcon name="bell" :size="18" />
         <span
           v-if="store.unreadNotifications.value"
-          class="absolute top-2 right-2 size-2 rounded-full border-[1.5px] border-[var(--paper-raised)] bg-rose-fill"
+          class="absolute top-2 right-2 size-2 rounded-full border-[1.5px] border-(--paper-raised) bg-rose-fill"
         />
       </NuxtLink>
     </header>

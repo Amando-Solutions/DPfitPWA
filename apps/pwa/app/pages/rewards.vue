@@ -2,17 +2,13 @@
 // 19 · Rewards (+ 33 to 35 badge / leaderboard tabs, 37 to 40 rank states)
 definePageMeta({ layout: 'app' })
 
-import {
-  badgeTierPoints,
-  badges as badgeDefs,
-  leaderboardRevealWeek,
-  leaderboardVisible,
-  ranks,
-} from '~/data/program'
-import { QUALIFYING_SET_PERCENT } from '~/lib/domain/rewards'
-
 const store = useAppStore()
 const route = useRoute()
+
+// The ladders, the tier payouts and the threshold, all authored on the program
+// document. Nothing on this screen is a number this app decided.
+const ranks = computed(() => store.ranks.value)
+const qualifyingSetPercent = computed(() => store.qualifyingSetPercent.value)
 
 /*
   The leaderboard is off for the opening weeks, and while it is off it does not
@@ -25,19 +21,26 @@ const route = useRoute()
   now". The board is still computed and written throughout, so the week it is
   switched on it arrives with real history rather than starting from zero.
 */
-const showLeaderboard = leaderboardVisible
+const showLeaderboard = computed(() => store.leaderboardVisible.value)
 
 // Refreshed on load rather than pushed: the board only has to be right when
-// someone is looking at it.
-onMounted(() => {
-  if (showLeaderboard) store.refreshLeaderboard()
+// someone is looking at it. Watched rather than read once on mount, because the
+// cohort document decides this and it may still be loading when this runs.
+watchEffect(() => {
+  if (showLeaderboard.value) store.refreshLeaderboard()
 })
 
 // Badges stay the default even after the board is revealed. Available to
 // anybody curious, never the first thing a member lands on.
 const tab = ref<'badges' | 'leaderboard'>(
-  showLeaderboard && route.query.tab === 'leaderboard' ? 'leaderboard' : 'badges',
+  route.query.tab === 'leaderboard' ? 'leaderboard' : 'badges',
 )
+
+// The board can turn out to be off once the cohort lands, and a tab that is not
+// rendered must not stay selected — that panel would simply be blank.
+watchEffect(() => {
+  if (!showLeaderboard.value) tab.value = 'badges'
+})
 const tabs = [
   { id: 'badges', label: 'Badges' },
   { id: 'leaderboard', label: 'Leaderboard' },
@@ -45,13 +48,14 @@ const tabs = [
 
 const snapshot = computed(() => store.rewards.value)
 
-const badgeRows = computed(() =>
-  badgeDefs.map((badge) => ({
+const badgeRows = computed(() => {
+  const tierPoints = store.badgeTierPoints.value
+  return store.badgeDefs.value.map((badge) => ({
     ...badge,
     earned: Boolean(store.earnedBadges.value[badge.id]),
-    points: badgeTierPoints[badge.tier],
-  })),
-)
+    points: tierPoints?.[badge.tier] ?? 0,
+  }))
+})
 
 const nextRankLabel = computed(() =>
   snapshot.value.nextRank
@@ -63,7 +67,7 @@ const leaderboard = computed(() => store.leaderboard.value)
 
 /** Shown the first time the board appears, so it doesn't just turn up unannounced. */
 const justRevealed = computed(
-  () => showLeaderboard && store.clock.value.week <= leaderboardRevealWeek,
+  () => showLeaderboard.value && store.clock.value.week <= store.leaderboardRevealWeek.value,
 )
 
 const initials = (name: string) =>
@@ -135,8 +139,11 @@ const PANEL_COUNT = 'text-[13px] text-rose tabular-nums'
               {{ snapshot.streakWeeks }} week streak
             </h2>
             <p class="m-0 text-[12.5px] leading-[1.45] text-muted">
-              One workout a week keeps it alive. Finished sessions only, with at
-              least {{ QUALIFYING_SET_PERCENT }}% of the sets logged.
+              One workout a week keeps it alive. Finished sessions only<template
+                v-if="qualifyingSetPercent"
+                >, with at least {{ qualifyingSetPercent }}% of the sets
+                logged</template
+              >.
             </p>
           </div>
         </AppCard>

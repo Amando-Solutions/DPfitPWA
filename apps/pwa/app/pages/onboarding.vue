@@ -27,7 +27,7 @@ const skip = () => router.push('/access-code')
     </header>
 
     <div class="onb__body flex-1 min-h-0 flex flex-col pt-4">
-      <div class="onb__art shrink-0 h-[296px] max-h-[42vh] rounded-[30px] overflow-hidden bg-(--onboard-art) shadow-(--shadow-art) [@media(max-height:_720px)]:h-[240px] lg:h-[320px] lg:max-h-none">
+      <div class="onb__art shrink-0 h-74 max-h-[42vh] rounded-[30px] overflow-hidden bg-(--onboard-art) shadow-(--shadow-art) [@media(max-height:_720px)]:h-60 lg:h-80 lg:max-h-none">
         <Transition name="fade" mode="out-in">
           <img
             :key="current.id"
@@ -65,7 +65,7 @@ const skip = () => router.push('/access-code')
       <button class="onb__cta w-full h-14.5 rounded-pill bg-rose-fill text-on-rose font-body font-bold text-[17px] transition-[transform,opacity,background-color] duration-100 ease-out active:scale-[0.985] motion-reduce:transition-none motion-reduce:active:scale-100" @click="next">{{ current.cta }}</button>
 
       <div class="onb__skip-tour-slot h-8 pt-3.25 flex justify-center">
-        <button v-if="!isLast" class="onb__skip-tour py-0.25 px-1.5 font-body font-bold text-[15px] text-rose" @click="skip">Skip tour</button>
+        <button v-if="!isLast" class="onb__skip-tour py-px px-1.5 font-body font-bold text-[15px] text-rose" @click="skip">Skip tour</button>
       </div>
     </footer>
   </div>

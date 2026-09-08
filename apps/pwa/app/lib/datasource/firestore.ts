@@ -58,15 +58,20 @@ import {
 } from './types'
 import type {
   ActiveSessionDoc,
+  Announcement,
   AuthProvider,
   AuthUser,
   ChatAttachment,
   ChatMessageView,
   ChatReaction,
   CheckIn,
+  Cohort,
+  CohortDoc,
   EarnedBadge,
+  Guide,
   LeaderboardEntry,
   LeaderboardEntryDoc,
+  LiveCall,
   Member,
   MemberDoc,
   MemberPreferences,
@@ -75,10 +80,13 @@ import type {
   Message,
   Notification,
   Program,
+  ProgramDoc,
   ProgressPhoto,
+  RewardConfig,
   SessionLog,
   StoredImage,
   ThreadId,
+  WorkoutDay,
 } from '~/data/types'
 
 /** Where the pending sign-in address is parked between the two halves of the flow. */
@@ -111,6 +119,70 @@ const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice
 /** Snapshot → the shape the app handles: stored fields plus the document id. */
 const withId = <T>(snap: QueryDocumentSnapshot<DocumentData>): T =>
   ({ id: snap.id, ...snap.data() }) as T
+
+/**
+ * A live call is either complete or it is not there.
+ *
+ * Both halves have to be present for the card to be worth rendering: a time
+ * with no link is a button that goes nowhere, and a link with no time is a
+ * meeting nobody knows to attend. A coach part-way through typing one into the
+ * console is exactly the state this collapses to `null`, which Home reads as
+ * "no call this block" and draws nothing.
+ */
+const normaliseLiveCall = (value: LiveCall | null | undefined): LiveCall | null => {
+  const when = value?.when?.trim() ?? ''
+  const joinUrl = value?.joinUrl?.trim() ?? ''
+  return when && joinUrl ? { when, joinUrl } : null
+}
+
+/**
+ * A reward economy with nothing in it.
+ *
+ * `rewards` is a required field on `ProgramDoc`, and a program document written
+ * before it existed does not have one — which is not a hypothetical, it is what
+ * is in the database. Every reward path reads through `program.rewards.values`,
+ * so an absent block is not a missing number, it is a `TypeError` on the way to
+ * saving a workout.
+ *
+ * So it is defaulted, and defaulted to zero rather than to anything plausible.
+ * Zero pays nothing, awards nothing and ranks nobody, which is visibly wrong in
+ * a way somebody will report; a guessed 25 RP per session would be invisibly
+ * wrong, and would mint points against an economy the coach never authored.
+ * `normaliseProgram` names the fix in the console when it substitutes one.
+ */
+const emptyRewards = (): RewardConfig => ({
+  values: { workout: 0, checkIn: 0, progressPhoto: 0, core: 0, cardio: 0 },
+  badgeTierPoints: { starter: 0, consistency: 0, elite: 0 },
+  badgeTargets: {
+    dayRepeats: 0,
+    checkInWeeks: 0,
+    foundationWeek: 0,
+    foundationSessions: 0,
+    peakWeek: 0,
+    peakSessions: 0,
+  },
+  ranks: [],
+  badges: [],
+})
+
+/** Fill in the fields a program document written to an older shape lacks. */
+const normaliseProgram = (id: string, data: Partial<ProgramDoc>): Program => {
+  if (!data.rewards) {
+    console.warn(
+      `[datasource] programs/${id} has no \`rewards\` block, so no points, badges or ` +
+        'ranks can be awarded against it. Write one with ' +
+        '`bun run seed:program -- --program-id=' +
+        id +
+        ' --fill --apply`.',
+    )
+  }
+  return {
+    ...(data as ProgramDoc),
+    id,
+    rewards: data.rewards ?? emptyRewards(),
+    weekThemes: data.weekThemes ?? [],
+  }
+}
 
 /**
  * Which provider actually signed this session in.
@@ -660,6 +732,80 @@ export class FirestoreDataSource implements DataSource {
   }
 
   // =========================================================================
+  // Authored content — `programs/{id}` and `cohorts/{id}`
+  //
+  // Read once per load and not watched. All of it is coach-authored and pinned
+  // by version, so it cannot change under a member mid-session; a reload is
+  // the refresh, which is the same contract the program has always had.
+  // =========================================================================
+  async getProgram(): Promise<Program> {
+    return this.program()
+  }
+
+  async listWorkoutDays(): Promise<WorkoutDay[]> {
+    const program = await this.program()
+    const snap = await getDocs(
+      query(
+        collection(firebaseDb(), 'programs', program.id, 'workoutDays'),
+        orderBy('dayNumber'),
+      ),
+    )
+    return snap.docs.map((d) => withId<WorkoutDay>(d))
+  }
+
+  /**
+   * The guide library, ordered the way the screen reads it: by the week each
+   * one opens, then by title inside a week.
+   *
+   * Sorted here rather than by Firestore. Two order-bys on one collection want
+   * a composite index, and this collection is a couple of dozen documents that
+   * are all being read anyway — an index to save a sort of 24 items is a
+   * deploy step that buys nothing.
+   */
+  async listGuides(): Promise<Guide[]> {
+    const program = await this.program()
+    const snap = await getDocs(collection(firebaseDb(), 'programs', program.id, 'guides'))
+    return snap.docs
+      .map((d) => withId<Guide>(d))
+      .sort((a, b) => a.unlockWeek - b.unlockWeek || a.title.localeCompare(b.title))
+  }
+
+  /**
+   * The cohort document, with the three member-facing fields defaulted.
+   *
+   * They were added after cohorts were already being created, so a document
+   * written before them has no `liveCall` key at all — and `undefined` reaching
+   * a template is a card rendered with a dead button rather than no card. The
+   * defaults here are the "not set" reading of each: no call, no board.
+   */
+  async getCohort(): Promise<Cohort | null> {
+    const member = await this.requireMember()
+    const snap = await getDoc(doc(firebaseDb(), 'cohorts', member.cohortId))
+    if (!snap.exists()) return null
+    const data = snap.data() as Partial<CohortDoc>
+    return {
+      ...(data as CohortDoc),
+      id: snap.id,
+      liveCall: normaliseLiveCall(data.liveCall),
+      leaderboardVisible: data.leaderboardVisible === true,
+      leaderboardRevealWeek:
+        typeof data.leaderboardRevealWeek === 'number' ? data.leaderboardRevealWeek : 1,
+    }
+  }
+
+  async listAnnouncements(): Promise<Announcement[]> {
+    const member = await this.requireMember()
+    const snap = await getDocs(
+      query(
+        collection(firebaseDb(), 'cohorts', member.cohortId, 'announcements'),
+        orderBy('publishedAt', 'desc'),
+        limit(20),
+      ),
+    )
+    return snap.docs.map((d) => withId<Announcement>(d))
+  }
+
+  // =========================================================================
   // Uploads
   // =========================================================================
   async uploadImage(
@@ -744,11 +890,14 @@ export class FirestoreDataSource implements DataSource {
     const rewardPoints = qualifies ? program.rewards.values.workout : 0
     const record: Omit<SessionLog, 'id'> = {
       ...log,
-      weekNumber: weekOf(member.joinedAt, log.completedAt),
+      weekNumber: weekOf(member.joinedAt, log.completedAt, program.totalWeeks),
       qualifies,
       rewardPoints,
-      programId: member.programId,
-      programVersion: member.programVersion,
+      // The program that actually decided the two fields above, not whatever
+      // the member document says — which for a member whose code carried no
+      // `programId` is the empty string. See `program()`.
+      programId: program.id,
+      programVersion: program.version ?? member.programVersion,
       createdAt: Timestamp.now(),
     }
 
@@ -843,7 +992,7 @@ export class FirestoreDataSource implements DataSource {
     const member = await this.requireMember()
     const program = await this.program()
     const submittedAt = Timestamp.now()
-    const weekNumber = weekOf(member.joinedAt, submittedAt)
+    const weekNumber = weekOf(member.joinedAt, submittedAt, program.totalWeeks)
 
     const record = {
       ...input,
@@ -898,7 +1047,7 @@ export class FirestoreDataSource implements DataSource {
 
     const record = {
       pose: input.pose,
-      weekNumber: weekOf(member.joinedAt, takenAt),
+      weekNumber: weekOf(member.joinedAt, takenAt, program.totalWeeks),
       image,
       takenAt,
     }
@@ -1267,15 +1416,48 @@ export class FirestoreDataSource implements DataSource {
    * Every write that resolves a reward needs the threshold and the point
    * values, and they cannot change under a running cohort: the version is
    * pinned on the member document, so one read covers the whole session.
+   *
+   * **The member's `programId` is not always there.** A code issued before the
+   * landing site started copying it onto the document — or written by hand in
+   * the console without it — produces a member whose `programId` is the empty
+   * string, and `programs/''` is not a document path: `doc()` rejects it
+   * outright for having an odd number of segments. That threw on the first
+   * read rather than returning "not found", which took the whole boot with it.
+   *
+   * The cohort names the program too, so that is the fallback, and it is a
+   * read rather than a repair on purpose: `firestore.rules` makes `programId`
+   * immutable on a member update, which is right — what a member was
+   * prescribed is not theirs to change — so the document is fixed on the admin
+   * side (`scripts/repair-members.mjs`) and this keeps them training until it
+   * is. Session logs record `program.id`, so nothing downstream inherits the
+   * blank.
    */
   private async program(): Promise<Program> {
     if (this.programCache) return this.programCache
     const member = await this.requireMember()
-    const snap = await getDoc(doc(firebaseDb(), 'programs', member.programId))
+
+    let programId = member.programId?.trim() ?? ''
+    if (!programId) {
+      const cohort = await getDoc(doc(firebaseDb(), 'cohorts', member.cohortId))
+      programId = (cohort.data()?.programId as string | undefined)?.trim() ?? ''
+      if (programId) {
+        console.warn(
+          `[datasource] members/${member.id} has no programId; falling back to ` +
+            `cohorts/${member.cohortId}.programId = "${programId}". Repair it with ` +
+            'scripts/repair-members.mjs.',
+        )
+      }
+    }
+
+    if (!programId) {
+      throw new DataSourceError('This cohort has no program attached.', 'not-found')
+    }
+
+    const snap = await getDoc(doc(firebaseDb(), 'programs', programId))
     if (!snap.exists()) {
       throw new DataSourceError('This cohort has no program attached.', 'not-found')
     }
-    this.programCache = { id: snap.id, ...snap.data() } as Program
+    this.programCache = normaliseProgram(snap.id, snap.data() as Partial<ProgramDoc>)
     return this.programCache
   }
 

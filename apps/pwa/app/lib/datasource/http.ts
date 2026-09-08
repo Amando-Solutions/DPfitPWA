@@ -12,22 +12,27 @@ import {
 import type { ProcessedImage } from '~/lib/image'
 import type {
   ActiveSessionDoc,
+  Announcement,
   AuthUser,
   ChatAttachment,
   ChatMessageView,
   ChatReaction,
   CheckIn,
+  Cohort,
   EarnedBadge,
+  Guide,
   LeaderboardEntry,
   Member,
   MemberDoc,
   MemberPreferences,
   MemberProfile,
   Notification,
+  Program,
   ProgressPhoto,
   SessionLog,
   StoredImage,
   ThreadId,
+  WorkoutDay,
 } from '~/data/types'
 
 /**
@@ -176,6 +181,31 @@ export class HttpDataSource implements DataSource {
 
   completeSetup() {
     return this.send<Member>('/me/setup-complete', 'POST')
+  }
+
+  // --- Authored content ----------------------------------------------------
+  //
+  // Scoped to the caller rather than addressed by id: which program and which
+  // cohort is a fact about the member's own document, and a client that could
+  // name the program it wanted could read another cohort's plan.
+  getProgram() {
+    return this.get<Program>('/me/program')
+  }
+
+  listWorkoutDays() {
+    return this.get<WorkoutDay[]>('/me/program/workout-days')
+  }
+
+  listGuides() {
+    return this.get<Guide[]>('/me/program/guides')
+  }
+
+  getCohort() {
+    return this.get<Cohort | null>('/me/cohort')
+  }
+
+  listAnnouncements() {
+    return this.get<Announcement[]>('/me/cohort/announcements')
   }
 
   // --- Uploads -------------------------------------------------------------

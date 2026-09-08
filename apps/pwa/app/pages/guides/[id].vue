@@ -2,20 +2,32 @@
 // 26 · Program Guide · Expanded
 definePageMeta({ layout: 'app' })
 
-import { guides } from '~/data/program'
-
 const route = useRoute()
 const router = useRouter()
 const store = useAppStore()
 
-const guide = computed(() => guides.find((g) => g.id === String(route.params.id)))
+const guide = computed(() =>
+  store.guides.value.find((g) => g.id === String(route.params.id)),
+)
 const steps = computed(() => guide.value?.body.split('\n\n').filter(Boolean) ?? [])
 const locked = computed(() =>
   guide.value ? store.clock.value.week < guide.value.unlockWeek : false,
 )
 
-// A guide that isn't theirs yet shouldn't be readable by URL.
+/**
+ * A guide that isn't theirs yet shouldn't be readable by URL.
+ *
+ * Gated on the load having happened, which it did not have to be while `guides`
+ * was an import: "not in the list" now also describes the instant before the
+ * list arrives, and bouncing on that would send a member who followed a link
+ * straight back to the index every time.
+ *
+ * `hydrated` rather than "the list is non-empty", because an empty library is a
+ * real answer — a program with no guides authored — and a member who deep-links
+ * into one then deserves the index and its empty state, not a blank article.
+ */
 watchEffect(() => {
+  if (!store.hydrated.value) return
   if (!guide.value || locked.value) router.replace('/guides')
 })
 </script>

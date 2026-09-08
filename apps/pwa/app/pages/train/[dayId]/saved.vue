@@ -4,7 +4,7 @@ definePageMeta({ layout: 'app' })
 
 import type { BadgeDef } from '~/data/types'
 import { formatVolume, unitLabel } from '~/lib/domain/nutrition'
-import { QUALIFYING_SET_PERCENT, isQualifying } from '~/lib/domain/rewards'
+import { isQualifying } from '~/lib/domain/rewards'
 
 const router = useRouter()
 const store = useAppStore()
@@ -61,9 +61,10 @@ const back = () => router.push('/train')
       </div>
 
       <p v-if="!counted" class="saved__short m-0 max-w-[320px] py-2.5 px-3.5 rounded-md bg-sunken shadow-[inset_0_0_0_1px_var(--hairline)] text-[12.5px] leading-[1.45] text-soft">
-        Saved for your coach, but under {{ QUALIFYING_SET_PERCENT }}% of the sets —
-        so it earns no RP and doesn’t count toward badges, your streak or the
-        leaderboard.
+        Saved for your coach, but under<template v-if="store.qualifyingSetPercent.value">
+          {{ store.qualifyingSetPercent.value }}% of</template
+        ><template v-else> enough of</template> the sets — so it earns no RP and doesn’t
+        count toward badges, your streak or the leaderboard.
       </p>
 
       <div class="saved__stats grid grid-cols-[repeat(3,_1fr)] gap-2.5 w-full max-w-[340px] mt-2.5 mx-0 mb-1">
