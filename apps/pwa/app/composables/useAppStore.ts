@@ -449,6 +449,24 @@ const buildStore = () => {
   })
 
   /**
+   * How many people are in this cohort, counted rather than declared.
+   *
+   * Chat used to render `cohort.memberCount` out of `data/program.ts`, which is
+   * a fixture: every cohort, on every deploy, was told it had 48 members. The
+   * `memberCount` field on the cohort document is no better a source — nothing
+   * in the app writes it, so it holds whatever was typed when the cohort was
+   * created and drifts from the first member who joins or leaves.
+   *
+   * The board projection is the roster. There is one document per member under
+   * `cohorts/{id}/leaderboard`, written when they set a display name in setup,
+   * and it is deleted with them on `reset()`. That also makes it exactly the
+   * set of people who can be in the thread: a member who has not finished that
+   * step has not reached Chat either. `leaderboard` above guarantees the
+   * viewer's own row is in the count whether or not the fetch returned it.
+   */
+  const cohortMemberCount = computed(() => leaderboard.value.length)
+
+  /**
    * The inbox, with read state and a relative label folded in.
    *
    * Both are per-reader: `read` comes from this member's own
@@ -835,6 +853,7 @@ const buildStore = () => {
     sessionsThisWeek,
     rewards,
     leaderboard,
+    cohortMemberCount,
     unreadNotifications,
     currentCheckIn,
     checkInDue,

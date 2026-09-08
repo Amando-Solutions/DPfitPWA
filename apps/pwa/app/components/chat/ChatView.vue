@@ -21,12 +21,24 @@ const props = withDefaults(
     placeholder?: string
     /** The device store is full, so anything sent now is session-only. */
     storageFull?: boolean
+    /**
+     * Send the composer's contents. A prop rather than an emit, because this
+     * one has to be awaited.
+     *
+     * Sending a message with photos on it is an upload and then a write, over
+     * a phone connection, and either half can fail. As an emit there was
+     * nothing to await: the composer cleared itself the instant it fired, so a
+     * refused upload took the member's text and their four photos with it and
+     * told them nothing — the rejection surfaced as an unhandled promise on a
+     * screen that looked like it had sent. Awaiting means the draft survives a
+     * failure and the reason for it can be shown where the message still is.
+     */
+    send: (payload: { text: string; attachments: PendingAttachment[] }) => Promise<void>
   }>(),
   { placeholder: 'Say something…', storageFull: false },
 )
 
 const emit = defineEmits<{
-  (e: 'send', payload: { text: string; attachments: PendingAttachment[] }): void
   (e: 'react', payload: { messageId: string; emoji: string }): void
 }>()
 
@@ -262,17 +274,49 @@ const react = (emoji: string) => {
 const closePicker = () => (reacting.value = null)
 
 // --- Sending ---------------------------------------------------------------
-const canSend = computed(() => Boolean(draft.value.trim() || pending.value.length))
+/** True from the tap until the upload and the write have both landed. */
+const sending = ref(false)
 
-const send = () => {
+/** Why the last send did not go, in the member's words. */
+const sendError = ref('')
+
+const canSend = computed(
+  () => !sending.value && Boolean(draft.value.trim() || pending.value.length),
+)
+
+/**
+ * The draft is cleared on success and kept on failure.
+ *
+ * Photos are gone from the device by the time they reach the tray — they were
+ * decoded and re-encoded in memory — so clearing them on a failed send would
+ * mean asking the member to find and pick all four again. Keeping them makes
+ * the retry one tap.
+ */
+const submit = async () => {
   if (!canSend.value) return
-  emit('send', {
+
+  const payload = {
     text: draft.value.trim(),
     attachments: pending.value.map((item) => item.attachment),
-  })
-  draft.value = ''
-  pending.value = []
-  attachError.value = ''
+  }
+
+  sending.value = true
+  sendError.value = ''
+  try {
+    await props.send(payload)
+    draft.value = ''
+    pending.value = []
+    attachError.value = ''
+  } catch (cause) {
+    // The upload and the write both throw messages written for a member, so
+    // one is shown as-is. The cause still goes to the console: what a member
+    // needs to read and what whoever configured the account needs to read are
+    // rarely the same sentence.
+    console.error('[chat] send failed', cause)
+    sendError.value = cause instanceof Error ? cause.message : 'Could not send that. Try again.'
+  } finally {
+    sending.value = false
+  }
   scrollToEnd()
 }
 
@@ -486,6 +530,10 @@ const TOOL =
       class="chat__composer flex shrink-0 flex-col gap-2 px-5 pt-3 pb-[calc(16px+var(--tabbar-gutter))] lg:px-0"
     >
       <p v-if="reading" class="m-0 text-xs text-muted">Adding to your message…</p>
+      <p v-else-if="sending" class="m-0 text-xs text-muted">
+        {{ pending.length ? 'Uploading and sending…' : 'Sending…' }}
+      </p>
+      <p v-else-if="sendError" class="m-0 text-xs text-rose">{{ sendError }}</p>
       <p v-else-if="attachError" class="m-0 text-xs text-rose">{{ attachError }}</p>
       <p v-else-if="storageFull" class="m-0 text-xs text-orange-text">
         This device is out of space. Anything you send now will be gone after a
@@ -534,12 +582,12 @@ const TOOL =
             v-model="draft"
             class="h-full min-w-0 flex-1 border-none bg-transparent text-sm text-ink outline-none"
             :placeholder="placeholder"
-            @keyup.enter="send"
+            @keyup.enter="submit"
           />
           <button
             :class="TOOL"
             aria-label="Attach a file"
-            :disabled="reading || roomLeft <= 0"
+            :disabled="reading || sending || roomLeft <= 0"
             @click="openPicker(attachInput)"
           >
             <AppIcon name="paperclip" :size="19" :stroke="1.9" />
@@ -547,18 +595,22 @@ const TOOL =
           <button
             :class="TOOL"
             aria-label="Take a photo"
-            :disabled="reading || roomLeft <= 0"
+            :disabled="reading || sending || roomLeft <= 0"
             @click="openPicker(cameraInput)"
           >
             <AppIcon name="camera" :size="19" />
           </button>
         </div>
 
+        <!-- Disabled while a send is in flight, not just dimmed: an upload
+             takes long enough on a phone that a second tap is the natural
+             thing to do, and it would send the same photos twice. -->
         <button
           class="grid size-12 shrink-0 place-items-center rounded-full bg-rose-fill text-on-rose transition-[transform,opacity,background-color] duration-100 ease-out active:scale-[0.94] motion-reduce:transition-none motion-reduce:active:scale-100"
           :class="!canSend && 'opacity-45'"
+          :disabled="!canSend"
           aria-label="Send"
-          @click="send"
+          @click="submit"
         >
           <AppIcon name="send" :size="18" fill />
         </button>

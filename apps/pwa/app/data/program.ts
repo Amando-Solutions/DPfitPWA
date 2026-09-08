@@ -80,6 +80,10 @@ export const cohort: Cohort = {
   endDate: at('2026-09-28T00:00:00Z'),
   durationWeeks: 6,
   timezone: 'Africa/Lagos',
+  // Fixture, and nothing in the app writes the real one either — it holds
+  // whatever was typed when the cohort was created. Screens that need a live
+  // count read `useAppStore().cohortMemberCount`, which counts the board
+  // projection. Do not wire anything back to this.
   memberCount: 48,
   coach,
   programId: PROGRAM_ID,

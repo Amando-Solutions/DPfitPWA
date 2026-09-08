@@ -24,6 +24,9 @@ onMounted(async () => {
  * 1 MiB, so the bytes have to reach Cloud Storage before a message can
  * reference them. Uploading in parallel keeps a four-photo send from taking
  * four round trips.
+ *
+ * Anything that throws here reaches the composer, which keeps the draft and
+ * shows the reason. So the messages thrown are ones a member can read.
  */
 const send = async (payload: { text: string; attachments: PendingAttachment[] }) => {
   const attachments = await Promise.all(
@@ -74,7 +77,7 @@ const react = async (payload: { messageId: string; emoji: string }) => {
         placeholder="Message your coach…"
         class="dm-page__view [&_.chat__composer]:[padding-bottom:calc(16px_+_env(safe-area-inset-bottom))] [&_.chat__header]:[display:none]"
         :storage-full="storageFull"
-        @send="send"
+        :send="send"
         @react="react"
       />
     </div>

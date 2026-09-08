@@ -674,32 +674,41 @@ export class FirestoreDataSource implements DataSource {
         ? `chat/${member.cohortId}/${member.id}/${uid()}.jpg`
         : `members/${member.id}/${folder}/${uid()}.jpg`
 
-    const ref = storageRef(firebaseStorage(), path)
-    await uploadString(ref, image.dataUrl, 'data_url', { contentType: 'image/jpeg' })
+    try {
+      const ref = storageRef(firebaseStorage(), path)
+      await uploadString(ref, image.dataUrl, 'data_url', { contentType: 'image/jpeg' })
 
-    return {
-      storagePath: path,
-      downloadUrl: await getDownloadURL(ref),
-      width: image.width,
-      height: image.height,
-      bytes: image.bytes,
+      return {
+        storagePath: path,
+        downloadUrl: await getDownloadURL(ref),
+        width: image.width,
+        height: image.height,
+        bytes: image.bytes,
+      }
+    } catch (cause) {
+      throw this.uploadError(cause, path)
     }
   }
 
   async uploadAttachment(file: PendingFile): Promise<ChatAttachment> {
     const member = await this.requireMember()
     const path = `chat/${member.cohortId}/${member.id}/${uid()}`
-    const ref = storageRef(firebaseStorage(), path)
-    await uploadString(ref, file.dataUrl, 'data_url', { contentType: file.mimeType })
 
-    return {
-      id: path,
-      kind: 'file',
-      name: file.name,
-      bytes: file.bytes,
-      mimeType: file.mimeType,
-      storagePath: path,
-      downloadUrl: await getDownloadURL(ref),
+    try {
+      const ref = storageRef(firebaseStorage(), path)
+      await uploadString(ref, file.dataUrl, 'data_url', { contentType: file.mimeType })
+
+      return {
+        id: path,
+        kind: 'file',
+        name: file.name,
+        bytes: file.bytes,
+        mimeType: file.mimeType,
+        storagePath: path,
+        downloadUrl: await getDownloadURL(ref),
+      }
+    } catch (cause) {
+      throw this.uploadError(cause, path)
     }
   }
 
@@ -1321,6 +1330,70 @@ export class FirestoreDataSource implements DataSource {
    * told "something went wrong" has no route from that to the extension in
    * their own toolbar.
    */
+  /**
+   * A failed Cloud Storage upload, translated.
+   *
+   * Uploads used to throw the SDK's own error straight out of a click handler,
+   * where nothing caught it: the composer had already cleared itself, so a
+   * refused upload looked exactly like a sent message and the only trace was an
+   * unhandled rejection in a console nobody had open. The chat composer awaits
+   * the send now and shows what comes back, which is only worth anything if
+   * what comes back is a sentence.
+   *
+   * `storage/unauthorized` gets the long console note because it is the one
+   * with a cause you cannot guess from the app: the *rules on that bucket*, not
+   * the rules in this repo. A project with more than one bucket deploys
+   * `storage.rules` per bucket, and a bucket nobody named in `firebase.json`
+   * keeps the deny-all template it was created with — which is precisely how
+   * every attachment in staging came to fail while production was fine.
+   */
+  private uploadError(cause: unknown, path: string): DataSourceError {
+    const code = (cause as { code?: string }).code ?? ''
+
+    if (code === 'storage/unauthorized') {
+      console.error(
+        `[datasource] Cloud Storage refused the upload to "${path}". The rules ` +
+          'that denied it are the ones deployed ON THIS BUCKET — check which bucket ' +
+          'NUXT_PUBLIC_FIREBASE_STORAGE_BUCKET names, then check that `firebase.json` ' +
+          'lists it under `storage` and that `firebase deploy --only storage` has run ' +
+          'since. A bucket missing from that list still has the deny-all template it ' +
+          'was created with, and the deploy says nothing about it.',
+        cause,
+      )
+      return new DataSourceError(
+        'Your account isn’t allowed to upload that. Contact support.',
+        'unauthenticated',
+      )
+    }
+
+    if (code === 'storage/unauthenticated') {
+      return new DataSourceError('Your session has expired. Sign in again.', 'unauthenticated')
+    }
+
+    if (code === 'storage/quota-exceeded') {
+      console.error(`[datasource] the storage bucket is out of quota (${path}).`, cause)
+      return new DataSourceError('Uploads are unavailable right now. Contact support.', 'unknown')
+    }
+
+    if (code === 'storage/retry-limit-exceeded' || code === 'storage/canceled') {
+      return new DataSourceError(
+        'That upload didn’t finish. Check your connection and try again.',
+        'unknown',
+      )
+    }
+
+    // `storage/unknown` is the SDK's catch-all and most often means the request
+    // never reached a bucket at all: a `storageBucket` naming one that does not
+    // exist, or a network the browser refused to make the request on.
+    console.error(
+      `[datasource] upload to "${path}" failed (${code || 'no code'}). If this is ` +
+        '`storage/unknown`, confirm NUXT_PUBLIC_FIREBASE_STORAGE_BUCKET names a bucket ' +
+        'that exists in this project.',
+      cause,
+    )
+    return new DataSourceError('Couldn’t upload that. Try again.', 'unknown')
+  }
+
   private readError(cause: unknown): DataSourceError {
     const code = (cause as { code?: string }).code ?? ''
 
