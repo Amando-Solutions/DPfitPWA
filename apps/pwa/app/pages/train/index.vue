@@ -44,7 +44,7 @@ const lockedNote = computed(() => {
 <template>
   <div class="picker pt-(--screen-pad-top) px-5 pb-0 lg:p-0">
     <ScreenIntro
-      :eyebrow="`Week ${store.clock.value.week} · log workout`"
+      :eyebrow="`${store.clock.value.label} · log workout`"
       :title="store.trainingLocked.value ? 'Today is logged' : 'Pick today\u2019s session'"
       :subtitle="
         store.trainingLocked.value
@@ -112,5 +112,21 @@ const lockedNote = computed(() => {
         />
       </component>
     </div>
+
+    <!--
+      No training week authored on the program yet.
+
+      Reachable now that the plan is read rather than compiled in, and worth a
+      sentence: an empty list under "Pick today's session" reads as the app
+      having failed, when what has actually happened is that nobody has written
+      the days into `programs/{id}/workoutDays`.
+    -->
+    <p
+      v-if="!store.days.value.length"
+      class="picker__empty mt-6 mb-0 rounded-card bg-raised p-4.5 text-[13.5px] leading-[1.5] text-muted"
+    >
+      Your coach hasn’t published this week’s sessions yet. They’ll show up here
+      as soon as they do.
+    </p>
   </div>
 </template>

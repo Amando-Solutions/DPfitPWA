@@ -2,13 +2,24 @@
 // 28 · Coach DM
 definePageMeta({ layout: false })
 
-import { coach } from '~/data/program'
 import { useDataSourceClient } from '~/lib/datasource'
 import type { ChatAttachment, ChatMessageView } from '~/data/types'
 import type { PendingAttachment } from '~/lib/attachments'
 
 const data = useDataSourceClient()
+const store = useAppStore()
 const messages = ref<ChatMessageView[]>([])
+
+/**
+ * Whose thread this is, from the cohort document rather than a fixture.
+ *
+ * Every cohort has its own coach denormalised onto it, so the header is the
+ * name of the person actually on the other end of this thread. The fallbacks
+ * cover the moment before the cohort has loaded, and a cohort document with no
+ * coach block — a generic title beats a blank header bar.
+ */
+const coachName = computed(() => store.coach.value?.name?.trim() || 'Your coach')
+const coachTitle = computed(() => store.coach.value?.title?.trim() || 'Direct message')
 
 /** Set once a write has failed for want of room. See `DataSource.storageFull`. */
 const storageFull = ref(false)
@@ -24,6 +35,9 @@ onMounted(async () => {
  * 1 MiB, so the bytes have to reach Cloud Storage before a message can
  * reference them. Uploading in parallel keeps a four-photo send from taking
  * four round trips.
+ *
+ * Anything that throws here reaches the composer, which keeps the draft and
+ * shows the reason. So the messages thrown are ones a member can read.
  */
 const send = async (payload: { text: string; attachments: PendingAttachment[] }) => {
   const attachments = await Promise.all(
@@ -63,18 +77,18 @@ const react = async (payload: { messageId: string; emoji: string }) => {
 </script>
 
 <template>
-  <div class="dm-page [position:relative] [height:100%] [display:flex] [flex-direction:column] [background:var(--paper)]">
-    <div class="dm-page__main [flex:1] [min-height:0] [display:flex] [flex-direction:column] lg:[width:100%] lg:[max-width:var(--focus-max)] lg:[margin:0_auto] lg:[padding:32px_40px_8px]">
-      <ScreenHeader :title="coach.name" />
+  <div class="dm-page relative h-full flex flex-col [background:var(--paper)]">
+    <div class="dm-page__main flex-1 min-h-0 flex flex-col lg:w-full lg:max-w-(--focus-max) lg:m-[0_auto] lg:p-[32px_40px_8px]">
+      <ScreenHeader :title="coachName" />
       <ChatView
         :messages="messages"
         eyebrow="Direct message"
-        :title="coach.name"
-        :subtitle="coach.title"
+        :title="coachName"
+        :subtitle="coachTitle"
         placeholder="Message your coach…"
-        class="dm-page__view [&_.chat__composer]:[padding-bottom:calc(16px_+_env(safe-area-inset-bottom))] [&_.chat__header]:[display:none]"
+        class="dm-page__view [&_.chat__composer]:pb-[calc(16px+env(safe-area-inset-bottom))] [&_.chat__header]:hidden"
         :storage-full="storageFull"
-        @send="send"
+        :send="send"
         @react="react"
       />
     </div>

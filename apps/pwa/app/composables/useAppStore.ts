@@ -3,9 +3,9 @@ import { Timestamp } from 'firebase/firestore'
 import { DataSourceError, useDataSourceClient } from '~/lib/datasource'
 import type { ActiveSessionInput, CheckInInput } from '~/lib/datasource'
 import { defaultPreferences } from '~/lib/datasource/local'
-import { challengeClock } from '~/lib/domain/challenge'
+import { challengeClock, challengeShapeOf } from '~/lib/domain/challenge'
 import { nutritionTargetsFor } from '~/lib/domain/nutrition'
-import { rankLeaderboard, rewardsSnapshot } from '~/lib/domain/rewards'
+import { rankLeaderboard, rewardsContextOf, rewardsSnapshot } from '~/lib/domain/rewards'
 import {
   dateKey,
   relativeLabel,
@@ -15,15 +15,17 @@ import {
   trustedNow,
   trustedTimestamp,
 } from '~/lib/time'
-import { badges as badgeDefs, challenge, coreCardioDay, planDays } from '~/data/program'
 import type { ProcessedImage } from '~/lib/image'
 import type {
   ActiveSessionDoc,
+  Announcement,
   AuthUser,
   BadgeRuleId,
   ChatAttachment,
   CheckIn,
+  Cohort,
   EarnedBadge,
+  Guide,
   LeaderboardEntry,
   Member,
   MemberGate,
@@ -32,8 +34,10 @@ import type {
   Notification,
   NotificationView,
   PhotoPose,
+  Program,
   ProgressPhoto,
   SessionLog,
+  WorkoutDay,
   WorkoutDayView,
 } from '~/data/types'
 
@@ -63,6 +67,22 @@ interface AppState {
    * they *are* signed in. See `gate`.
    */
   memberUnreadable: boolean
+  /**
+   * The authored plan this member is training against, and the cohort they are
+   * in. Both read once per load, both `null` until they are.
+   *
+   * Everything derived below that used to be a constant hangs off these: the
+   * length of the block, the training week, the reward economy, the badge and
+   * rank ladders, the live call. `null` is a real state — a program that failed
+   * to read, or a cohort document that was never written — and every consumer
+   * renders it as absent rather than substituting a plausible default. The
+   * numbers a member is shown are the coach's or they are not shown.
+   */
+  program: Program | null
+  workoutDays: WorkoutDay[]
+  guides: Guide[]
+  cohort: Cohort | null
+  announcements: Announcement[]
   sessions: SessionLog[]
   activeSession: ActiveSessionDoc | null
   checkIns: CheckIn[]
@@ -97,6 +117,11 @@ const emptyState = (): AppState => ({
   authUser: null,
   member: null,
   memberUnreadable: false,
+  program: null,
+  workoutDays: [],
+  guides: [],
+  cohort: null,
+  announcements: [],
   sessions: [],
   activeSession: null,
   checkIns: [],
@@ -225,6 +250,39 @@ const buildStore = () => {
       return
     }
 
+    // The authored half of the load, alongside the member's own.
+    //
+    // It is not a second round trip: the program, the training week, the guide
+    // library, the cohort and the announcement deck go out with the member's
+    // logs and settle together, because every screen needs both halves and
+    // there is nothing worth painting with only one of them. They are also the
+    // reads that used to be `import` statements, which is why they cost nothing
+    // before and are the whole of the difference now.
+    /**
+     * A read the app can do without.
+     *
+     * The deck, the guide library and the cohort document are each one screen
+     * or one card, and none of them is load-bearing: an empty deck renders its
+     * empty state, an empty library renders its own, and a missing cohort costs
+     * the live-call card and the board. Inside `Promise.all` they were none of
+     * those things — a single rejection takes the whole array down and blanks
+     * the app, so a rules file that had not been deployed for one collection
+     * would present as a member's entire account failing to load.
+     *
+     * The training data below is deliberately *not* wrapped this way. A member
+     * with no sessions and no program has nothing to be shown, and pretending
+     * otherwise would replace an error message with a screen quietly claiming
+     * they had done nothing.
+     */
+    const optional = async <T>(read: Promise<T>, fallback: T, what: string): Promise<T> => {
+      try {
+        return await read
+      } catch (cause) {
+        console.warn(`[store] ${what} could not be read; continuing without it.`, cause)
+        return fallback
+      }
+    }
+
     let loaded
     try {
       loaded = await Promise.all([
@@ -237,6 +295,11 @@ const buildStore = () => {
         data.listEarnedBadges(),
         data.listLeaderboard(),
         data.getPreferences(),
+        data.getProgram(),
+        data.listWorkoutDays(),
+        optional(data.listGuides(), [], 'the guide library'),
+        optional(data.getCohort(), null, 'the cohort'),
+        optional(data.listAnnouncements(), [], 'the announcement deck'),
       ])
     } catch (cause) {
       // The member document was readable and the rest was not, so keep them:
@@ -264,6 +327,11 @@ const buildStore = () => {
       earnedBadges,
       leaderboard,
       prefs,
+      program,
+      workoutDays,
+      guides,
+      cohort,
+      announcements,
     ] = loaded
 
     state.value = {
@@ -272,6 +340,11 @@ const buildStore = () => {
       authUser,
       member,
       memberUnreadable: false,
+      program,
+      workoutDays,
+      guides,
+      cohort,
+      announcements,
       sessions,
       activeSession,
       checkIns,
@@ -346,8 +419,64 @@ const buildStore = () => {
   /** The same instant as a `Timestamp`, for anything written to a document. */
   const nowTs = computed(() => Timestamp.fromMillis(state.value.nowMs))
 
+  // --- Authored content ----------------------------------------------------
+  const program = computed(() => state.value.program)
+  const cohort = computed(() => state.value.cohort)
+  const guides = computed(() => state.value.guides)
+  const announcements = computed(() => state.value.announcements)
+
+  /** The coach, off the cohort document. `null` before the cohort has loaded. */
+  const coach = computed(() => state.value.cohort?.coach ?? null)
+
+  /**
+   * The weekly call, or `null` when this cohort has none set.
+   *
+   * Null is the common case, not an error: a cohort between blocks has no call
+   * to advertise, and Home renders nothing rather than a card whose button goes
+   * nowhere. Set it on the cohort document — see FIREBASE.md.
+   *
+   * Both halves are required here as well as in `FirestoreDataSource`, which is
+   * not redundant: Home's `v-if` is the one thing standing between a member and
+   * a "Join the call" button that navigates nowhere, and it should hold whatever
+   * implementation answered and whatever a coach half-typed into the console.
+   */
+  const liveCall = computed(() => {
+    const call = state.value.cohort?.liveCall
+    return call?.when?.trim() && call?.joinUrl?.trim() ? call : null
+  })
+
+  /** Whether the cohort's board is switched on, and the week it was promised for. */
+  const leaderboardVisible = computed(() => state.value.cohort?.leaderboardVisible === true)
+  const leaderboardRevealWeek = computed(() => state.value.cohort?.leaderboardRevealWeek ?? 0)
+
+  /** The reward economy, as authored. Empty until the program has loaded. */
+  const rewardValues = computed(() => state.value.program?.rewards.values ?? null)
+  const badgeDefs = computed(() => state.value.program?.rewards.badges ?? [])
+  const ranks = computed(() => state.value.program?.rewards.ranks ?? [])
+  const badgeTierPoints = computed(() => state.value.program?.rewards.badgeTierPoints ?? null)
+
+  /**
+   * The share of prescribed sets a session has to log to count.
+   *
+   * `0` means no program was read. Screens that quote it in copy check for that
+   * rather than printing "at least 0% of the sets".
+   */
+  const qualifyingSetPercent = computed(() => state.value.program?.qualifyingSetPercent ?? 0)
+
+  /** Guide categories, taken from the guides themselves. "All" leads. */
+  const guideCategories = computed(() => [
+    'All',
+    ...[...new Set(state.value.guides.map((g) => g.category).filter(Boolean))].sort(),
+  ])
+
+  const challengeShape = computed(() => challengeShapeOf(state.value.program))
+
   const clock = computed(() =>
-    challengeClock(state.value.member?.joinedAt ?? nowTs.value, now.value),
+    challengeClock(
+      state.value.member?.joinedAt ?? nowTs.value,
+      now.value,
+      challengeShape.value,
+    ),
   )
 
   const targets = computed(() =>
@@ -377,20 +506,32 @@ const buildStore = () => {
   const nextSessionAt = computed(() => startOfNextDay(now.value))
 
   /**
+   * The training week: the authored days that count toward the weekly quota.
+   *
+   * `optional` days — the core & cardio finisher is the one that exists — are
+   * not in it. They are still resolvable by id through `getDay`, so a member
+   * who opens one can log it, but they are not part of "3 of 4 sessions" and a
+   * week is not incomplete for skipping one.
+   */
+  const planDays = computed(() => state.value.workoutDays.filter((day) => !day.optional))
+
+  /**
    * The plan for this week, with each day's status resolved from the log.
    *
    * `WorkoutDayView`, not `WorkoutDay`: `status` is a fact about this member's
    * sessions, so it is attached here rather than stored on content the whole
    * cohort reads.
+   *
+   * A plain array, where this used to be a non-empty tuple. The tuple was
+   * honest about a hard-coded four-day week and is a lie about an authored one:
+   * a program whose `workoutDays` have not been written yet has no days, and
+   * the screens have to be able to say so rather than index into nothing.
    */
-  const days = computed<[WorkoutDayView, ...WorkoutDayView[]]>(() => {
+  const days = computed<WorkoutDayView[]>(() => {
     const loggedIds = new Set(sessionsThisWeek.value.map((s) => s.dayId))
     const locked = trainingLocked.value
     let markedNext = false
-    // `planDays` is a non-empty tuple and `map` is length-preserving, but the
-    // signature widens it back to a plain array, so the tuple is restated here
-    // rather than asserted at each of the reads downstream.
-    return planDays.map((day) => {
+    return planDays.value.map((day) => {
       if (loggedIds.has(day.id)) return { ...day, status: 'completed' as const }
       // Every remaining day locks, not just the next one: the rule is one
       // session a day, so skipping ahead to day 4 is the same spam by another
@@ -401,26 +542,41 @@ const buildStore = () => {
         return { ...day, status: 'today' as const }
       }
       return { ...day, status: 'upcoming' as const }
-    }) as [WorkoutDayView, ...WorkoutDayView[]]
+    })
   })
 
-  /** The next session waiting on them, which is what Home leads with. */
-  const today = computed<WorkoutDayView>(
+  /**
+   * The next session waiting on them, which is what Home leads with. `null`
+   * when the program has no training days authored yet.
+   */
+  const today = computed<WorkoutDayView | null>(
     () =>
-      days.value.find((d) => d.status === 'today' || d.status === 'locked') ?? days.value[0],
+      days.value.find((d) => d.status === 'today' || d.status === 'locked') ??
+      days.value[0] ??
+      null,
   )
 
-  const weekComplete = computed(() => days.value.every((d) => d.status === 'completed'))
+  /** Every session this week is logged. An empty week is not a complete one. */
+  const weekComplete = computed(
+    () => days.value.length > 0 && days.value.every((d) => d.status === 'completed'),
+  )
+
+  const rewardsContext = computed(() =>
+    rewardsContextOf(state.value.program, state.value.workoutDays),
+  )
 
   const rewards = computed(() =>
-    rewardsSnapshot({
-      joinedAt: state.value.member?.joinedAt ?? nowTs.value,
-      currentWeek: clock.value.week,
-      sessions: state.value.sessions,
-      checkIns: state.value.checkIns,
-      photos: state.value.photos,
-      earnedBadges: state.value.earnedBadges,
-    }),
+    rewardsSnapshot(
+      {
+        joinedAt: state.value.member?.joinedAt ?? nowTs.value,
+        currentWeek: clock.value.week,
+        sessions: state.value.sessions,
+        checkIns: state.value.checkIns,
+        photos: state.value.photos,
+        earnedBadges: state.value.earnedBadges,
+      },
+      rewardsContext.value,
+    ),
   )
 
   /**
@@ -447,6 +603,24 @@ const buildStore = () => {
     }
     return rankLeaderboard(rows)
   })
+
+  /**
+   * How many people are in this cohort, counted rather than declared.
+   *
+   * Chat used to render `cohort.memberCount` out of `data/program.ts`, which is
+   * a fixture: every cohort, on every deploy, was told it had 48 members. The
+   * `memberCount` field on the cohort document is no better a source — nothing
+   * in the app writes it, so it holds whatever was typed when the cohort was
+   * created and drifts from the first member who joins or leaves.
+   *
+   * The board projection is the roster. There is one document per member under
+   * `cohorts/{id}/leaderboard`, written when they set a display name in setup,
+   * and it is deleted with them on `reset()`. That also makes it exactly the
+   * set of people who can be in the thread: a member who has not finished that
+   * step has not reached Chat either. `leaderboard` above guarantees the
+   * viewer's own row is in the count whether or not the fetch returned it.
+   */
+  const cohortMemberCount = computed(() => leaderboard.value.length)
 
   /**
    * The inbox, with read state and a relative label folded in.
@@ -479,10 +653,20 @@ const buildStore = () => {
 
   const checkInDue = computed(() => currentCheckIn.value === null)
 
-  const getDay = (id: string): WorkoutDayView | undefined =>
-    id === coreCardioDay.id
-      ? { ...coreCardioDay, status: 'upcoming' as const }
-      : days.value.find((d) => d.id === id)
+  /**
+   * Any authored day by id, whether or not it is part of the weekly quota.
+   *
+   * `days` only carries the quota, so an optional day — the core & cardio
+   * finisher — resolves from the full list with a neutral status: it is never
+   * "today", and locking it would be locking a session that was never counted
+   * against the one-a-day rule in the first place.
+   */
+  const getDay = (id: string): WorkoutDayView | undefined => {
+    const inWeek = days.value.find((d) => d.id === id)
+    if (inWeek) return inWeek
+    const optional = state.value.workoutDays.find((d) => d.id === id)
+    return optional ? { ...optional, status: 'upcoming' as const } : undefined
+  }
 
   /**
    * What they hit last time on this exercise, shown in the "previous" column.
@@ -797,7 +981,7 @@ const buildStore = () => {
   const consumePendingBadge = () => {
     const id = state.value.pendingBadge
     state.value.pendingBadge = null
-    return id ? badgeDefs.find((b) => b.id === id) ?? null : null
+    return id ? badgeDefs.value.find((b) => b.id === id) ?? null : null
   }
 
   return {
@@ -815,6 +999,24 @@ const buildStore = () => {
     notifications,
     earnedBadges: computed(() => state.value.earnedBadges),
     pendingBadge: computed(() => state.value.pendingBadge),
+
+    // authored content
+    program,
+    cohort,
+    coach,
+    liveCall,
+    guides,
+    guideCategories,
+    announcements,
+    workoutDays: computed(() => state.value.workoutDays),
+    planDays,
+    rewardValues,
+    badgeDefs,
+    ranks,
+    badgeTierPoints,
+    qualifyingSetPercent,
+    leaderboardVisible,
+    leaderboardRevealWeek,
 
     // derived
     isAuthenticated,
@@ -835,10 +1037,14 @@ const buildStore = () => {
     sessionsThisWeek,
     rewards,
     leaderboard,
+    cohortMemberCount,
     unreadNotifications,
     currentCheckIn,
     checkInDue,
-    totalSessions: computed(() => challenge.totalSessions),
+    /** Sessions the whole block asks for. Zero until the program has loaded. */
+    totalSessions: computed(
+      () => challengeShape.value.totalWeeks * challengeShape.value.sessionsPerWeek,
+    ),
     getDay,
     previousFor,
 

@@ -237,6 +237,23 @@ export interface CoachRef {
   avatarUrl: string
 }
 
+/**
+ * The weekly live call, set by the coach on the cohort document.
+ *
+ * One time for the whole cohort: there are no slots to assign, no attendance
+ * to record and nothing to mark as done, so every member sees the same card
+ * every week. `null` on the cohort means there is no call this block, and Home
+ * renders nothing rather than a card with a dead button — which is the whole
+ * reason this is a nullable object rather than two nullable strings. A `when`
+ * with no `joinUrl` is not a state anybody should have to render.
+ */
+export interface LiveCall {
+  /** As it reads on the card, e.g. "Tuesday, 7:00 PM WAT". Carries its own zone. */
+  when: string
+  /** Zoom, Meet, whatever the coach uses. Opened in a new tab. */
+  joinUrl: string
+}
+
 export interface CohortDoc extends Audited {
   name: string
   status: 'draft' | 'active' | 'archived'
@@ -256,6 +273,27 @@ export interface CohortDoc extends Audited {
   programName: string | null
   programVersion: number | null
   archivedAt: Timestamp | null
+  /**
+   * The weekly call, or `null` when this cohort has none. Set from the console
+   * — see FIREBASE.md — and read on Home, which renders no card at all when it
+   * is absent.
+   */
+  liveCall: LiveCall | null
+  /**
+   * Whether the cohort leaderboard is visible to members yet.
+   *
+   * Off for the opening weeks on purpose. Ranking people before they have a
+   * couple of weeks of habit behind them turns "did I show up" into "am I
+   * winning". The board is computed and written the whole time regardless, so
+   * flipping this on later reveals a full history rather than starting at zero.
+   *
+   * Per cohort rather than per program: it is a decision about *these* members
+   * and when they are ready for it, and a coach has to be able to move it
+   * without re-versioning the plan everyone is training against.
+   */
+  leaderboardVisible: boolean
+  /** The week it is meant to appear in, used only for the reveal notice. */
+  leaderboardRevealWeek: number
 }
 
 export type Cohort = WithId<CohortDoc>
@@ -925,15 +963,27 @@ export interface LeaderboardEntryDoc {
   updatedAt: Timestamp
 }
 
-// --- Home announcements ----------------------------------------------------
-export interface Announcement {
-  id: string
+// --- Home announcements --------- `cohorts/{cohortId}/announcements/{id}` ---
+//
+// The deck behind the inbox. Longer-form and card-shaped where a notification
+// is a line in a list, which is why it is a second collection rather than a
+// flag on the first: the two are authored differently and read on different
+// screens, and folding them together would mean every notification carrying
+// four fields it does not use.
+export interface AnnouncementDoc extends Audited {
   eyebrow: string
   title: string
   body: string
+  /** Label for the card's button, or `null` for a card with no action. */
   cta: string | null
+  /** Where `cta` goes. Ignored, and the button not rendered, when `cta` is null. */
+  ctaUrl: string | null
   accent: 'rose' | 'orange' | 'ink'
+  /** An instant. Newest first, like the inbox. */
+  publishedAt: Timestamp
 }
+
+export type Announcement = WithId<AnnouncementDoc>
 
 // --- Nutrition targets (computed from the profile) -------------------------
 export interface NutritionTargets {

@@ -2,7 +2,7 @@
 // 22 · Weekly Check-in · Success
 definePageMeta({ layout: 'app' })
 
-import { trainingFeelOptions } from '~/data/program'
+import { trainingFeelOptions } from '~/data/onboarding'
 import type { BadgeDef } from '~/data/types'
 
 const store = useAppStore()

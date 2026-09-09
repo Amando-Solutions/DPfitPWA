@@ -5,11 +5,18 @@
 // library, the badge and rank ladders, the inbox seed. Member-owned data (their
 // logs, check-ins, photos) never lives here. See `lib/datasource`.
 //
-// In production every document below is written through the admin console and
-// read from Firestore. This file is the fixture that stands in for those reads
-// until `FirestoreDataSource` lands, so it is typed against the exact same
-// document contracts — a fixture that does not typecheck as the real thing is
-// worth nothing.
+// In production every document below is read from Firestore, authored through
+// the console or written by `scripts/seed-program.mjs`. Nothing outside
+// `lib/datasource/local.ts` may import this file: it is what *mock mode*
+// serves, and a screen reaching past the data source for it is a screen that
+// shows the same content to every cohort on every deploy no matter what the
+// coach authored. That was true of the plan, the guides, the badge ladder, the
+// rank ladder and the live call, and it is what `getProgram` / `getCohort`
+// exist to end.
+//
+// It stays typed against the exact same document contracts, which is what makes
+// it the seed script's input as well — a fixture that does not typecheck as the
+// real thing is worth nothing.
 // =============================================================================
 import { Timestamp } from 'firebase/firestore'
 import type {
@@ -30,7 +37,6 @@ import type {
   StoredImage,
   RewardValues,
   LeaderboardEntry,
-  TrainingFeel,
   WeekTheme,
   WorkoutDay,
 } from './types'
@@ -80,12 +86,38 @@ export const cohort: Cohort = {
   endDate: at('2026-09-28T00:00:00Z'),
   durationWeeks: 6,
   timezone: 'Africa/Lagos',
+  // Fixture, and nothing in the app writes the real one either — it holds
+  // whatever was typed when the cohort was created. Screens that need a live
+  // count read `useAppStore().cohortMemberCount`, which counts the board
+  // projection. Do not wire anything back to this.
   memberCount: 48,
   coach,
   programId: PROGRAM_ID,
   programName: '6-Week Recomp Challenge',
   programVersion: PROGRAM_VERSION,
   archivedAt: null,
+  /**
+   * The weekly live call.
+   *
+   * One time for the whole cohort, set by the coach on this document. `null`
+   * is the other legitimate value and Home renders no card for it — worth
+   * exercising by hand in mock mode, because a cohort between blocks is the
+   * common case and the empty state has to be a complete screen.
+   */
+  liveCall: {
+    when: 'Tuesday, 7:00 PM WAT',
+    joinUrl: 'https://meet.google.com/dpf-recomp-live',
+  },
+  /**
+   * Off for the opening weeks on purpose. Ranking people before they have a
+   * couple of weeks of habit behind them turns "did I show up" into "am I
+   * winning", which is the motivation we are trying not to build. The board is
+   * computed and written the whole time regardless, so flipping this on later
+   * reveals a full history rather than starting from zero.
+   */
+  leaderboardVisible: false,
+  /** Past Foundation and into Overload, so it lands as a bonus rather than a hook. */
+  leaderboardRevealWeek: 3,
   ...authored(),
 }
 
@@ -110,51 +142,8 @@ export const weekThemes: [WeekTheme, ...WeekTheme[]] = [
   { weekNumber: 6, title: 'Prove It', subtitle: 'Final push & photos' },
 ]
 
-/**
- * The weekly live call.
- *
- * One time for the whole cohort, set by the coach. Deliberately not
- * personalised: there are no slots to assign, no per-member attendance state
- * and nothing to mark as done, so the Home prompt renders the same for every
- * member every week whether or not they turned up last time.
- */
-export const liveCall = {
-  /** As it reads on the card. Admin-authored, so it carries its own zone. */
-  when: 'Tuesday, 7:00 PM WAT',
-  joinUrl: 'https://meet.google.com/dpf-recomp-live',
-} as const
-
-/**
- * Whether the cohort leaderboard is visible to members yet.
- *
- * Off for the opening weeks on purpose. Ranking people before they have a
- * couple of weeks of habit behind them turns "did I show up" into "am I
- * winning", which is the motivation we are trying not to build. The board is
- * computed and written the whole time regardless (see `refreshLeaderboard`), so
- * flipping this on later reveals a full history rather than starting from zero.
- *
- * While it is off the tab switcher is not rendered at all. A greyed-out or
- * padlocked tab would advertise the thing we are choosing not to show, which
- * reintroduces exactly the anticipation the delay is meant to avoid.
- */
-export const leaderboardVisible = false
-
-/**
- * The week the board is meant to appear in, used only for the reveal notice on
- * Rewards. Past Foundation and into Overload, so it lands as a bonus for people
- * already in the habit rather than a hook for people still deciding.
- */
-export const leaderboardRevealWeek = 3
-
 /** Access codes that redeem into this cohort. */
 export const accessCodes = ['DP-RECOMP-01']
-
-/** How training felt, offered as a choice on the weekly check-in. */
-export const trainingFeelOptions: { id: TrainingFeel; label: string; desc: string }[] = [
-  { id: 'too-easy', label: 'Too easy', desc: 'You had plenty left in the tank.' },
-  { id: 'just-right', label: 'Just right', desc: 'Hard, but every set was clean.' },
-  { id: 'too-hard', label: 'Too hard', desc: 'Form or recovery started slipping.' },
-]
 
 // --- Reward economy --------------------------------------------------------
 /**
@@ -648,8 +637,11 @@ export const program: Program = {
 //
 // `locked` is not stored: it is `unlockWeek > member.week`, which is a fact
 // about the reader, not about the guide. See `GuideView`.
-export const guideCategories = ['All', 'Training', 'Recovery', 'Main Training Program', 'Core']
-
+//
+// The filter chips are not listed here either. They are the distinct
+// `category` values of whatever guides were actually authored — see
+// `guideCategories` in the store — because a hard-coded list of chips is a list
+// that can offer a category with nothing in it and miss one with guides in.
 export const guides: Guide[] = [
   {
     id: 'guide-warm-up',
@@ -788,7 +780,7 @@ export const notificationSeed: Notification[] = [
   },
 ]
 
-// --- Announcement deck -----------------------------------------------------
+// --- Announcement deck ---------- `cohorts/{cohortId}/announcements/{id}` ---
 export const announcements: Announcement[] = [
   {
     id: 'a1',
@@ -796,7 +788,10 @@ export const announcements: Announcement[] = [
     title: 'Proof is required this week',
     body: 'Upload a photo after every session to keep your streak and points alive.',
     cta: 'View today’s workout',
+    ctaUrl: '/train',
     accent: 'rose',
+    publishedAt: at('2026-08-31T08:00:00Z'),
+    ...authored(),
   },
   {
     id: 'a2',
@@ -804,7 +799,10 @@ export const announcements: Announcement[] = [
     title: 'Q&A with Coach Dayo · Sat 10am',
     body: 'Bring your form questions. Replay available if you miss it.',
     cta: 'Add to calendar',
+    ctaUrl: 'https://meet.google.com/dpf-recomp-live',
     accent: 'orange',
+    publishedAt: at('2026-08-28T09:00:00Z'),
+    ...authored(),
   },
   {
     id: 'a3',
@@ -812,7 +810,10 @@ export const announcements: Announcement[] = [
     title: 'Cohort 01 logged 900 sessions 🎉',
     body: 'You’re officially the most consistent cohort so far. Keep it going.',
     cta: null,
+    ctaUrl: null,
     accent: 'ink',
+    publishedAt: at('2026-08-24T17:30:00Z'),
+    ...authored(),
   },
 ]
 

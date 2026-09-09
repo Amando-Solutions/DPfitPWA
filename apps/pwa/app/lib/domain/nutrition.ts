@@ -31,7 +31,7 @@ export const activityMultipliers: Record<ActivityLevel, number> = {
 export const goalMultipliers: Record<Goal, number> = {
   'fat-loss': 0.8,
   recomp: 0.9,
-  'muscle-gain': 1.1,
+  'muscle-gain': 1.05,
 }
 
 export const goalApproach: Record<Goal, string> = {

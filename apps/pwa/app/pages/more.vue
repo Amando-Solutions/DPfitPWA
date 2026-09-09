@@ -41,7 +41,12 @@ const links = computed(() => [
     to: '/guides',
     icon: 'info',
     label: 'Program guides',
-    meta: 'Warm-ups, core, cardio, overload',
+    // Counted, not listed. This read "Warm-ups, core, cardio, overload", which
+    // named the four guides the fixture happened to ship and would have gone on
+    // naming them whatever library the coach actually authored.
+    meta: store.guides.value.length
+      ? `${store.guides.value.length} in your library`
+      : 'Your coach hasn’t added any yet',
   },
   {
     to: '/profile',
@@ -87,8 +92,12 @@ const initials = computed(() =>
         <div class="more__profile-text flex-1 min-w-0">
           <h2 class="more__name m-[0_0_4px] font-display font-black text-[17px] text-(--ink)">{{ store.displayName.value }}</h2>
           <p class="more__meta muted m-0 text-[12.5px]">
-            Week {{ store.clock.value.week }} of {{ store.clock.value.totalWeeks }} ·
-            {{ store.clock.value.title }}
+            Week {{ store.clock.value.week
+            }}<template v-if="store.clock.value.totalWeeks">
+              of {{ store.clock.value.totalWeeks }}</template
+            ><template v-if="store.clock.value.title">
+              · {{ store.clock.value.title }}</template
+            >
           </p>
         </div>
         <div class="more__profile-pills flex flex-col gap-1.5 shrink-0">

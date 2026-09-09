@@ -1,50 +1,94 @@
 import type { Timestamp } from 'firebase/firestore'
 
-import {
-  badgeTargets,
-  badgeTierPoints,
-  badges,
-  challenge,
-  planDays,
-  program,
-  ranks,
-  rewardValues,
-} from '~/data/program'
 import type {
   BadgeRuleId,
   CheckIn,
   EarnedBadge,
   LeaderboardEntry,
+  Program,
   ProgressPhoto,
   Rank,
+  RewardConfig,
   SessionLog,
+  WorkoutDay,
 } from '~/data/types'
 
 // =============================================================================
 // The reward system.
 //
 // Points, rank, streak, badges and the leaderboard are all pure functions of
-// the member's logs, recomputed on every read. Nothing here is stored as its
-// own value: a saved rank or streak is the one thing guaranteed to drift out of
-// sync with the data it claims to describe.
+// the member's logs and their program, recomputed on every read. Nothing here
+// is stored as its own value: a saved rank or streak is the one thing
+// guaranteed to drift out of sync with the data it claims to describe.
+//
+// Nothing here decides a *number*, either. The threshold, the point values, the
+// badge ladder, the rank ladder and every badge target are authored on the
+// program document and arrive as `RewardsContext`. This module only applies
+// them, so re-tuning a cohort is an edit in the console rather than a release.
 // =============================================================================
 
 /**
- * The share of a session's prescribed sets that has to be logged for that
- * session to count for anything.
+ * Everything a reward calculation needs that is not the member's own logs.
  *
- * This is the gate the whole system hangs off. Badges and points are meant to
- * represent real effort rather than tapping through the app, so a session below
- * the line still saves and is still visible to the coach, but earns no RP, no
- * badge progress, no streak and no leaderboard position.
- *
- * Authored on the program document rather than fixed here, so a cohort can be
- * re-tuned without a release. Read it from the member's own program once
- * `FirestoreDataSource` lands; this is the currently-loaded program's value.
+ * `planDayIds` and `totalWeeks` are separate from `config` because they are not
+ * part of the reward economy — they are the shape of the plan the economy is
+ * being applied to, and two of the badge rules ask about them.
  */
-export const QUALIFYING_SET_PERCENT = program.qualifyingSetPercent
+export interface RewardsContext {
+  config: RewardConfig
+  /** Ids of the days that make up the training week. Excludes optional days. */
+  planDayIds: string[]
+  totalWeeks: number
+  /** The share of prescribed sets a session has to log to count for anything. */
+  qualifyingSetPercent: number
+}
 
-export const QUALIFYING_SET_RATIO = QUALIFYING_SET_PERCENT / 100
+/**
+ * The context before a program has loaded, or when the read failed.
+ *
+ * Everything zero and empty: no ranks, no badges, no points and a threshold of
+ * zero. It exists so the store's computeds have something total to evaluate
+ * against on the way to the first paint, not as a set of defaults — a member
+ * looking at this is looking at a screen whose program did not load, and the
+ * numbers on it should be visibly absent rather than plausibly wrong.
+ */
+export const EMPTY_REWARDS_CONTEXT: RewardsContext = {
+  config: {
+    values: { workout: 0, checkIn: 0, progressPhoto: 0, core: 0, cardio: 0 },
+    badgeTierPoints: { starter: 0, consistency: 0, elite: 0 },
+    badgeTargets: {
+      dayRepeats: 0,
+      checkInWeeks: 0,
+      foundationWeek: 0,
+      foundationSessions: 0,
+      peakWeek: 0,
+      peakSessions: 0,
+    },
+    ranks: [],
+    badges: [],
+  },
+  planDayIds: [],
+  totalWeeks: 0,
+  qualifyingSetPercent: 0,
+}
+
+/** What a member with no ranks authored — or no program loaded — is shown. */
+export const UNRANKED: Rank = { id: 'unranked', name: 'Unranked', emoji: '·', minPoints: 0 }
+
+export const rewardsContextOf = (
+  program: Program | null,
+  workoutDays: WorkoutDay[],
+): RewardsContext =>
+  program
+    ? {
+        config: program.rewards,
+        // The finisher is not part of the weekly quota, so "every training day,
+        // three times each" must not silently require it.
+        planDayIds: workoutDays.filter((day) => !day.optional).map((day) => day.id),
+        totalWeeks: program.totalWeeks,
+        qualifyingSetPercent: program.qualifyingSetPercent,
+      }
+    : EMPTY_REWARDS_CONTEXT
 
 /**
  * Whether a set count clears the threshold.
@@ -52,9 +96,20 @@ export const QUALIFYING_SET_RATIO = QUALIFYING_SET_PERCENT / 100
  * Measured against the sets the *plan* asked for, not the total logged: sets a
  * member adds themselves are extra credit, and extra work must never be able to
  * push a finished session below the line.
+ *
+ * A threshold of zero means no program was loaded, and nothing qualifies under
+ * it — the caller is on a screen that could not read the rules it would be
+ * judging against, and guessing in the member's favour would promise RP the
+ * server is about to decline to pay.
  */
-export const sessionQualifies = (setsDone: number, setsPrescribed: number): boolean =>
-  setsPrescribed > 0 && setsDone / setsPrescribed >= QUALIFYING_SET_RATIO
+export const sessionQualifies = (
+  setsDone: number,
+  setsPrescribed: number,
+  qualifyingSetPercent: number,
+): boolean =>
+  qualifyingSetPercent > 0 &&
+  setsPrescribed > 0 &&
+  (setsDone / setsPrescribed) * 100 >= qualifyingSetPercent
 
 /**
  * Whether a saved session counts.
@@ -105,8 +160,14 @@ export interface RewardsInput {
 }
 
 /** RP already banked from unlocked badges. Append-only, so it only ever grows. */
-export const badgePoints = (earnedBadges: Record<string, EarnedBadge>): number =>
-  badges.reduce((n, b) => (earnedBadges[b.id] ? n + badgeTierPoints[b.tier] : n), 0)
+export const badgePoints = (
+  earnedBadges: Record<string, EarnedBadge>,
+  { config }: RewardsContext,
+): number =>
+  config.badges.reduce(
+    (n, b) => (earnedBadges[b.id] ? n + (config.badgeTierPoints[b.tier] ?? 0) : n),
+    0,
+  )
 
 /**
  * The member's RP.
@@ -117,16 +178,21 @@ export const badgePoints = (earnedBadges: Record<string, EarnedBadge>): number =
  */
 export const totalPoints = (
   input: Pick<RewardsInput, 'sessions' | 'checkIns' | 'photos' | 'earnedBadges'>,
-): number =>
-  qualifyingSessions(input.sessions).length * rewardValues.workout +
-  input.checkIns.length * rewardValues.checkIn +
-  input.photos.length * rewardValues.progressPhoto +
-  badgePoints(input.earnedBadges)
+  context: RewardsContext,
+): number => {
+  const { values } = context.config
+  return (
+    qualifyingSessions(input.sessions).length * values.workout +
+    input.checkIns.length * values.checkIn +
+    input.photos.length * values.progressPhoto +
+    badgePoints(input.earnedBadges, context)
+  )
+}
 
-export const rankFor = (points: number): Rank =>
-  [...ranks].reverse().find((r) => points >= r.minPoints) ?? ranks[0]
+export const rankFor = (points: number, ranks: Rank[]): Rank =>
+  [...ranks].reverse().find((r) => points >= r.minPoints) ?? ranks[0] ?? UNRANKED
 
-export const nextRankFor = (points: number): Rank | null =>
+export const nextRankFor = (points: number, ranks: Rank[]): Rank | null =>
   ranks.find((r) => r.minPoints > points) ?? null
 
 /** The longest run of consecutive weeks in a list of week numbers. */
@@ -169,9 +235,18 @@ export const streakWeeks = (sessions: SessionLog[], currentWeek: number): number
  * Every count here is of qualifying sessions only. Re-run after each RP-earning
  * event so an unlock lands while the member is still looking at the screen that
  * earned it.
+ *
+ * Each rule is gated on the authored numbers it needs actually being there. A
+ * target of zero is not "everybody qualifies immediately" — it is a program
+ * that has not been read, and awarding a badge against it would be permanent:
+ * `awardBadge` is append-only and nothing takes one back.
  */
-export const evaluateBadges = (input: RewardsInput): BadgeRuleId[] => {
+export const evaluateBadges = (
+  input: RewardsInput,
+  context: RewardsContext,
+): BadgeRuleId[] => {
   const { checkIns, photos, currentWeek } = input
+  const { badgeTargets: targets } = context.config
   const sessions = qualifyingSessions(input.sessions)
   const won: BadgeRuleId[] = []
 
@@ -183,42 +258,64 @@ export const evaluateBadges = (input: RewardsInput): BadgeRuleId[] => {
   for (const session of sessions) {
     perDay.set(session.dayId, (perDay.get(session.dayId) ?? 0) + 1)
   }
-  if (planDays.every((d) => (perDay.get(d.id) ?? 0) >= badgeTargets.dayRepeats)) {
+  if (
+    targets.dayRepeats > 0 &&
+    context.planDayIds.length > 0 &&
+    context.planDayIds.every((id) => (perDay.get(id) ?? 0) >= targets.dayRepeats)
+  ) {
     won.push('consistency-queen')
   }
 
   // The same consecutive-week logic as the workout streak, on check-ins.
   const checkInRun = longestWeekRun(checkIns.map((c) => c.weekNumber))
-  if (checkInRun >= badgeTargets.checkInWeeks) won.push('checkin-streak-4')
+  if (targets.checkInWeeks > 0 && checkInRun >= targets.checkInWeeks) {
+    won.push('checkin-streak-4')
+  }
 
   // Reaching the week by the calendar is not enough on its own: the volume has
   // to be there too, or the badge is a reward for waiting.
   if (
-    currentWeek >= badgeTargets.foundationWeek &&
-    sessions.length >= badgeTargets.foundationSessions
+    targets.foundationWeek > 0 &&
+    currentWeek >= targets.foundationWeek &&
+    sessions.length >= targets.foundationSessions
   ) {
     won.push('foundation-complete')
   }
-  if (currentWeek >= badgeTargets.peakWeek && sessions.length >= badgeTargets.peakSessions) {
+  if (
+    targets.peakWeek > 0 &&
+    currentWeek >= targets.peakWeek &&
+    sessions.length >= targets.peakSessions
+  ) {
     won.push('peak-performer')
   }
 
   // Every single week of the programme, with none skipped along the way.
   const weeks = weekNumbers(input.sessions)
-  const everyWeek = Array.from({ length: challenge.totalWeeks }, (_, i) => i + 1)
-  if (currentWeek >= challenge.totalWeeks && everyWeek.every((w) => weeks.has(w))) {
+  const everyWeek = Array.from({ length: context.totalWeeks }, (_, i) => i + 1)
+  if (
+    context.totalWeeks > 0 &&
+    currentWeek >= context.totalWeeks &&
+    everyWeek.every((w) => weeks.has(w))
+  ) {
     won.push('no-days-off')
   }
 
-  return won
+  // A badge the program does not define cannot be awarded: the ladder is
+  // authored content, and `awardBadge` writes against the ids in it.
+  const defined = new Set(context.config.badges.map((b) => b.id))
+  return won.filter((id) => defined.has(id))
 }
 
-export const rewardsSnapshot = (input: RewardsInput): RewardsSnapshot => {
-  const points = totalPoints(input)
-  const rank = rankFor(points)
-  const nextRank = nextRankFor(points)
+export const rewardsSnapshot = (
+  input: RewardsInput,
+  context: RewardsContext,
+): RewardsSnapshot => {
+  const { ranks, badges } = context.config
+  const points = totalPoints(input, context)
+  const rank = rankFor(points, ranks)
+  const nextRank = nextRankFor(points, ranks)
   const span = nextRank ? nextRank.minPoints - rank.minPoints : 0
-  const earned = evaluateBadges(input)
+  const earned = evaluateBadges(input, context)
   const qualified = qualifyingSessions(input.sessions).length
 
   return {

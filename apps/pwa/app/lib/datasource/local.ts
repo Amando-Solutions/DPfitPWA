@@ -15,11 +15,16 @@ import {
   PROGRAM_ID,
   PROGRAM_VERSION,
   accessCodes,
+  announcements,
   badgeTierPoints,
   badges,
   cohort,
+  coreCardioDay,
+  guides,
   leaderboardSeed,
   notificationSeed,
+  planDays,
+  program,
   rewardValues,
 } from '~/data/program'
 import { coachSeed, cohortSeed } from '~/data/community'
@@ -28,6 +33,7 @@ import { weekOf } from '~/lib/domain/challenge'
 import type { ProcessedImage } from '~/lib/image'
 import type {
   ActiveSessionDoc,
+  Announcement,
   AuthProvider,
   AuthUser,
   BadgeRuleId,
@@ -35,7 +41,9 @@ import type {
   ChatMessageView,
   ChatReaction,
   CheckIn,
+  Cohort,
   EarnedBadge,
+  Guide,
   LeaderboardEntry,
   Member,
   MemberDoc,
@@ -44,10 +52,12 @@ import type {
   MemberStats,
   Message,
   Notification,
+  Program,
   ProgressPhoto,
   SessionLog,
   StoredImage,
   ThreadId,
+  WorkoutDay,
 } from '~/data/types'
 
 // Storage keys, one per collection, mirroring the Firestore paths.
@@ -358,6 +368,38 @@ export class LocalDataSource implements DataSource {
   }
 
   // =========================================================================
+  // Authored content
+  //
+  // The one group of reads this implementation answers from the fixture rather
+  // than from storage, and the only place in the app allowed to import it.
+  // There is no console on device to author a program in, and a plan a
+  // developer had to type into localStorage before Train would render is not a
+  // mock, it is an obstacle. Everything here is typed as the real documents, so
+  // a screen cannot tell which implementation answered it.
+  // =========================================================================
+  async getProgram(): Promise<Program> {
+    return program
+  }
+
+  async listWorkoutDays(): Promise<WorkoutDay[]> {
+    // The finisher is authored alongside the week and marked `optional`, which
+    // is what keeps it out of the weekly quota. Same collection, same order.
+    return [...planDays, coreCardioDay].sort((a, b) => a.dayNumber - b.dayNumber)
+  }
+
+  async listGuides(): Promise<Guide[]> {
+    return [...guides].sort((a, b) => a.unlockWeek - b.unlockWeek || a.title.localeCompare(b.title))
+  }
+
+  async getCohort(): Promise<Cohort | null> {
+    return cohort
+  }
+
+  async listAnnouncements(): Promise<Announcement[]> {
+    return [...announcements].sort((a, b) => b.publishedAt.toMillis() - a.publishedAt.toMillis())
+  }
+
+  // =========================================================================
   // Uploads
   // =========================================================================
   async uploadImage(
@@ -404,12 +446,16 @@ export class LocalDataSource implements DataSource {
     )
     // A session made entirely of sets the member added has no prescription to
     // measure against, so it is judged on what it does have.
-    const qualifies = sessionQualifies(log.setsDone, setsPrescribed || log.setsTotal)
+    const qualifies = sessionQualifies(
+      log.setsDone,
+      setsPrescribed || log.setsTotal,
+      program.qualifyingSetPercent,
+    )
 
     const record: SessionLog = {
       ...log,
       id: uid('session'),
-      weekNumber: weekOf(member.joinedAt, log.completedAt),
+      weekNumber: weekOf(member.joinedAt, log.completedAt, program.totalWeeks),
       qualifies,
       // A session below the threshold saves in full and still reaches the
       // coach. It just earns nothing.
@@ -451,7 +497,7 @@ export class LocalDataSource implements DataSource {
     const member = await this.requireMember()
     const all = await this.listCheckIns()
     const submittedAt = trustedTimestamp()
-    const weekNumber = weekOf(member.joinedAt, submittedAt)
+    const weekNumber = weekOf(member.joinedAt, submittedAt, program.totalWeeks)
 
     const record: CheckIn = {
       ...input,
@@ -482,7 +528,7 @@ export class LocalDataSource implements DataSource {
     const record: ProgressPhoto = {
       id: uid('photo'),
       pose: input.pose,
-      weekNumber: weekOf(member.joinedAt, takenAt),
+      weekNumber: weekOf(member.joinedAt, takenAt, program.totalWeeks),
       image: await this.uploadImage(input.image, 'progress'),
       takenAt,
     }

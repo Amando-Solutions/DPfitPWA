@@ -185,6 +185,16 @@ service cloud.firestore {
         allow write: if isCoach();
       }
 
+      // The announcement deck behind the inbox: the same trust shape as the
+      // notifications above, and a separate collection because the two are
+      // authored differently and read on different screens. Longer-form,
+      // card-shaped, and carrying a call to action the line-item inbox has no
+      // room for. Nothing a member does writes one.
+      match /announcements/{announcementId} {
+        allow read: if inCohort(cohortId) || isCoach();
+        allow write: if isCoach();
+      }
+
       // The board projection: name, avatar, count. Deliberately the only
       // cross-member read in the system. See the header.
       match /leaderboard/{memberId} {
