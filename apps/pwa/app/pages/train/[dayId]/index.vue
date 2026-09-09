@@ -2,6 +2,7 @@
 // 13 · Ready to Start / 14 · Active Session / 15 · Rest Timer / 16 · Exercise Menu
 definePageMeta({ layout: false })
 
+import type { SetType } from '~/data/types'
 import { trustedTimestamp } from '~/lib/time'
 
 const route = useRoute()
@@ -200,26 +201,51 @@ const addSet = async (exerciseIndex: number) => {
   const last = exercise.sets.at(-1)
   // A set added mid-session has no counterpart in a previous week, so it
   // carries no "previous" reference and the column renders a dash. `added`
-  // marks it as the member's own, which is what makes it removable again.
+  // marks it as the member's own, which is what keeps it out of the
+  // qualifying denominator the data source works out at save time.
   exercise.sets.push({
     reps: last?.reps ?? 10,
     weightKg: last?.weightKg ?? 0,
     done: false,
     added: true,
+    // An extra set is a working set until the member says otherwise; copying
+    // the previous row's type would make an extra after a warm-up a warm-up.
+    setType: 'normal',
     previousWeightKg: null,
     previousReps: null,
   })
   await store.persistActiveSession()
 }
 
+const setSetType = async (
+  exerciseIndex: number,
+  payload: { index: number; setType: SetType },
+) => {
+  const active = store.activeSession.value
+  if (!active) return
+  const set = active.exercises[exerciseIndex]?.sets[payload.index]
+  if (!set) return
+  set.setType = payload.setType
+  // Nothing is renumbered here: the SET column is computed from the order of
+  // the array, so the rows below this one relabel themselves on the next render.
+  await store.persistActiveSession()
+}
+
+/**
+ * Take a row out of the log.
+ *
+ * This used to refuse anything the member had not added themselves, on the
+ * grounds that the prescribed sets *are* the workout. "Remove Set" in the
+ * set-type picker offers it on every row, and the row simply goes: the bar it
+ * counted toward is `setsPrescribed`, recorded when the session opened, so
+ * deleting the sets you skipped cannot lower the threshold you are judged
+ * against the way it would if the denominator were counted off this array.
+ */
 const removeSet = async (exerciseIndex: number, setIndex: number) => {
   const active = store.activeSession.value
   if (!active) return
-  // The card only offers this for a set the member added, but the guard belongs
-  // here too: the prescribed sets are the workout, and nothing should be able
-  // to take one out of it.
   const exercise = active.exercises[exerciseIndex]
-  if (!exercise?.sets[setIndex]?.added) return
+  if (!exercise?.sets[setIndex]) return
   exercise.sets.splice(setIndex, 1)
   await store.persistActiveSession()
 }
@@ -278,6 +304,7 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
           :unit="units"
           @toggle-set="(setIndex) => toggleSet(i, setIndex)"
           @update-set="(payload) => updateSet(i, payload)"
+          @update-set-type="(payload) => setSetType(i, payload)"
           @add-set="() => addSet(i)"
           @remove-set="(setIndex) => removeSet(i, setIndex)"
           @update-note="(value) => updateNote(i, value)"

@@ -6,6 +6,7 @@ import { defaultPreferences } from '~/lib/datasource/local'
 import { challengeClock, challengeShapeOf } from '~/lib/domain/challenge'
 import { nutritionTargetsFor } from '~/lib/domain/nutrition'
 import { rankLeaderboard, rewardsContextOf, rewardsSnapshot } from '~/lib/domain/rewards'
+
 import {
   dateKey,
   relativeLabel,
@@ -680,7 +681,9 @@ const buildStore = () => {
   ): { weightKg: number; reps: number } | undefined => {
     for (const session of state.value.sessions) {
       const logged = session.exercises?.find((e) => e.id === exerciseId)
-      const last = logged?.sets.filter((s) => s.done).at(-1)
+      // `?.` on `sets` too: a session document written without it is not a
+      // hypothetical here — the seeded sample session has no `exercises` key.
+      const last = logged?.sets?.filter((s) => s.done).at(-1)
       if (last) return { weightKg: last.weightKg, reps: last.reps }
     }
     return undefined
@@ -802,11 +805,18 @@ const buildStore = () => {
           muscleGroup: exercise.muscleGroup,
           restSeconds: exercise.restSeconds,
           note: '',
+          // The bar, written down before the member touches anything. Nothing
+          // they do during the session moves it.
+          setsPrescribed: exercise.sets.length,
           sets: exercise.sets.map((set) => ({
             reps: set.reps,
             weightKg: set.weightKg ?? 0,
             done: false,
             added: false,
+            // The plan prescribes working sets. Warm-ups, failures and drops
+            // are things that happen in the gym, so they are the member's to
+            // mark from the SET column once they are training.
+            setType: 'normal' as const,
             previousWeightKg: last?.weightKg ?? null,
             previousReps: last?.reps ?? null,
           })),

@@ -4,6 +4,7 @@ definePageMeta({ layout: false })
 
 import { processImage } from '~/lib/image'
 import { sessionQualifies } from '~/lib/domain/rewards'
+import { prescribedSets } from '~/lib/domain/sets'
 
 const route = useRoute()
 const router = useRouter()
@@ -33,7 +34,9 @@ const totals = computed(() => {
   return {
     setsTotal: exercises.reduce((n, e) => n + e.sets.length, 0),
     setsDone: exercises.reduce((n, e) => n + e.sets.filter((s) => s.done).length, 0),
-    setsPrescribed: exercises.reduce((n, e) => n + e.sets.filter((s) => !s.added).length, 0),
+    // What the plan asked for, which is not the same as what is on screen: a
+    // set the member removed still counts toward the threshold.
+    setsPrescribed: exercises.reduce((n, e) => n + prescribedSets(e), 0),
     volume: Math.round(
       exercises.reduce(
         (n, e) => n + e.sets.filter((s) => s.done).reduce((v, s) => v + s.weightKg * s.reps, 0),

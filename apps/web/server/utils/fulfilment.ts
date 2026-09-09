@@ -21,6 +21,7 @@
 // where a second caller mints a second seat.
 // =============================================================================
 import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore'
+import { reachableOrigin } from '../emails/access-code'
 import { issueAccessCode, readCohort, type Registration } from './access-code'
 import { sendAccessCodeEmail, type BrevoConfig } from './email'
 import type { ConfirmedSale, SaleEvent } from './selar'
@@ -35,6 +36,12 @@ export interface FulfilOptions {
   cohortId: string
   ttlDays: number
   brevo: BrevoConfig
+  /**
+   * The fallback member-app origin: this deployment's own `appUrl`.
+   *
+   * Only used when the registration does not carry one worth trusting, which
+   * is the normal case for anything written before it recorded one.
+   */
   appUrl: string
 }
 
@@ -112,6 +119,7 @@ export const fulfilRegistration = async (
       whatsapp?: string
       timezone?: string
       emailed?: boolean
+      appUrl?: string
     }
 
     // Somebody already fulfilled this. Return what they issued so the caller
@@ -133,6 +141,10 @@ export const fulfilRegistration = async (
         whatsapp: data.whatsapp ?? '',
         timezone: data.timezone ?? '',
       } satisfies Registration,
+      // Deliberately beside the registration rather than on it: `Registration`
+      // is what `issueAccessCode` writes onto the code document, and where the
+      // buyer's browser was is no business of the code.
+      appUrl: data.appUrl ?? '',
     }
   })
 
@@ -190,11 +202,22 @@ export const fulfilRegistration = async (
   }
 
   // --- Delivery ------------------------------------------------------------
+  // Off the registration, not off this deployment. The webhook that got here
+  // is a single fixed URL configured once in Zapier, so `options.appUrl` is
+  // whichever environment Selar happens to notify — usually production, even
+  // for a buyer who registered on a preview build and expects the preview app.
+  //
+  // `reachableOrigin` guards the fallback rather than the preference: a
+  // registration taken by a deployment with the variable unset carries
+  // `http://localhost:3000`, and sending a real buyer to their own machine is
+  // worse than sending them to the wrong environment.
+  const appUrl = reachableOrigin(claim.appUrl) ? claim.appUrl : options.appUrl
+
   const emailed = await sendAccessCodeEmail(options.brevo, {
     to: claim.registration.email,
     fullName: claim.registration.fullName,
     code,
-    appUrl: options.appUrl,
+    appUrl,
   })
 
   // Recorded rather than retried. A send that failed against a paid seat is

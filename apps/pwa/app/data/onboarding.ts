@@ -40,20 +40,20 @@ export const onboardingSlides: [OnboardingSlide, ...OnboardingSlide[]] = [
 export const goalOptions: { id: Goal; label: string; desc: string; icon: string }[] = [
   {
     id: 'fat-loss',
-    label: 'Lose fat first',
-    desc: 'Slight deficit, protein held high',
+    label: 'Fat loss',
+    desc: 'I want to lean out',
     icon: 'flame',
   },
   {
     id: 'recomp',
-    label: 'Balanced recomp',
-    desc: 'Lean out and build at the same time',
+    label: 'Balanced',
+    desc: 'A bit of both, steady progress',
     icon: 'activity',
   },
   {
     id: 'muscle-gain',
-    label: 'Build muscle first',
-    desc: 'Small surplus, strength-led',
+    label: 'Build muscle',
+    desc: 'I want to get stronger',
     icon: 'train',
   },
 ]

@@ -121,6 +121,21 @@
   --macro-carbs-soft: rgba(86, 100, 58, 0.14);
   --macro-carbs-ring: rgba(86, 100, 58, 0.28);
 
+  /* --- Set types ----------------------------------------------------------
+     A logged set is a warm-up, a normal working set, one taken to failure, or a
+     drop set. The badge in the SET column is the only place they are told
+     apart, at 11px inside a 28px chip, so hue has to do the work that a label
+     would normally do — which is why failure and drop reach outside the warm
+     brand palette for a true red and a blue. Warm-ups borrow the brand orange;
+     normal sets get no colour at all, because they are the ones that are just
+     the workout. Each pair is ink over its own 13% tint. */
+  --set-warmup: var(--orange-text);
+  --set-warmup-soft: var(--orange-soft);
+  --set-fail: #b02418;
+  --set-fail-soft: rgba(176, 36, 24, 0.13);
+  --set-drop: #1c5d86;
+  --set-drop-soft: rgba(28, 93, 134, 0.13);
+
   /* --- Onboarding splash --------------------------------------------------
      A branded moment with its own palette rather than the app surfaces. */
   --onboard-art: #f6ccd5;
@@ -385,6 +400,13 @@
   --macro-carbs-soft: rgba(169, 189, 124, 0.14);
   --macro-carbs-ring: rgba(169, 189, 124, 0.3);
 
+  /* Both lift the way every other accent does, and the tint opens up with them
+     so the chip still reads as a chip against the darker card. */
+  --set-fail: #ff8d7e;
+  --set-fail-soft: rgba(255, 141, 126, 0.16);
+  --set-drop: #7fc2e8;
+  --set-drop-soft: rgba(127, 194, 232, 0.16);
+
   --onboard-art: #3a2029;
   --onboard-title: #ff9dbd;
   --onboard-dot: rgba(245, 240, 234, 0.22);
@@ -471,6 +493,12 @@
   --color-orange-ring: var(--orange-ring);
   --color-macro-fat: var(--macro-fat);
   --color-macro-carbs: var(--macro-carbs);
+  --color-set-warmup: var(--set-warmup);
+  --color-set-warmup-soft: var(--set-warmup-soft);
+  --color-set-fail: var(--set-fail);
+  --color-set-fail-soft: var(--set-fail-soft);
+  --color-set-drop: var(--set-drop);
+  --color-set-drop-soft: var(--set-drop-soft);
   --color-scrim: var(--scrim);
 
   --color-ink: var(--text);

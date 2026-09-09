@@ -108,9 +108,7 @@ useHead({ title: 'Registration · DP Fitness' })
 <template>
   <main class="flex min-h-screen items-center justify-center bg-page px-6 py-16">
     <div class="w-full max-w-[440px] text-center">
-      <p class="font-display text-[19px] font-black tracking-[-0.02em] text-ink">
-        DP<span class="text-[var(--rose-fill)]">.</span>FITNESS
-      </p>
+      <BrandLogo :size="52" class="mx-auto text-ink" label="DP Fitness" />
 
       <!-- `role="status"` and `aria-live` so each phase is announced as it
            replaces the last, rather than changing silently under a screen

@@ -145,6 +145,12 @@ export default defineNuxtConfig({
       apiBase: process.env.NUXT_PUBLIC_API_BASE || '',
       // NUXT_PUBLIC_APP_ENV: free-form label for the running environment.
       appEnv: process.env.NUXT_PUBLIC_APP_ENV || 'development',
+      // NUXT_PUBLIC_SUPPORT_EMAIL: the address behind "contact support" on the
+      // access-code screen. Empty by default and deliberately so — the link is
+      // hidden when it is unset, which is the honest outcome for a deploy that
+      // has not been told where to send people. A default here would be a real
+      // inbox published on every deploy that forgot to set it.
+      supportEmail: process.env.NUXT_PUBLIC_SUPPORT_EMAIL || '',
       /**
        * Firebase web config. Public by design — these identify the project,
        * they do not authorise anything. What stops a stranger reading the

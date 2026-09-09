@@ -110,6 +110,19 @@ export const sendAccessCodeEmail = async (
     return false
   }
 
+  // Not fatal, and deliberately not: the code itself is the payload and it
+  // reads fine without artwork or a working button. But an origin an inbox
+  // cannot reach costs the reader both, and the cause is one unset variable on
+  // the host — which is worth naming here rather than leaving somebody to
+  // wonder why the logo is missing from an email they cannot re-send.
+  if (!template.reachableOrigin(email.appUrl)) {
+    console.warn(
+      `[email] NUXT_PUBLIC_APP_URL is "${email.appUrl}", which no mail client can ` +
+        'reach: the brand lockups are being omitted and the "Open the app" button ' +
+        'points nowhere. Set it to the member app\'s public origin.',
+    )
+  }
+
   const sender = address(config.senderEmail)!
   const body: Record<string, unknown> = {
     // An explicit NUXT_BREVO_SENDER_NAME wins; otherwise a name written into

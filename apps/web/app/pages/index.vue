@@ -10,7 +10,9 @@
 </script>
 
 <template>
-  <div>
+  <!-- `id="top"` is the footer's "Back to top" target, and the only reason
+       this wrapper carries an id at all. -->
+  <div id="top">
     <SiteHeader />
     <main>
       <HeroSection />

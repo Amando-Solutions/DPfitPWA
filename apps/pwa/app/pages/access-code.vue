@@ -11,6 +11,17 @@ const router = useRouter()
 const store = useAppStore()
 
 /**
+ * Where "contact support" goes. The address is the one on the purchase
+ * receipt, which differs per deploy, so it comes from
+ * NUXT_PUBLIC_SUPPORT_EMAIL rather than being written into the page. A member
+ * who cannot find their code has no other way through this screen, so the link
+ * has to open a composer — it used to point back at this route, which answered
+ * nothing.
+ */
+const supportEmail = useRuntimeConfig().public.supportEmail as string
+const supportHref = `mailto:${supportEmail}?subject=${encodeURIComponent('DP Fitness — access code help')}`
+
+/**
  * Getting in takes two separate things, and this screen is both of them.
  *
  *   1. Proving the inbox is yours — Google, or a sign-in link. No password.
@@ -486,8 +497,8 @@ watch([code, email], () => {
     -->
     <div class="access__foot mt-auto flex flex-col gap-2.5 pt-5 text-center">
       <p v-if="phase === 'code'" class="access__hint muted m-0 text-[13px]">
-        Can’t find your code? Check spam or
-        <NuxtLink to="/access-code" class="access__link text-rose font-bold">contact support</NuxtLink>.
+        Can’t find your code? Check spam<template v-if="supportEmail"> or
+        <a :href="supportHref" class="access__link text-rose font-bold">contact support</a></template>.
       </p>
       <p
         v-if="store.instantSignIn"

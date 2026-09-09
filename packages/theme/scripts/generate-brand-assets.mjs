@@ -3,10 +3,12 @@
  *
  * The mark is vector, and everything the apps render in the page is vector too
  * — `BrandLogo` and `BrandIcon` next door. What has to be raster is the set a
- * browser or an OS will not take an SVG for: the ICO a legacy tab bar wants,
- * the PNG iOS pins to a home screen, and the manifest icons Android renders.
- * Those are what this writes, and nothing else, because every other use of the
- * logo should be reaching for the components.
+ * browser, an OS or a mail client will not take an SVG for: the ICO a legacy
+ * tab bar wants, the PNG iOS pins to a home screen, the manifest icons Android
+ * renders, the share card a link unfurls into, and the two lockups the
+ * access-code email hangs off an `<img>`. Those are what this writes, and
+ * nothing else, because every other use of the logo should be reaching for the
+ * components.
  *
  * Run it after changing anything in `/logo`:
  *
@@ -35,20 +37,28 @@ const markPath = readFileSync(repo('logo/Colored icon.svg'), 'utf8')
 if (!markPath) throw new Error('logo/Colored icon.svg: no path found')
 
 /**
- * The full lockup, for the share card. Its mark is a separately positioned
- * copy rather than `markPath` under a transform, so it is read from the export
- * too: the spacing between mark and wordmark is the designer's, not ours.
+ * The full lockup, for the share card and the email mastheads. Its mark is a
+ * separately positioned copy rather than `markPath` under a transform, so it
+ * is read from the export too: the spacing between mark and wordmark is the
+ * designer's, not ours.
+ *
+ * Each path is read with the fill it was exported with, so a colourway is
+ * picked by naming a file rather than by choosing colours here. All four
+ * lockup exports are the same ten paths in the same order, the mark last.
  */
-const lockupPaths = [
-  ...readFileSync(repo('logo/White full logo.svg'), 'utf8').matchAll(
-    /<path d="([^"]+)"/g,
-  ),
-].map((m) => m[1])
-if (lockupPaths.length !== 10) {
-  throw new Error(
-    `logo/White full logo.svg: expected 10 paths, found ${lockupPaths.length}`,
-  )
+const lockupOf = (file) => {
+  const paths = [
+    ...readFileSync(repo(file), 'utf8').matchAll(
+      /<path d="([^"]+)" fill="([^"]+)"/g,
+    ),
+  ].map((m) => ({ d: m[1], fill: m[2] }))
+  if (paths.length !== 10) {
+    throw new Error(`${file}: expected 10 paths, found ${paths.length}`)
+  }
+  return paths
 }
+
+const lockupPaths = lockupOf('logo/White full logo.svg').map((p) => p.d)
 
 const MARK_W = 90
 const MARK_H = 57
@@ -173,6 +183,48 @@ writeFileSync(
   await page.screenshot({ clip: { x: 0, y: 0, width: OG_W, height: OG_H } }),
 )
 console.log(`✓ og.png  ${OG_W}x${OG_H}`)
+
+/**
+ * The lockup as a flat PNG, for the one surface that can take neither the
+ * component nor an SVG: the access-code email.
+ *
+ * A mail client is not a browser. Gmail strips `<svg>` outright and refuses a
+ * `data:` URI on an `<img>`, so a hosted raster is the only way an email
+ * carries the real artwork rather than a typeset approximation of it.
+ *
+ * Two colourways, because the email has two grounds: the all-white export for
+ * the night masthead (and for the footer of a client in dark mode), the plum
+ * mark over a black wordmark for the footer on paper. Both fills come from the
+ * designer's own exports, so nothing about the colour is decided here.
+ *
+ * 192px wide is 3x the 64px the masthead shows it at, which is what a retina
+ * inbox asks for. Transparent, so each one sits on whichever ground it lands.
+ */
+const EMAIL_LOGO_W = 192
+const EMAIL_LOGO_H = Math.round((EMAIL_LOGO_W * LOCKUP_H) / LOCKUP_W)
+
+for (const [file, source] of [
+  ['logo-white.png', 'logo/White full logo.svg'],
+  ['logo-color.png', 'logo/Colored full logo black wordmark.svg'],
+]) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${EMAIL_LOGO_W}" height="${EMAIL_LOGO_H}" viewBox="0 0 ${LOCKUP_W} ${LOCKUP_H}">
+  ${lockupOf(source)
+    .map(({ d, fill }) => `<path d="${d}" fill="${fill}"/>`)
+    .join('\n  ')}
+</svg>`
+  await page.setViewportSize({ width: EMAIL_LOGO_W, height: EMAIL_LOGO_H })
+  await page.setContent(
+    `<style>html,body{margin:0;padding:0;background:transparent}</style>${svg}`,
+  )
+  writeFileSync(
+    OUT + file,
+    await page.screenshot({
+      omitBackground: true,
+      clip: { x: 0, y: 0, width: EMAIL_LOGO_W, height: EMAIL_LOGO_H },
+    }),
+  )
+  console.log(`✓ ${file}  ${EMAIL_LOGO_W}x${EMAIL_LOGO_H}  (transparent)`)
+}
 
 await browser.close()
 
