@@ -45,6 +45,7 @@ import {
   firebaseStorage,
 } from '~/lib/firebase/app'
 import { weekOf } from '~/lib/domain/challenge'
+import { prescribedSets } from '~/lib/domain/sets'
 import { storage as webStorage } from '~/lib/storage'
 import type { ProcessedImage } from '~/lib/image'
 import {
@@ -877,12 +878,10 @@ export class FirestoreDataSource implements DataSource {
     const program = await this.program()
 
     // Judged against what the plan asked for, so sets the member added
-    // themselves can only ever help. The fallback covers a session made
-    // entirely of added sets, which has no prescription to measure against.
-    const setsPrescribed = log.exercises.reduce(
-      (n, e) => n + e.sets.filter((s) => !s.added).length,
-      0,
-    )
+    // themselves can only ever help, and sets they removed still count. The
+    // fallback covers a session made entirely of added sets, which has no
+    // prescription to measure against.
+    const setsPrescribed = log.exercises.reduce((n, e) => n + prescribedSets(e), 0)
     const denominator = setsPrescribed || log.setsTotal
     const qualifies =
       denominator > 0 && (log.setsDone / denominator) * 100 >= program.qualifyingSetPercent

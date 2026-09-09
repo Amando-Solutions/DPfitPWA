@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import type { LoggedSet, Units } from '~/data/types'
+import type { LoggedSet, SetType, Units } from '~/data/types'
+import type { SetRow } from '~/lib/domain/sets'
 import {
   fromDisplayWeight,
   toDisplayWeight,
   unitLabel,
   weightStep,
 } from '~/lib/domain/nutrition'
+import { normalNumberFor, setRows, setTypeOf, setTypes } from '~/lib/domain/sets'
 
 const props = withDefaults(
   defineProps<{
@@ -24,6 +26,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   (e: 'toggle-set', index: number): void
   (e: 'update-set', payload: { index: number; field: 'reps' | 'weightKg'; value: number }): void
+  (e: 'update-set-type', payload: { index: number; setType: SetType }): void
   (e: 'add-set'): void
   (e: 'remove-set', index: number): void
   (e: 'update-note', value: string): void
@@ -72,17 +75,83 @@ const onNumber = (index: number, field: 'reps' | 'weightKg', event: Event) => {
 /** The weight column, shown in whichever unit is selected. */
 const weightIn = (set: LoggedSet) => toDisplayWeight(set.weightKg, props.unit)
 
+// --- Set types -------------------------------------------------------------
 /**
- * Whether the last row is one the member added, and so can come back off.
+ * The rows to draw, and the SET column, recomputed on every render.
  *
- * The sets that came with the exercise are the prescribed workout. Letting them
- * be deleted turns "4 sets of 8" into whatever was easiest that day, and the
- * previous-session column has nothing to line up against next week. Only the
- * extras are the member's to remove, and only from the end.
+ * Deliberately derived rather than stored. Only normal sets are numbered, so
+ * turning the second of four into a warm-up has to renumber the two below it;
+ * an index written onto each set would need a second pass to fix up, and any
+ * row that missed it would be wrong for the rest of the session.
+ *
+ * `row.index` is the position in `sets`, which is what every event carries.
  */
-const removableSet = computed(() =>
-  !props.readonly && props.sets.at(-1)?.added ? props.sets.length - 1 : -1,
+const rows = computed(() => setRows(props.sets))
+
+const metaFor = (type: SetType) => setTypes.find((meta) => meta.type === type)!
+
+/** How a row is named out loud — position included, since W/F/D repeat. */
+const rowName = (row: SetRow, position: number) => {
+  const type = setTypeOf(row.set)
+  return type === 'normal'
+    ? `set ${row.label}`
+    : `${metaFor(type).label.toLowerCase()} ${position + 1}`
+}
+
+/** Which set the picker is open on, as an index into `sets`, or -1. */
+const typeSheetFor = ref(-1)
+const typeSheetOpen = computed({
+  get: () => typeSheetFor.value >= 0,
+  set: (open: boolean) => {
+    if (!open) typeSheetFor.value = -1
+  },
+})
+
+/* A row that goes away while its picker is open would leave the sheet pointing
+   at whichever set slid into that index. */
+watch(
+  () => rows.value.length,
+  () => (typeSheetFor.value = -1),
 )
+
+const sheetSet = computed(() => props.sets[typeSheetFor.value])
+
+const sheetType = computed(() =>
+  sheetSet.value ? setTypeOf(sheetSet.value) : 'normal',
+)
+
+/**
+ * What the picker's "Normal Set" option shows.
+ *
+ * A number, always — the option is the one whose badge is positional, so it
+ * cannot borrow the row's current badge the way the other three do.
+ */
+const sheetNormalLabel = computed(() =>
+  typeSheetFor.value >= 0 ? normalNumberFor(props.sets, typeSheetFor.value) : '1',
+)
+
+const applyType = (setType: SetType) => {
+  if (typeSheetFor.value >= 0)
+    emit('update-set-type', { index: typeSheetFor.value, setType })
+}
+
+const removeFromSheet = () => {
+  if (typeSheetFor.value >= 0) emit('remove-set', typeSheetFor.value)
+}
+
+/*
+  Badge tints, one per type.
+
+  Normal gets the neutral fill rather than no chip at all: every badge in the
+  column is a button now, and one that is bare text while its neighbours are
+  chips does not look like something you can press.
+*/
+const SET_BADGE: Record<SetType, string> = {
+  warmup: 'bg-set-warmup-soft text-set-warmup',
+  normal: 'bg-fill-subtle text-soft',
+  failure: 'bg-set-fail-soft text-set-fail',
+  drop: 'bg-set-drop-soft text-set-drop',
+}
 
 /**
  * Last session's numbers.
@@ -187,17 +256,36 @@ const NO_SPINNER =
       </div>
 
       <div
-        v-for="(set, index) in sets"
-        :key="index"
+        v-for="(row, position) in rows"
+        :key="row.index"
         :class="[
           ROW,
           'border-fill-subtle',
-          set.done && 'rounded-field bg-rose-softer',
+          row.set.done && 'rounded-field bg-rose-softer',
         ]"
       >
-        <span class="pl-1 text-xs text-muted tabular-nums">{{ index + 1 }}</span>
+        <!-- 16b · Select Set Type. The badge is the control: there is nowhere
+             else on a row this tight to put one, and it is also the thing the
+             choice changes, so it doubles as its own preview. -->
+        <button
+          v-if="!readonly"
+          type="button"
+          class="grid size-7 place-items-center justify-self-center rounded-field text-[11.5px] font-bold tabular-nums transition-colors duration-150"
+          :class="SET_BADGE[setTypeOf(row.set)]"
+          :aria-label="`${row.label} — ${metaFor(setTypeOf(row.set)).label}. Change set type`"
+          @click="typeSheetFor = row.index"
+        >
+          {{ row.label }}
+        </button>
+        <span
+          v-else
+          class="grid size-7 place-items-center justify-self-center rounded-field text-[11.5px] font-bold tabular-nums"
+          :class="SET_BADGE[setTypeOf(row.set)]"
+        >
+          {{ row.label }}
+        </span>
         <span class="truncate text-[11.5px] text-muted tabular-nums">
-          {{ previousLabel(set) }}
+          {{ previousLabel(row.set) }}
         </span>
 
         <input
@@ -207,12 +295,12 @@ const NO_SPINNER =
           inputmode="decimal"
           min="0"
           :step="weightStep(unit)"
-          :value="weightIn(set)"
-          :aria-label="`Set ${index + 1} weight in ${unit === 'kg' ? 'kilograms' : 'pounds'}`"
-          @change="onNumber(index, 'weightKg', $event)"
+          :value="weightIn(row.set)"
+          :aria-label="`${rowName(row, position)} weight in ${unit === 'kg' ? 'kilograms' : 'pounds'}`"
+          @change="onNumber(row.index, 'weightKg', $event)"
         />
         <span v-else class="text-right text-[13.5px] font-bold text-ink tabular-nums">
-          {{ weightIn(set) }}
+          {{ weightIn(row.set) }}
         </span>
 
         <input
@@ -222,24 +310,24 @@ const NO_SPINNER =
           inputmode="numeric"
           min="0"
           step="1"
-          :value="set.reps"
-          :aria-label="`Set ${index + 1} reps`"
-          @change="onNumber(index, 'reps', $event)"
+          :value="row.set.reps"
+          :aria-label="`${rowName(row, position)} reps`"
+          @change="onNumber(row.index, 'reps', $event)"
         />
         <span v-else class="text-right text-[13.5px] font-bold text-ink tabular-nums">
-          {{ set.reps }}
+          {{ row.set.reps }}
         </span>
 
         <!-- Neutral until it is ticked, and ticked it fills with the surface's
              own strong ink rather than a second accent colour. -->
         <button
           class="grid size-7 place-items-center justify-self-center rounded-field transition-colors duration-150 disabled:cursor-default disabled:opacity-60"
-          :class="set.done ? 'bg-rose-fill text-on-rose' : 'bg-fill-subtle text-transparent'"
+          :class="row.set.done ? 'bg-rose-fill text-on-rose' : 'bg-fill-subtle text-transparent'"
           :disabled="readonly"
-          :aria-label="`Mark set ${index + 1} ${set.done ? 'not done' : 'done'}`"
-          @click="emit('toggle-set', index)"
+          :aria-label="`Mark ${rowName(row, position)} ${row.set.done ? 'not done' : 'done'}`"
+          @click="emit('toggle-set', row.index)"
         >
-          <AppIcon v-if="set.done" name="check" :size="13" :stroke="3" />
+          <AppIcon v-if="row.set.done" name="check" :size="13" :stroke="3" />
         </button>
       </div>
     </div>
@@ -285,21 +373,22 @@ const NO_SPINNER =
             @focus="noteFocused = true"
             @blur="noteFocused = false"
           />
+          <!-- Removing a set used to live here, and could only ever take the
+               last one the member had added. The badge in the SET column now
+               offers it on any row, which is both easier to find and the row
+               you are actually looking at, so this button was the same job
+               done worse. -->
           <AppButton variant="secondary" @click="saveNote">Save note</AppButton>
-          <AppButton
-            v-if="removableSet >= 0"
-            variant="ghost"
-            @click="
-              () => {
-                emit('remove-set', removableSet)
-                menuOpen = false
-              }
-            "
-          >
-            Remove the set you added
-          </AppButton>
         </div>
       </DialogContent>
     </Dialog>
+
+    <SetTypeSheet
+      v-model="typeSheetOpen"
+      :current="sheetType"
+      :normal-label="sheetNormalLabel"
+      @select="applyType"
+      @remove="removeFromSheet"
+    />
   </AppCard>
 </template>

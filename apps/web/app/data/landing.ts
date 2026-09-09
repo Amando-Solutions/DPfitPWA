@@ -63,6 +63,21 @@ export const NAV_LINKS: NavLink[] = [
   { label: 'FAQ', href: '#faq' },
 ]
 
+/**
+ * When the challenge starts, as `GET /api/challenge` answers it.
+ *
+ * Declared here rather than beside the route because both ends need it and
+ * this file is the one place the page and its server already share — the same
+ * reason `PRICE_MINOR` is read from here by `register.post.ts`. Both fields are
+ * nullable together: the badge has a date or it has none.
+ */
+export interface ChallengeStart {
+  /** The start day in the cohort's own zone, `YYYY-MM-DD`. */
+  startsOn: string | null
+  /** The same day as the badge prints it, e.g. `26 Aug`. */
+  startsLabel: string | null
+}
+
 export interface HeroStat {
   value: string
   caption: string
@@ -260,17 +275,6 @@ export const PRICE_INCLUDES: string[] = [
   'Private group chat + weekly check-ins',
 ]
 
-/** The three steps of registration. Only the first is collected on this page. */
-/**
- * The three things that happen between arriving and being in the app.
- *
- * Was "About you / Your stats / Personalise" — two steps of a longer onboarding
- * that were designed but never built, and which the member app now asks for
- * anyway once somebody is inside. What replaced them is the flow that actually
- * runs: details, payment, and the code that lands in an inbox.
- */
-export const REGISTER_STEPS = ['Your details', 'Payment', 'Access code'] as const
-
 export interface FaqEntry {
   question: string
   answer: string
@@ -325,3 +329,89 @@ export const REFUND_ANSWER_IS_PLACEHOLDER = true
 
 export const LEGAL_DISCLAIMER =
   'Results vary by individual and depend on consistency with training and nutrition. This program does not replace medical advice, so check with a doctor before starting if you have any health concerns.'
+
+/**
+ * The line under the lockup in the footer.
+ *
+ * A compressed restatement of the page rather than new argument — someone who
+ * has scrolled this far has already read the case, and someone who landed here
+ * from a shared link needs one sentence telling them what this is.
+ */
+export const FOOTER_BLURB =
+  'The 6-week group challenge for people who are done choosing between losing fat and building muscle. Coached programming, live calls, and a check-in every week.'
+
+/**
+ * Turn the configured Instagram handle into the row the footer draws.
+ *
+ * Tolerates the three things that actually get pasted into a `.env` — `dpfit`,
+ * `@dpfit`, and the full profile URL — because this value is edited by hand in
+ * a file with no validation behind it, and being wrong about which form was
+ * meant produces a dead link on the live page that nobody notices for weeks.
+ *
+ * Returns null when unset, which is what keeps the row out rather than drawing
+ * a link to `instagram.com/`.
+ */
+export function instagramLink(handle: string): NavLink | null {
+  const raw = handle.trim().replace(/\/+$/, '')
+  if (!raw) return null
+  // A pasted URL is reduced to its last path segment, which is the handle.
+  const name = (raw.startsWith('http') ? raw.split('/').pop() : raw)?.replace(/^@/, '')
+  if (!name) return null
+  return { label: `@${name}`, href: `https://instagram.com/${name}` }
+}
+
+/**
+ * The runtime values the footer needs, none of which this file can know.
+ *
+ * All three are deployment configuration rather than copy — the member app's
+ * origin, the address the business answers on, the handle it posts from — so
+ * they arrive from `runtimeConfig.public` instead of being written here. That
+ * is the whole reason `footerColumns` is a function.
+ */
+export interface FooterConfig {
+  appUrl: string
+  /** Brevo's verified sender, which is also the published contact. */
+  contactEmail: string
+  /** A bare handle, an `@handle`, or a full profile URL. */
+  instagramHandle: string
+}
+
+export interface FooterColumn {
+  title: string
+  links: NavLink[]
+}
+
+/**
+ * The footer's link columns.
+ *
+ * A function rather than a constant because three of the links are not knowable
+ * from here — they are deployment configuration, not copy, and arrive from
+ * `runtimeConfig.public`. Everything else is reused rather than restated:
+ * "Explore" *is* `NAV_LINKS`, so the header and the footer cannot come to
+ * disagree about what the page contains.
+ *
+ * The contact column is dropped entirely when neither the address nor the
+ * handle is configured, which is what keeps a half-configured deployment from
+ * shipping an empty heading — or worse, a heading over one lonely link to
+ * nowhere.
+ */
+export function footerColumns(config: FooterConfig): FooterColumn[] {
+  const { appUrl, contactEmail, instagramHandle } = config
+
+  const contact: NavLink[] = []
+  if (contactEmail) contact.push({ label: contactEmail, href: `mailto:${contactEmail}` })
+  const instagram = instagramLink(instagramHandle)
+  if (instagram) contact.push(instagram)
+
+  return [
+    { title: 'Explore', links: NAV_LINKS },
+    {
+      title: 'Get started',
+      links: [
+        { label: 'Join the challenge', href: REGISTER_ANCHOR },
+        { label: 'Member sign-in', href: appUrl },
+      ],
+    },
+    ...(contact.length ? [{ title: 'Contact', links: contact }] : []),
+  ]
+}

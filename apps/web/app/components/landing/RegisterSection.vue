@@ -1,21 +1,25 @@
 <script setup lang="ts">
-import { PRICE, REGISTER_STEPS } from '~/data/landing'
+import { PRICE } from '~/data/landing'
 
 /**
- * Step one of three: the details the coach needs before anyone pays.
+ * The whole of registration on this site: the details the coach needs before
+ * anyone pays.
  *
- * The step it ends on is the handover to Selar. `POST /api/register` records
- * the attempt and answers with a checkout URL, and this component's last act is
- * to navigate to it — so there is no success state here at all. What happens
- * after payment belongs to `pages/registration/complete.vue`.
+ * One form, no progress bar. Payment happens on Selar's own checkout at its own
+ * URL, so a step indicator here would be counting steps this page cannot show
+ * and does not own. `POST /api/register` records the attempt and answers with a
+ * checkout URL, and this component's last act is to navigate to it — so there
+ * is no success state here at all. What happens after payment belongs to
+ * `pages/registration/complete.vue`.
  *
  * Nothing about the access code passes through this component. It is not
  * minted until Selar reports the sale, it is delivered by email, and the
  * browser is never told what it is.
  */
 
-interface RegistrationStepOne {
-  fullName: string
+interface RegistrationDetails {
+  firstName: string
+  lastName: string
   email: string
   whatsapp: string
   timezone: string
@@ -29,16 +33,17 @@ interface RegistrationStepOne {
  * would need — and because the navigation that follows makes it the last thing
  * this component ever does.
  */
-const emit = defineEmits<{ submit: [RegistrationStepOne] }>()
+const emit = defineEmits<{ submit: [RegistrationDetails] }>()
 
-const form = reactive<RegistrationStepOne>({
-  fullName: '',
+const form = reactive<RegistrationDetails>({
+  firstName: '',
+  lastName: '',
   email: '',
   whatsapp: '',
   timezone: '',
 })
 
-type FieldName = keyof RegistrationStepOne
+type FieldName = keyof RegistrationDetails
 
 interface Field {
   name: FieldName
@@ -47,6 +52,14 @@ interface Field {
   placeholder?: string
   autocomplete: string
   inputmode?: 'text' | 'email' | 'tel'
+  /**
+   * Takes two of the six columns on the widest layout instead of one.
+   *
+   * Only the email does. An address is the longest thing anybody types here
+   * and the only one that would otherwise scroll inside its own field; the
+   * other four are a first name, a last name, a phone number and a city.
+   */
+  wide?: boolean
   /** Returns an error message, or an empty string when the value is fine. */
   validate: (value: string) => string
 }
@@ -54,12 +67,23 @@ interface Field {
 const required = (value: string) => value.trim().length > 0
 
 const FIELDS: Field[] = [
+  // Two fields rather than one. The coach addresses people by their first
+  // name — in the access-code email, in the group chat — and splitting a
+  // typed "full name" on whitespace guesses wrong the moment somebody has two
+  // given names or none. Asking is the only way to actually know.
   {
-    name: 'fullName',
-    label: 'Full name',
+    name: 'firstName',
+    label: 'First name',
     type: 'text',
-    autocomplete: 'name',
+    autocomplete: 'given-name',
     validate: (v) => (required(v) ? '' : 'Tell us what to call you.'),
+  },
+  {
+    name: 'lastName',
+    label: 'Last name',
+    type: 'text',
+    autocomplete: 'family-name',
+    validate: (v) => (required(v) ? '' : 'We need your last name too.'),
   },
   {
     name: 'email',
@@ -67,6 +91,7 @@ const FIELDS: Field[] = [
     type: 'email',
     autocomplete: 'email',
     inputmode: 'email',
+    wide: true,
     // Deliberately permissive. The only thing worth catching in the browser is
     // a value that could not possibly be deliverable; anything stricter starts
     // rejecting real addresses, and the confirmation mail is the real check.
@@ -88,7 +113,7 @@ const FIELDS: Field[] = [
     // into the cohort. Digits, spaces and the usual punctuation, seven or more.
     validate: (v) =>
       !required(v)
-        ? 'The group chat runs on WhatsApp, so we need your number.'
+        ? 'Enter your phone number.'
         : /^\+?[\d\s().-]{7,}$/.test(v.trim())
           ? ''
           : 'Include the country code, like +234 801 234 5678.',
@@ -212,30 +237,17 @@ async function onSubmit() {
       <div
         class="mt-12 rounded-card border border-[rgba(36,27,46,0.12)] bg-white p-6 shadow-[0_30px_35px_rgba(36,27,46,0.09)] sm:p-10 lg:mt-13 lg:p-12.25"
       >
-        <!-- Three steps, one bar each. `aria-current` rather than colour alone
-             is what tells a screen reader which one is live. -->
-        <ol class="flex gap-4.5">
-          <li
-            v-for="(step, i) in REGISTER_STEPS"
-            :key="step"
-            class="flex-1"
-            :aria-current="i === 0 ? 'step' : undefined"
-          >
-            <span
-              class="block h-1 rounded-pill"
-              :class="i === 0 ? 'bg-rose-fill' : 'bg-rule'"
-            />
-            <span
-              class="mt-2.5 block font-data text-[10px] tracking-[0.12em] text-soft uppercase"
+        <form novalidate @submit.prevent="onSubmit">
+          <!-- Six columns rather than five, so the email can take two of them
+               and the row still divides evenly. Two-up below that, which puts
+               the two halves of a name on the same line. -->
+          <div class="grid gap-5 sm:grid-cols-2 xl:grid-cols-6">
+            <div
+              v-for="field in FIELDS"
+              :key="field.name"
+              class="flex flex-col gap-1.75"
+              :class="field.wide ? 'xl:col-span-2' : ''"
             >
-              {{ step }}
-            </span>
-          </li>
-        </ol>
-
-        <form class="mt-8 lg:mt-8.5" novalidate @submit.prevent="onSubmit">
-          <div class="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-            <div v-for="field in FIELDS" :key="field.name" class="flex flex-col gap-1.75">
               <label
                 :for="`register-${field.name}`"
                 class="font-data text-[11.5px] tracking-[0.06em] text-soft uppercase"

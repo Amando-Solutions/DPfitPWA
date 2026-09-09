@@ -21,9 +21,21 @@
 //      with them for the handful of clients that render locally installed
 //      fonts and fall back to system faces everywhere else. The brand survives
 //      as weight, colour and spacing rather than as letterforms.
-//   4. Images are guilty until proven innocent. Most clients block them by
-//      default, so this email has none: the wordmark is live text — `DP`, a
-//      rose full stop, `FITNESS` — which is what it is on the site anyway.
+//   4. Images are guilty until proven innocent — Gmail blocks them outright
+//      for a sender nobody has replied to, which this one is. So the only two
+//      here are the brand lockups, each carrying the wordmark as styled `alt`
+//      text, and nothing this email has to say lives only in a picture.
+//
+//      Alt text is only a fallback if it FITS. A blocked image leaves a box of
+//      exactly the declared width and clips whatever does not fit inside it,
+//      so the two sizes below are not free: each is the smallest exact
+//      downscale of the 192x150 export whose `alt` still fits on one line at a
+//      legible size — 96px at 16px type, 64px at 11px. Shrink either and the
+//      masthead reads DP FITNES. Measure before changing them.
+//
+//      They are also only emitted when `appUrl` is an origin a third party's
+//      network can actually reach — see `reachableOrigin` — because a `src`
+//      nobody can fetch is worse than no `src` at all.
 //
 // Every colour is a literal, taken from `packages/theme/styles/theme.css` and
 // `apps/web/app/assets/styles/main.css`. A CSS variable would resolve to
@@ -65,6 +77,37 @@ const escape = (value: string) =>
 
 const firstNameOf = (fullName: string) => fullName.trim().split(/\s+/)[0] ?? ''
 
+/**
+ * Hosts that exist only on the machine that names them.
+ *
+ * Loopback, the three private IPv4 blocks, and mDNS. A dev origin is the
+ * common one and the only one anybody sets on purpose, but a staging box on a
+ * LAN address fails the same way and for the same reason.
+ */
+const PRIVATE_HOST =
+  /^(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[?::1\]?|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|.+\.local)$/i
+
+/**
+ * The origin as an email may use it, or `null` if it may not.
+ *
+ * Returned without a trailing slash so a path can be appended directly. `null`
+ * for anything a third party's network could not resolve: a relative or
+ * malformed URL, a scheme other than http(s) — a `capacitor://` or custom
+ * scheme is a real thing to find in an app URL and is not fetchable — and any
+ * of the private hosts above.
+ */
+export const reachableOrigin = (url: string): string | null => {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return null
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null
+  if (PRIVATE_HOST.test(parsed.hostname)) return null
+  return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, '')
+}
+
 /** The line that shows in the inbox next to the subject. */
 export const preheader = (code: string) =>
   `Your access code is ${code}. It gets you into the app — enter it after you sign in.`
@@ -98,7 +141,7 @@ Keep it somewhere you can find it again.
 
 If you didn't register for the Recomp Challenge, you can ignore this email.
 
-— DP.FITNESS
+— DP FITNESS
 The Recomp Challenge, 6-week group program
 
 Results vary by individual and depend on consistency with training and
@@ -111,6 +154,29 @@ export const html = (data: AccessCodeTemplate) => {
   const code = escape(data.code)
   const appUrl = escape(data.appUrl)
   const email = escape(data.email)
+  /**
+   * The origin the two lockups are fetched from, or `null` for nowhere.
+   *
+   * The member app serves `/brand/` out of the shared design-system layer
+   * exactly as the site does, and `appUrl` already has to be an absolute
+   * origin for the button below to work at all — so hanging the images off it
+   * needs no second URL kept in configuration, and cannot end up pointing
+   * somewhere the call to action does not.
+   *
+   * `null` when that origin is not one an inbox could fetch from, which is the
+   * default state of a checkout: `NUXT_PUBLIC_APP_URL` ships as
+   * `http://localhost:3000`. An image in an email is not loaded by the reader's
+   * machine — Gmail fetches it through a proxy on Google's own network, and
+   * every other client is somewhere else too — so a loopback or LAN origin
+   * resolves to *their* localhost, which is nothing, and the masthead lands as
+   * a broken-image icon. Falling back to the typeset wordmark below is not a
+   * degraded email; it is the masthead this one had before the artwork
+   * existed, and it renders everywhere.
+   */
+  // From the raw value, not `appUrl` above: `escape` has already turned any
+  // `&` into `&amp;`, which `new URL` would carry into the parsed result.
+  const origin = reachableOrigin(data.appUrl)
+  const assets = origin ? escape(origin) : null
 
   return `<!doctype html>
 <html lang="en" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
@@ -155,6 +221,11 @@ export const html = (data: AccessCodeTemplate) => {
     .t-ink { color: ${PAPER} !important; }
     .t-soft { color: #b3a8bc !important; }
     .rule { border-color: #2e2436 !important; }
+    /* The footer lockup, swapped for the colourway the night panel can carry.
+       Both are hidden and shown inline as well, so a client that drops this
+       block shows the light one on its own rather than both. */
+    .logo-light { display: none !important; }
+    .logo-dark { display: inline-block !important; }
   }
 </style>
 </head>
@@ -173,13 +244,26 @@ export const html = (data: AccessCodeTemplate) => {
   <!--[if mso]><table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
   <table role="presentation" class="container" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;">
 
-    <!-- Masthead. Deliberately NOT the <BrandLogo> artwork the apps use: a
-         mail client blocks remote images by default, and a masthead that
-         resolves to a broken-image icon is worse than no masthead. Live text
-         always renders — DP, a rose full stop, FITNESS. -->
+    <!-- Masthead: the brand lockup, as a hosted PNG.
+         An inbox takes neither the <BrandLogo> component nor an SVG — Gmail
+         strips <svg> outright and refuses a data: URI on an <img> — so a
+         raster off the app's own origin is the only way the real artwork gets
+         here. /brand/logo-white.png is generated from /logo at the repo
+         root by "bun run brand:assets"; don't retouch it by hand.
+
+         All-white rather than the plum mark, per BrandLogo's own note: the
+         plum is a deep violet and disappears into a surface this dark.
+
+         The alt text is the wordmark, and the img's own font and colour
+         rules style it, so a client with images off falls back to the typeset
+         lockup rather than to a broken-image icon. -->
     <tr>
-      <td align="center" style="background:${NIGHT};border-radius:14px 14px 0 0;padding:26px 24px;">
-        <span style="font-family:${DISPLAY};font-size:19px;font-weight:900;letter-spacing:-0.02em;color:${PAPER};">DP<span style="color:${ROSE};">.</span>FITNESS</span>
+      <td align="center" style="background:${NIGHT};border-radius:14px 14px 0 0;padding:${assets ? '24px' : '26px 24px'};">
+        ${
+          assets
+            ? `<img src="${assets}/brand/logo-white.png" width="96" height="75" alt="DP FITNESS" style="display:block;width:96px;height:75px;border:0;outline:none;text-decoration:none;font-family:${DISPLAY};font-size:16px;font-weight:900;letter-spacing:-0.02em;color:${PAPER};">`
+            : `<span style="font-family:${DISPLAY};font-size:19px;font-weight:900;letter-spacing:-0.02em;color:${PAPER};">DP<span style="color:${ROSE};">.</span>FITNESS</span>`
+        }
       </td>
     </tr>
 
@@ -265,7 +349,18 @@ export const html = (data: AccessCodeTemplate) => {
          it belongs here for the same reason it belongs there. -->
     <tr>
       <td align="center" style="padding:26px 24px 8px;">
-        <div style="font-family:${DISPLAY};font-size:14px;font-weight:900;letter-spacing:-0.02em;color:${INK_SOFT};">DP<span style="color:${ROSE};">.</span>FITNESS</div>
+        <!-- The lockup again, in whichever colourway the ground calls for.
+             The plum mark over a black wordmark cannot be read on the night
+             panel that dark mode swaps in, so the all-white export travels
+             beside it and the <style> block above trades the two. Each is
+             hidden or shown inline as well, per rule 2, so a client that
+             discards that block still shows exactly one. -->
+        ${
+          assets
+            ? `<img class="logo-light" src="${assets}/brand/logo-color.png" width="64" height="50" alt="DP FITNESS" style="display:inline-block;width:64px;height:50px;border:0;outline:none;text-decoration:none;font-family:${DISPLAY};font-size:11px;font-weight:900;letter-spacing:-0.02em;color:${INK_SOFT};">
+        <img class="logo-dark" src="${assets}/brand/logo-white.png" width="64" height="50" alt="DP FITNESS" style="display:none;width:64px;height:50px;border:0;outline:none;text-decoration:none;font-family:${DISPLAY};font-size:11px;font-weight:900;letter-spacing:-0.02em;color:#b3a8bc;">`
+            : `<div style="font-family:${DISPLAY};font-size:14px;font-weight:900;letter-spacing:-0.02em;color:${INK_SOFT};">DP<span style="color:${ROSE};">.</span>FITNESS</div>`
+        }
         <div class="t-soft" style="margin-top:8px;font-family:${BODY};font-size:12.5px;line-height:1.6;color:${INK_SOFT};">
           The Recomp Challenge · 6-week group program
         </div>

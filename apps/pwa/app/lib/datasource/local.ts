@@ -29,6 +29,7 @@ import {
 } from '~/data/program'
 import { coachSeed, cohortSeed } from '~/data/community'
 import { qualifyingSessions, sessionQualifies } from '~/lib/domain/rewards'
+import { prescribedSets } from '~/lib/domain/sets'
 import { weekOf } from '~/lib/domain/challenge'
 import type { ProcessedImage } from '~/lib/image'
 import type {
@@ -440,10 +441,7 @@ export class LocalDataSource implements DataSource {
     const member = await this.requireMember()
     const sessions = await this.listSessions()
 
-    const setsPrescribed = log.exercises.reduce(
-      (n, e) => n + e.sets.filter((s) => !s.added).length,
-      0,
-    )
+    const setsPrescribed = log.exercises.reduce((n, e) => n + prescribedSets(e), 0)
     // A session made entirely of sets the member added has no prescription to
     // measure against, so it is judged on what it does have.
     const qualifies = sessionQualifies(

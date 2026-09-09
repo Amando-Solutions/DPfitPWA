@@ -57,8 +57,8 @@ const skip = () => router.push('/access-code')
         <span
           v-for="(slide, i) in onboardingSlides"
           :key="slide.id"
-          class="onb__dot w-2.25 h-1.25 rounded-[99px] bg-(--onboard-dot) transition-[width,background] duration-250 ease-[ease] [&.onb__dot--active]:w-6 [&.onb__dot--active]:bg-rose-fill"
-          :class="{ 'onb__dot--active': i === index }"
+          class="onb__dot h-1.25 rounded-[99px] transition-[width,background] duration-250 ease-[ease]"
+          :class="i === index ? 'onb__dot--active w-6 bg-rose-fill' : 'w-2.25 bg-(--onboard-dot)'"
         />
       </div>
 

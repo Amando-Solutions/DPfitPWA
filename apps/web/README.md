@@ -123,6 +123,17 @@ is to be found and read by someone who has never heard of DP Fitness. `nitro.pre
 crawls in-page links, so adding a route to `pages/` is enough to get it rendered
 to static HTML.
 
+**One live value on a prerendered page.** The hero badge's start date is read
+from `cohorts/{NUXT_REGISTRATION_COHORT_ID}.startDate` by `GET /api/challenge` —
+the same document the member app counts the six weeks from, so what the coach
+sets is what the page says and there is no second copy to keep in step. The
+build bakes whatever the date was then, which is what a crawler is served, and
+`HeroSection` asks again on mount so moving a cohort does not need a deploy. The
+route formats the day in the cohort's own `timezone`, because a browser
+elsewhere formatting the raw instant lands a day either side of it. With no
+service account, no cohort, or no `startDate`, it answers with nulls and the
+badge reads "6-week challenge" — a missing clause rather than a stale promise.
+
 **Pinned to the light palette.** `data-theme="light"` is set on `<html>` in
 `nuxt.config.ts`. This is one authored composition — a warm paper page with two
 deliberately dark panels — rather than a surface someone lives in, so it does not
@@ -175,5 +186,3 @@ thing written by hand is the rotation of the `+`.
   collapsed, so it carries the questions but no answers. Every other answer is
   written from what the page already commits to; the refund one needs the real
   policy. It is flagged as `REFUND_ANSWER_IS_PLACEHOLDER` in `data/landing.ts`.
-- **The hero's start date is hard-coded** ("starts 12 August"), as it is in the
-  design. It will need to come from wherever cohorts are defined.

@@ -29,7 +29,21 @@ const REFERENCE_COOKIE = 'dpf_ref'
 const REFERENCE_COOKIE_MAX_AGE = 3 * 60 * 60
 
 /**
- * The same four checks the form makes, made again.
+ * What a registration document holds of the buyer's name.
+ *
+ * Three fields for two answers, and the third is not redundant. `firstName` and
+ * `lastName` are what the form now asks for and what anything addressing
+ * somebody by name should read. `fullName` is composed from them here because
+ * it is what everything downstream already speaks — the Selar prefill, the
+ * access-code email, `fulfilRegistration` reading a registration back — and
+ * because registrations taken before the form was split have it and nothing
+ * else. Composing it once, at the only place a name enters the system, is what
+ * keeps those two generations of document readable by the same code.
+ */
+type NamedRegistration = Registration & { firstName: string; lastName: string }
+
+/**
+ * The same five checks the form makes, made again.
  *
  * Not redundant: the client-side copy in `RegisterSection.vue` is there to give
  * somebody a useful message next to the field they got wrong, and it can be
@@ -37,7 +51,7 @@ const REFERENCE_COOKIE_MAX_AGE = 3 * 60 * 60
  * reaches the database, so it is the one that has to be right. The messages are
  * deliberately terse — a caller that trips these is not a person reading them.
  */
-const validate = (body: Record<string, unknown>): Registration => {
+const validate = (body: Record<string, unknown>): NamedRegistration => {
   const text = (key: string, max = 200) => {
     const value = typeof body[key] === 'string' ? (body[key] as string).trim() : ''
     // Length is capped as much to keep a document small as to reject anything:
@@ -58,7 +72,17 @@ const validate = (body: Record<string, unknown>): Registration => {
     throw createError({ statusCode: 400, statusMessage: 'Invalid whatsapp.' })
   }
 
-  return { fullName: text('fullName', 120), email, whatsapp, timezone: text('timezone', 120) }
+  const firstName = text('firstName', 60)
+  const lastName = text('lastName', 60)
+
+  return {
+    firstName,
+    lastName,
+    fullName: `${firstName} ${lastName}`,
+    email,
+    whatsapp,
+    timezone: text('timezone', 120),
+  }
 }
 
 /**
@@ -139,6 +163,15 @@ export default defineEventHandler(async (event) => {
         cohortId: config.registrationCohortId,
         source: 'landing',
         provider: 'selar',
+        // The member app as *this* deployment knows it, written down now
+        // because the sale notification cannot work it out later. Selar posts
+        // every sale to one fixed webhook URL, so the deployment that issues
+        // the code is not the one that served this form: somebody registering
+        // on a preview build is fulfilled by production, and production's
+        // NUXT_PUBLIC_APP_URL points at the production member app. This is the
+        // only moment the right answer is in scope — see the delivery step in
+        // `fulfilRegistration`, which prefers it over its own config.
+        appUrl: config.public.appUrl,
         paymentStatus: 'pending',
         // What the page advertised. `paidAmountMinor` and `paidCurrency` are
         // written beside these when the sale arrives, and the two legitimately

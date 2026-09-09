@@ -135,7 +135,7 @@ export default defineNuxtConfig({
     brevoSenderName: process.env.NUXT_BREVO_SENDER_NAME || 'DP Fitness',
     brevoReplyTo: process.env.NUXT_BREVO_REPLY_TO || '',
     // A template authored in Brevo, so the copy can change without a deploy.
-    // Empty uses the fallback markup in `server/utils/email.ts`.
+    // Empty uses the designed markup in `server/emails/access-code.ts`.
     brevoTemplateId: process.env.NUXT_BREVO_TEMPLATE_ID || '',
 
     public: {
@@ -143,6 +143,34 @@ export default defineNuxtConfig({
       // member app is a separate deployment, so this is an absolute origin in
       // production and the local PWA dev server otherwise.
       appUrl: process.env.NUXT_PUBLIC_APP_URL || 'http://localhost:3000',
+
+      /**
+       * The address the footer publishes, and the same one Brevo sends the
+       * access code from — one address the business answers on, configured
+       * once. It has to be a sender Brevo has verified either way, which is
+       * the thing that keeps it real rather than aspirational.
+       *
+       * `public` because the footer is rendered on the client too, and a
+       * private key is `undefined` there — which would hydrate the address
+       * away on a page that had just printed it. That also means the value
+       * ships in the page payload, so this is only ever an address meant to
+       * be read by anyone who looks.
+       *
+       * Empty renders no contact row at all. See `footerColumns`.
+       */
+      contactEmail: process.env.NUXT_BREVO_SENDER_EMAIL || '',
+
+      /**
+       * The Instagram handle the footer links to — `dpfitness`, `@dpfitness`
+       * or the full profile URL, whichever got pasted in. Empty drops the
+       * row.
+       *
+       * Read at BUILD time like `NUXT_PUBLIC_SITE_URL` above it, because this
+       * page is prerendered: the HTML is written during the build, so that is
+       * when the handle has to exist. Changing it means a redeploy, not a
+       * restart.
+       */
+      instagramHandle: process.env.NUXT_PUBLIC_INSTAGRAM_HANDLE || '',
     },
   },
 

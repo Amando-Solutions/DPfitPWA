@@ -597,6 +597,17 @@ export type LifecycleEvent = WithId<LifecycleEventDoc>
 
 // --- Workout logging ------------------------ `members/{uid}/sessions/{id}` --
 
+/**
+ * What a logged set was, which is not always "one of the sets in the plan".
+ *
+ * The distinction is the member's, made while they train: a warm-up is
+ * preparatory work at a lighter load, a failure set is one they could not
+ * finish another rep of, a drop set is the continuation of one at a lower
+ * weight. Only `normal` sets carry a number in the SET column — see
+ * `setRows` in `~/lib/domain/sets`.
+ */
+export type SetType = 'warmup' | 'normal' | 'failure' | 'drop'
+
 export interface LoggedSet {
   reps: number
   weightKg: number
@@ -604,10 +615,17 @@ export interface LoggedSet {
   /**
    * Added by the member mid-session rather than prescribed by the plan.
    *
-   * The qualifying threshold is measured against prescribed sets only, so extra
-   * work can only ever help. Prescribed sets cannot be removed; only these can.
+   * Provenance, and the reason `previousReps` is null: an extra set has no
+   * counterpart in a previous week. It is deliberately *not* what the
+   * qualifying threshold counts — that is `LoggedExercise.setsPrescribed`.
    */
   added: boolean
+  /**
+   * Optional only for the sessions and logs written before set types existed.
+   * Everything this app writes sets it; everything that reads it should go
+   * through `setTypeOf`, which treats a missing value as `normal`.
+   */
+  setType?: SetType
   /** What they hit last time, kept as numbers so the column can switch units. */
   previousWeightKg: number | null
   previousReps: number | null
@@ -619,6 +637,20 @@ export interface LoggedExercise {
   muscleGroup: string
   restSeconds: number
   note: string
+  /**
+   * How many sets the plan asked for, fixed when the session opens.
+   *
+   * The qualifying threshold is measured against this rather than against
+   * `sets`, which is why "Remove Set" can delete a row outright: the bar the
+   * member is judged against was written down before they touched anything,
+   * so deleting the sets they skipped cannot lower it.
+   *
+   * Optional for the sessions and logs written before it existed. Read it
+   * through `prescribedSets`, which falls back to counting the sets those
+   * documents did not let the member remove.
+   */
+  setsPrescribed?: number
+  /** The rows, and only the rows. Nothing here is hidden or filtered out. */
   sets: LoggedSet[]
 }
 
