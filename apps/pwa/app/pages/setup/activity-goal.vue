@@ -35,17 +35,17 @@ const next = async () => {
     :step="3"
     :total="4"
     eyebrow="Your rhythm"
-    title="What's the finish line?"
-    subtitle="Be honest rather than optimistic. You can adjust it any time."
+    title="What's your main focus this round?"
+    subtitle="This just fine-tunes your daily numbers — everyone's doing the same challenge either way."
     :can-continue="canContinue"
     :busy="busy"
     @continue="next"
   >
-    <AppCard variant="raised" class="form-card [display:flex] [flex-direction:column] [gap:22px]">
+    <AppCard variant="raised" class="form-card flex flex-col gap-5.5">
       <div>
-        <span class="form-card__label [display:block] [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:1px] [font-size:10px] [font-weight:700] [color:var(--violet-45)] [margin-bottom:10px]">How active are your days?</span>
+        <span class="form-card__label block font-eyebrow uppercase tracking-[1px] text-[10px] font-bold text-(--violet-45) mb-2.5">How active are your days?</span>
         <button
-          class="dropdown [width:100%] [height:52px] [padding:0_16px] [display:flex] [align-items:center] [justify-content:space-between] [background:var(--paper)] [border:1px_solid_var(--hairline)] [border-radius:var(--space-16)] [font-size:15px] [font-weight:600] [color:var(--ink)] [&.dropdown--empty]:[color:var(--text-placeholder)]"
+          class="dropdown w-full h-13 p-[0_16px] flex items-center justify-between [background:var(--paper)] [border:1px_solid_var(--hairline)] rounded-(--space-16) text-[15px] font-semibold text-(--ink) [&.dropdown--empty]:text-placeholder"
           :class="{ 'dropdown--empty': !activity }"
           @click="showActivity = true"
         >
@@ -55,8 +55,8 @@ const next = async () => {
       </div>
 
       <div>
-        <span class="form-card__label [display:block] [font-family:var(--font-eyebrow)] [text-transform:uppercase] [letter-spacing:1px] [font-size:10px] [font-weight:700] [color:var(--violet-45)] [margin-bottom:10px]">What are you here for?</span>
-        <div class="goals [display:flex] [flex-direction:column] [gap:10px]">
+        <span class="form-card__label block font-eyebrow uppercase tracking-[1px] text-[10px] font-bold text-(--violet-45) mb-2.5">What are you here for?</span>
+        <div class="goals flex flex-col gap-2.5">
           <OptionCard
             v-for="option in goalOptions"
             :key="option.id"
@@ -71,7 +71,7 @@ const next = async () => {
     </AppCard>
 
     <BottomSheet v-model="showActivity" title="How active are your days?">
-      <div class="sheet-list [display:flex] [flex-direction:column] [gap:10px]">
+      <div class="sheet-list flex flex-col gap-2.5">
         <OptionCard
           v-for="option in activityOptions"
           :key="option.id"
