@@ -130,6 +130,15 @@ const sheetNormalLabel = computed(() =>
   typeSheetFor.value >= 0 ? normalNumberFor(props.sets, typeSheetFor.value) : '1',
 )
 
+/**
+ * Whether the open row can be taken out of the log.
+ *
+ * Only the member's own extra sets. The prescribed ones are the coach's plan,
+ * authored in the admin panel and read from the program — a member removing one
+ * would be editing the workout rather than recording it.
+ */
+const sheetRemovable = computed(() => sheetSet.value?.added === true)
+
 const applyType = (setType: SetType) => {
   if (typeSheetFor.value >= 0)
     emit('update-set-type', { index: typeSheetFor.value, setType })
@@ -387,6 +396,7 @@ const NO_SPINNER =
       v-model="typeSheetOpen"
       :current="sheetType"
       :normal-label="sheetNormalLabel"
+      :removable="sheetRemovable"
       @select="applyType"
       @remove="removeFromSheet"
     />

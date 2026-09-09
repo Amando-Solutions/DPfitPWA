@@ -11,9 +11,12 @@ const NuxtLinkComponent = resolveComponent('NuxtLink')
 const dotTag = (day: WorkoutDayView) => (day.status === 'locked' ? 'div' : NuxtLinkComponent)
 
 /**
- * Once today is logged every remaining day is locked, so a padlock on each of
- * them is four padlocks and no information. Only the one that opens next wears
- * it; the rest keep their number.
+ * Every locked day wears the padlock, the same as the rows on the day picker.
+ *
+ * Showing it on only the next one left the rest looking like ordinary days you
+ * could still tap into, which is the one thing they are not. The label below
+ * keeps them apart: the first locked day reads "Tomorrow", the rest keep their
+ * day number.
  */
 const props = defineProps<{ days: WorkoutDayView[] }>()
 const nextUpId = computed(() => props.days.find((d) => d.status === 'locked')?.id)
@@ -47,7 +50,7 @@ const nextUpId = computed(() => props.days.find((d) => d.status === 'locked')?.i
 
         <AppIcon v-if="day.status === 'completed'" name="check" :size="17" />
         <AppIcon v-else-if="day.status === 'today'" name="train" :size="22" />
-        <AppIcon v-else-if="day.id === nextUpId" name="lock" :size="16" />
+        <AppIcon v-else-if="day.status === 'locked'" name="lock" :size="16" />
         <span v-else class="text-[13px] font-semibold tabular-nums">
           {{ day.dayNumber }}
         </span>

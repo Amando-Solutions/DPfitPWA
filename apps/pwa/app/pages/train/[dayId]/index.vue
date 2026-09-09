@@ -234,18 +234,17 @@ const setSetType = async (
 /**
  * Take a row out of the log.
  *
- * This used to refuse anything the member had not added themselves, on the
- * grounds that the prescribed sets *are* the workout. "Remove Set" in the
- * set-type picker offers it on every row, and the row simply goes: the bar it
- * counted toward is `setsPrescribed`, recorded when the session opened, so
- * deleting the sets you skipped cannot lower the threshold you are judged
- * against the way it would if the denominator were counted off this array.
+ * Only a set the member added themselves. The prescribed sets are the workout
+ * the coach authored in the admin panel: "4 sets of 10" is the instruction, and
+ * a member who can delete two of them has edited the plan rather than logged
+ * it. The picker greys the option out on those rows, but the guard belongs here
+ * too — the sheet is a UI, and this is the only thing that touches the session.
  */
 const removeSet = async (exerciseIndex: number, setIndex: number) => {
   const active = store.activeSession.value
   if (!active) return
   const exercise = active.exercises[exerciseIndex]
-  if (!exercise?.sets[setIndex]) return
+  if (!exercise?.sets[setIndex]?.added) return
   exercise.sets.splice(setIndex, 1)
   await store.persistActiveSession()
 }

@@ -25,6 +25,12 @@ const props = defineProps<{
    * labelled with the very thing choosing it would undo.
    */
   normalLabel: string
+  /**
+   * Whether this row is the member's to delete.
+   *
+   * False for the sets the plan prescribes, which is most of them.
+   */
+  removable: boolean
 }>()
 
 const emit = defineEmits<{
@@ -71,6 +77,7 @@ const choose = (type: SetType) => {
 }
 
 const remove = () => {
+  if (!props.removable) return
   emit('remove')
   open.value = false
 }
@@ -145,22 +152,42 @@ const ROW =
         </button>
       </div>
 
-      <!-- Not a set type, so it is separated from the four that are. -->
+      <!--
+        Not a set type, so it is separated from the four that are — and not
+        always available. A prescribed set belongs to the plan the coach wrote,
+        so the option stays in place but goes flat and unpressable rather than
+        disappearing: a member who saw it on a set they added should find out
+        why it is missing here, not wonder whether they imagined it.
+      -->
       <button
         type="button"
-        class="mt-1 flex w-full items-center gap-3 rounded-md bg-sunken px-3.5 py-3.5 text-left shadow-[inset_0_0_0_1.5px_var(--hairline)] transition-opacity duration-100 active:opacity-70"
+        class="mt-1 flex w-full items-center gap-3 rounded-md bg-sunken px-3.5 py-3.5 text-left shadow-[inset_0_0_0_1.5px_var(--hairline)] transition-opacity duration-100"
+        :class="
+          removable
+            ? 'active:opacity-70'
+            : 'cursor-default opacity-45 shadow-[inset_0_0_0_1.5px_var(--hairline)]'
+        "
+        :disabled="!removable"
         @click="remove"
       >
         <span
-          class="grid size-8 shrink-0 place-items-center rounded-field bg-set-fail-soft text-[13px] font-bold text-set-fail"
+          class="grid size-8 shrink-0 place-items-center rounded-field text-[13px] font-bold"
+          :class="removable ? 'bg-set-fail-soft text-set-fail' : 'bg-fill-muted text-muted'"
           aria-hidden="true"
         >
           {{ removeSetCopy.badge }}
         </span>
-        <span class="flex-1 text-[15px] font-bold text-set-fail">
+        <span
+          class="flex-1 text-[15px] font-bold"
+          :class="removable ? 'text-set-fail' : 'text-muted'"
+        >
           {{ removeSetCopy.label }}
         </span>
       </button>
+
+      <p v-if="!removable" class="m-0 px-1 text-[12px] leading-[1.45] text-muted">
+        {{ removeSetCopy.lockedHint }}
+      </p>
     </div>
 
     <!--
