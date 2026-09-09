@@ -63,8 +63,15 @@ export const setTypeCopy: SetTypeCopy[] = [
   },
 ]
 
-/** The destructive option at the foot of the picker. Not a set type. */
+/**
+ * The destructive option at the foot of the picker. Not a set type.
+ *
+ * `lockedHint` shows in place of nothing when the row is one the plan
+ * prescribed, which the member cannot delete.
+ */
 export const removeSetCopy = {
   label: 'Remove Set',
   badge: 'X',
+  lockedHint:
+    'This set is part of your plan, so it can’t be removed — only sets you add yourself can. You can still change its weight and reps.',
 }
