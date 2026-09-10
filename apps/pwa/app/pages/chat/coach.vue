@@ -24,8 +24,33 @@ const coachTitle = computed(() => store.coach.value?.title?.trim() || 'Direct me
 /** Set once a write has failed for want of room. See `DataSource.storageFull`. */
 const storageFull = ref(false)
 
+/**
+ * The thread, live — so the coach's reply lands here rather than on the next
+ * reload. See `DataSource.watchMessages`, and the cohort thread, which does
+ * exactly the same thing.
+ */
+let unwatch: (() => void) | null = null
+let unmounted = false
+
 onMounted(async () => {
-  messages.value = await data.listMessages('coach')
+  const stop = await data.watchMessages(
+    'coach',
+    (next) => {
+      messages.value = next
+    },
+    (error) => {
+      console.error('[chat] the live thread stopped', error)
+    },
+  )
+
+  if (unmounted) stop()
+  else unwatch = stop
+})
+
+onBeforeUnmount(() => {
+  unmounted = true
+  unwatch?.()
+  unwatch = null
 })
 
 /**
@@ -60,10 +85,11 @@ const send = async (payload: { text: string; attachments: PendingAttachment[] })
     ),
   )
 
-  messages.value = [
-    ...messages.value,
-    await data.sendMessage('coach', payload.text, attachments),
-  ]
+  const sent = await data.sendMessage('coach', payload.text, attachments)
+  // The watcher has usually delivered this already. See the cohort thread.
+  if (!messages.value.some((m) => m.id === sent.id)) {
+    messages.value = [...messages.value, sent]
+  }
   storageFull.value = await data.storageFull()
 }
 

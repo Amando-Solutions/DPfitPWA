@@ -274,6 +274,37 @@ export interface DataSource {
    */
   listMessages(threadId: ThreadId): Promise<ChatMessageView[]>
 
+  /**
+   * The same thread, but kept live.
+   *
+   * A chat that is read once on mount is a chat where the other half of the
+   * conversation only exists after a reload, which is not a conversation. This
+   * subscribes instead: `onMessages` is called with the whole thread as it
+   * stands, immediately and then again on every change to it — anyone's
+   * message, anyone's reaction.
+   *
+   * The whole list every time rather than a delta, deliberately. The list is
+   * capped at the same 200 messages `listMessages` reads, a screen holds one
+   * array either way, and reconciling a stream of adds and removes against a
+   * local copy is where duplicated and missing bubbles come from.
+   *
+   * This member's own writes come back through here too, so a caller that has
+   * subscribed does not have to append what `sendMessage` returns — though one
+   * that does should merge by id rather than push, since the send may already
+   * have arrived this way.
+   *
+   * `onError` is for a subscription that has *stopped*: a rules refusal or a
+   * connection the SDK gave up on. There is no more `onMessages` after it.
+   *
+   * Resolves to the unsubscribe function. Callers must call it on unmount; a
+   * listener nobody has stopped keeps a socket open and a page alive.
+   */
+  watchMessages(
+    threadId: ThreadId,
+    onMessages: (messages: ChatMessageView[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe>
+
   /** `text` may be empty when the member is only sharing photos or files. */
   sendMessage(
     threadId: ThreadId,
@@ -336,6 +367,9 @@ export interface DataSource {
 // and — the ones that matter — `qualifies`, `rewardPoints` and `weekNumber`. A
 // client that could name its own reward points could award itself any number.
 // =============================================================================
+
+/** Stops a live subscription. Idempotent — calling it twice is not an error. */
+export type Unsubscribe = () => void
 
 /** A non-image file picked on the device, before anything has stored it. */
 export interface PendingFile {

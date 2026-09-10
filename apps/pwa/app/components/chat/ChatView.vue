@@ -320,8 +320,40 @@ const submit = async () => {
   scrollToEnd()
 }
 
+/**
+ * How close to the bottom still counts as "reading the latest", in pixels.
+ * Roughly one bubble: enough that a thumb resting slightly off the end is not
+ * treated as having scrolled away.
+ */
+const STICK_TO_END_PX = 120
+
+const atEnd = () => {
+  const el = scroller.value
+  if (!el) return true
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_TO_END_PX
+}
+
 onMounted(scrollToEnd)
-watch(() => props.messages.length, scrollToEnd)
+
+/**
+ * Follow the conversation, unless the member is reading something else.
+ *
+ * Messages arrive on their own now, not only when this screen asks for them,
+ * and scrolling to the end on every arrival means someone scrolled up to find
+ * a photo from Tuesday gets thrown back to the bottom the moment anybody says
+ * anything. So an arrival only moves the view when the view was already at the
+ * end — measured before the DOM updates, which is where this watcher runs.
+ *
+ * Own sends are not subject to it: `submit` calls `scrollToEnd` directly, on
+ * the reasoning that pressing send is a statement about where you want to be.
+ */
+watch(
+  () => props.messages.length,
+  (next, previous) => {
+    if (next > previous && !atEnd()) return
+    scrollToEnd()
+  },
+)
 
 // Shadcn's variants own the bubble skin; this local shape keeps the app's
 // sender/receiver tail treatment.

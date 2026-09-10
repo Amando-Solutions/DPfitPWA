@@ -13,8 +13,42 @@ const messages = ref<ChatMessageView[]>([])
 /** Set once a write has failed for want of room. See `DataSource.storageFull`. */
 const storageFull = ref(false)
 
+/**
+ * The thread, live.
+ *
+ * A group chat that is read once on mount is a group chat where everyone else
+ * is silent until you reload, so this subscribes instead: the data source
+ * pushes the whole thread down on every change to it, including this member's
+ * own sends. See `DataSource.watchMessages`.
+ */
+let unwatch: (() => void) | null = null
+let unmounted = false
+
 onMounted(async () => {
-  messages.value = await data.listMessages('cohort')
+  const stop = await data.watchMessages(
+    'cohort',
+    (next) => {
+      messages.value = next
+    },
+    (error) => {
+      // The listener is over, not retrying. Whatever is already on screen
+      // stays there — a thread that has stopped updating is still worth
+      // reading, and the reason belongs where whoever set the project up
+      // will see it.
+      console.error('[chat] the live thread stopped', error)
+    },
+  )
+
+  // The screen can be left before the subscription resolves — a member who
+  // taps straight back out. Nothing would ever stop this listener otherwise.
+  if (unmounted) stop()
+  else unwatch = stop
+})
+
+onBeforeUnmount(() => {
+  unmounted = true
+  unwatch?.()
+  unwatch = null
 })
 
 /**
@@ -74,10 +108,13 @@ const send = async (payload: { text: string; attachments: PendingAttachment[] })
     ),
   )
 
-  messages.value = [
-    ...messages.value,
-    await data.sendMessage('cohort', payload.text, attachments),
-  ]
+  const sent = await data.sendMessage('cohort', payload.text, attachments)
+  // Usually already here: the watcher sees this member's own write as it is
+  // made. Appending it is for the implementation that cannot — the polled one,
+  // where the next tick is seconds away and the bubble should not be.
+  if (!messages.value.some((m) => m.id === sent.id)) {
+    messages.value = [...messages.value, sent]
+  }
   storageFull.value = await data.storageFull()
 }
 

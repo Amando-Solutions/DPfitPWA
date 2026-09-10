@@ -20,6 +20,7 @@ import {
   getDocs,
   increment,
   limit,
+  onSnapshot,
   orderBy,
   query,
   runTransaction,
@@ -27,6 +28,7 @@ import {
   setDoc,
   updateDoc,
   writeBatch,
+  type CollectionReference,
   type DocumentData,
   type QueryDocumentSnapshot,
 } from 'firebase/firestore'
@@ -56,6 +58,7 @@ import {
   type PendingFile,
   type PhotoInput,
   type SessionInput,
+  type Unsubscribe,
 } from './types'
 import type {
   ActiveSessionDoc,
@@ -294,6 +297,24 @@ export class FirestoreDataSource implements DataSource {
   private memberCache: Member | null = null
   private programCache: Program | null = null
 
+  /**
+   * Which emoji this member put on a given message, keyed by its document path.
+   *
+   * How many reactions a message has is on the message document and arrives
+   * with every snapshot; *whose* they are lives one document below it, in
+   * `messages/{id}/reactions/{uid}`. A live thread that re-read those on every
+   * change would spend two hundred document reads each time anybody said
+   * anything, so each one is read once — when the message first arrives — and
+   * moved from here on by `toggleReaction`, which is the only thing in this
+   * session that can change it.
+   *
+   * The cost of caching rather than watching is that a reaction this member
+   * adds on their *other* device shows its count here but not its highlight
+   * until the thread is reopened. The alternative is a second listener per
+   * message. Cleared on sign-out with the rest.
+   */
+  private readonly myReactions = new Map<string, string[]>()
+
   // =========================================================================
   // Auth — email link and Google
   //
@@ -484,6 +505,7 @@ export class FirestoreDataSource implements DataSource {
     await firebaseSignOut(firebaseAuth())
     this.memberCache = null
     this.programCache = null
+    this.myReactions.clear()
     webStorage.clear()
   }
 
@@ -1176,24 +1198,110 @@ export class FirestoreDataSource implements DataSource {
     )
   }
 
+  /** The thread's last 200 messages, oldest first. Shared by both readers. */
+  private threadQuery(ref: CollectionReference<DocumentData>) {
+    return query(ref, orderBy('sentAt', 'asc'), limit(200))
+  }
+
+  /**
+   * This member's own reactions, read once per message and kept.
+   *
+   * The member's own reactions live one document below each message, so they
+   * arrive separately and are folded in by `viewOf` — the same two halves the
+   * on-device implementation keeps apart, for the same reason. Reading only
+   * the ones missing from `myReactions` is what makes a live thread affordable:
+   * on the first snapshot that is every message, and on every snapshot after
+   * it, only the messages that have just been sent.
+   *
+   * A refused read resolves to no reactions rather than throwing. It means the
+   * highlight under one message is missing; it should not take the thread down.
+   */
+  private async cacheMyReactions(
+    docs: QueryDocumentSnapshot<DocumentData>[],
+    viewerUid: string,
+  ): Promise<void> {
+    const fresh = docs.filter((d) => !this.myReactions.has(d.ref.path))
+    if (!fresh.length) return
+
+    await Promise.all(
+      fresh.map((d) =>
+        getDoc(doc(d.ref, 'reactions', viewerUid))
+          .then((r) => (r.exists() ? ((r.data() as { emojis: string[] }).emojis ?? []) : []))
+          .catch(() => [] as string[])
+          .then((emojis) => {
+            this.myReactions.set(d.ref.path, emojis)
+          }),
+      ),
+    )
+  }
+
   async listMessages(threadId: ThreadId): Promise<ChatMessageView[]> {
     const member = await this.requireMember()
     const ref = await this.messagesRef(threadId)
-    const snap = await getDocs(query(ref, orderBy('sentAt', 'asc'), limit(200)))
+    const snap = await getDocs(this.threadQuery(ref))
 
-    // The member's own reactions live one document below each message, so they
-    // arrive separately and are folded in here — the same two halves the
-    // on-device implementation keeps apart, for the same reason.
-    const messages = snap.docs.map((d) => withId<Message>(d))
-    const mine = await Promise.all(
-      snap.docs.map((d) =>
-        getDoc(doc(d.ref, 'reactions', member.id)).then((r) =>
-          r.exists() ? ((r.data() as { emojis: string[] }).emojis ?? []) : [],
-        ),
-      ),
+    await this.cacheMyReactions(snap.docs, member.id)
+
+    return snap.docs.map((d) =>
+      this.viewOf(withId<Message>(d), member.id, this.myReactions.get(d.ref.path) ?? []),
+    )
+  }
+
+  /**
+   * The live thread.
+   *
+   * One `onSnapshot` over the same query `listMessages` runs, which is what
+   * makes the group chat a group chat: Firestore holds the stream open and
+   * pushes each change down it, so a message someone else sends is on this
+   * screen without anybody reloading or polling.
+   *
+   * It also covers this member's own sends, and does it before the write has
+   * reached the server — the SDK replays local writes to its own listeners
+   * immediately, so the bubble appears at once and is simply confirmed a moment
+   * later. That is why `sendMessage`'s return value need not be appended by
+   * hand.
+   */
+  async watchMessages(
+    threadId: ThreadId,
+    onMessages: (messages: ChatMessageView[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
+    const member = await this.requireMember()
+    const ref = await this.messagesRef(threadId)
+
+    let stopped = false
+    let latest = 0
+
+    const stop = onSnapshot(
+      this.threadQuery(ref),
+      async (snap) => {
+        const seq = (latest += 1)
+        await this.cacheMyReactions(snap.docs, member.id)
+
+        // A snapshot that landed while those reads were in flight has already
+        // published a newer version of the thread; publishing this one now
+        // would put it back the way it was a moment ago. Same reason the
+        // unsubscribed check is here and not only at the top.
+        if (stopped || seq !== latest) return
+
+        onMessages(
+          snap.docs.map((d) =>
+            this.viewOf(withId<Message>(d), member.id, this.myReactions.get(d.ref.path) ?? []),
+          ),
+        )
+      },
+      (error) => {
+        // Firestore does not retry after this: the listener is finished, and
+        // the caller has to be told rather than left on a thread that has
+        // quietly stopped updating.
+        if (!stopped) onError?.(error)
+      },
     )
 
-    return messages.map((message, i) => this.viewOf(message, member.id, mine[i] ?? []))
+    return () => {
+      stopped = true
+      stop()
+    }
   }
 
   async sendMessage(
@@ -1256,6 +1364,12 @@ export class FirestoreDataSource implements DataSource {
 
       return next
     })
+
+    // The listener in `watchMessages` will see `reactionCounts` move, but not
+    // who moved it — that is this document, and this is the only place in the
+    // session it changes. Without this the count updates live and the member's
+    // own highlight does not.
+    this.myReactions.set(messageRef.path, mine)
 
     const after = await getDoc(messageRef)
     const message = { id: after.id, ...after.data() } as Message

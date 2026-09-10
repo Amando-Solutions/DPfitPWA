@@ -8,6 +8,7 @@ import {
   type PendingFile,
   type PhotoInput,
   type SessionInput,
+  type Unsubscribe,
 } from './types'
 import type { ProcessedImage } from '~/lib/image'
 import type {
@@ -34,6 +35,9 @@ import type {
   ThreadId,
   WorkoutDay,
 } from '~/data/types'
+
+/** How often an open chat thread is re-read. See `watchMessages`. */
+const THREAD_POLL_MS = 5_000
 
 /**
  * HTTP implementation of the same contract, for a REST backend in front of
@@ -281,6 +285,49 @@ export class HttpDataSource implements DataSource {
   // --- Chat ----------------------------------------------------------------
   listMessages(threadId: ThreadId) {
     return this.get<ChatMessageView[]>(`/threads/${threadId}/messages`)
+  }
+
+  /**
+   * Polled, because REST has nothing to push down.
+   *
+   * The other two implementations get this for free — Firestore holds a stream
+   * open, the on-device one is the writer — and a plain HTTP backend has
+   * neither, so the thread is re-read on a timer. Five seconds is the
+   * compromise: slow enough that an idle chat screen is not hammering an
+   * endpoint, fast enough that a reply does not feel lost. A backend that
+   * grows a socket or an event stream should replace the body of this method
+   * and nothing else.
+   *
+   * A failed poll is reported once and the timer keeps running: the usual
+   * cause is a phone between cells, and the next tick is five seconds away.
+   */
+  async watchMessages(
+    threadId: ThreadId,
+    onMessages: (messages: ChatMessageView[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
+    let stopped = false
+    let reportedError = false
+
+    const poll = async () => {
+      try {
+        const messages = await this.listMessages(threadId)
+        reportedError = false
+        if (!stopped) onMessages(messages)
+      } catch (error) {
+        if (stopped || reportedError) return
+        reportedError = true
+        onError?.(error)
+      }
+    }
+
+    await poll()
+    const timer = setInterval(poll, THREAD_POLL_MS)
+
+    return () => {
+      stopped = true
+      clearInterval(timer)
+    }
   }
 
   sendMessage(threadId: ThreadId, text: string, attachments: ChatAttachment[] = []) {

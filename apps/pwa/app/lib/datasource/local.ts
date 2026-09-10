@@ -10,6 +10,7 @@ import {
   type PendingFile,
   type PhotoInput,
   type SessionInput,
+  type Unsubscribe,
 } from './types'
 import {
   PROGRAM_ID,
@@ -195,6 +196,17 @@ const withViewer = (message: Message, viewerUid: string, mine: string[]): ChatMe
  * schema.
  */
 export class LocalDataSource implements DataSource {
+  /**
+   * Live thread listeners, by thread. See `watchMessages`.
+   *
+   * Nobody else is writing to this store, so there is nothing to listen *to*
+   * in the sense Firestore means it: the only messages that will ever arrive
+   * are the ones sent from this tab. The registry exists so the screens can be
+   * written one way regardless of which implementation is behind them — they
+   * subscribe, and this one answers with its own writes.
+   */
+  private readonly threadWatchers = new Map<ThreadId, Set<(m: ChatMessageView[]) => void>>()
+
   // =========================================================================
   // Auth
   // =========================================================================
@@ -582,6 +594,33 @@ export class LocalDataSource implements DataSource {
     )
   }
 
+  /**
+   * Hand every listener on this thread the thread as it now stands.
+   *
+   * Called after each write rather than from inside `storage`, because the
+   * only writes that reach a chat thread are the two below.
+   */
+  private async publishThread(threadId: ThreadId): Promise<void> {
+    const listeners = this.threadWatchers.get(threadId)
+    if (!listeners?.size) return
+    const messages = await this.listMessages(threadId)
+    for (const listener of [...listeners]) listener(messages)
+  }
+
+  async watchMessages(
+    threadId: ThreadId,
+    onMessages: (messages: ChatMessageView[]) => void,
+  ): Promise<Unsubscribe> {
+    const listeners = this.threadWatchers.get(threadId) ?? new Set()
+    this.threadWatchers.set(threadId, listeners)
+    listeners.add(onMessages)
+
+    onMessages(await this.listMessages(threadId))
+    return () => {
+      listeners.delete(onMessages)
+    }
+  }
+
   async sendMessage(
     threadId: ThreadId,
     text: string,
@@ -604,6 +643,7 @@ export class LocalDataSource implements DataSource {
       ...mine,
       [threadId]: [...(mine[threadId] ?? []), message],
     })
+    await this.publishThread(threadId)
     return withViewer(message, message.authorUid, [])
   }
 
@@ -627,6 +667,7 @@ export class LocalDataSource implements DataSource {
     storage.write(KEY.reactions, updated)
 
     const messages = await this.listMessages(threadId)
+    await this.publishThread(threadId)
     return messages.find((m) => m.id === messageId)?.reactions ?? []
   }
 
