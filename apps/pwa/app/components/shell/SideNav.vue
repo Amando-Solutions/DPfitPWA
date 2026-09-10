@@ -23,6 +23,18 @@ const initials = computed(() =>
     .join('')
     .toUpperCase(),
 )
+/**
+ * The rail's one call to action, in the member's situation.
+ *
+ * Three states rather than two: a session logged, a rest day with nothing
+ * scheduled, and a day that is open. "Today is logged" covered all three before
+ * the plan ran on a calendar, and on a rest day it claimed credit for a session
+ * nobody did.
+ */
+const ctaLabel = computed(() => {
+  if (!store.trainingLocked.value) return "Start today's session"
+  return store.sessionToday.value ? 'Today is logged' : 'Nothing open today'
+})
 </script>
 
 <template>
@@ -70,14 +82,15 @@ const initials = computed(() =>
       </NuxtLink>
     </nav>
 
-    <!-- Once today's session is logged, the rail points at the picker, which is
-         the screen that says when the next one opens. -->
+    <!-- With nothing open to log — today's done, or the plan schedules no
+         session today — the rail points at the picker, which is the screen that
+         says which day opens next and when. -->
     <NuxtLink
       :to="store.trainingLocked.value ? '/train' : `/train/${store.today.value?.id ?? ''}`"
       class="sidenav__cta lg:mt-4.5 lg:flex lg:items-center lg:justify-center lg:gap-2 lg:py-3.25 lg:px-3.5 lg:rounded-md lg:bg-rose-fill lg:text-on-rose lg:text-[13.5px] lg:font-bold"
     >
       <AppIcon :name="store.trainingLocked.value ? 'check' : 'play'" :size="16" fill />
-      <span>{{ store.trainingLocked.value ? 'Today is logged' : "Start today's session" }}</span>
+      <span>{{ ctaLabel }}</span>
     </NuxtLink>
 
     <div class="sidenav__spacer lg:flex-1 lg:min-h-5" />

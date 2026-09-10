@@ -3,7 +3,7 @@
 definePageMeta({ layout: false })
 
 import type { SetType } from '~/data/types'
-import { trustedTimestamp } from '~/lib/time'
+import { nightsLabel, trustedTimestamp } from '~/lib/time'
 
 const route = useRoute()
 const router = useRouter()
@@ -12,23 +12,63 @@ const store = useAppStore()
 const dayId = computed(() => String(route.params.dayId))
 const day = computed(() => store.getDay(dayId.value))
 
-// Resume the session for this day, or open a fresh one. A session already in
-// progress for a *different* day is left alone; the picker offers to resume it.
-onMounted(async () => {
+const session = computed(() => store.activeSession.value)
+
+/**
+ * True while the screen is still deciding between logging and preview.
+ *
+ * Without it the preview renders for a frame on a day that is about to open a
+ * session, and the member sees a padlock flash over the workout they just
+ * tapped Start on.
+ */
+const opening = ref(true)
+
+/**
+ * Resume this day's session, or open one if the plan has it open today.
+ *
+ * A day the calendar has not reached is not a dead end and not a redirect: it
+ * renders as a preview below, so the member can read Thursday's session on
+ * Tuesday and see the date it opens. A session already in progress for a
+ * *different* day is left alone; the picker offers to resume it.
+ */
+const open = async () => {
   if (!day.value) {
     router.replace('/train')
     return
   }
-  if (store.activeSession.value?.dayId !== dayId.value) {
-    // Null means today's session is already in the log. The picker is where
-    // that gets explained, so hand back to it rather than showing an empty
-    // session that cannot be started.
-    const started = await store.startSession(day.value)
-    if (!started) router.replace('/train')
+  if (store.activeSession.value?.dayId !== dayId.value && day.value.canStart) {
+    await store.startSession(day.value)
   }
+  opening.value = false
+}
+
+onMounted(open)
+
+// Midnight rolls the store's clock over, which is exactly when a day being
+// previewed becomes the day that is open. Turn the preview into a session on
+// the spot rather than making them find their way back to the picker.
+watch(() => day.value?.canStart, (canStart) => {
+  if (canStart && !session.value) void open()
 })
 
-const session = computed(() => store.activeSession.value)
+/** The read-only state: a day to look at, with no session behind it. */
+const preview = computed(() => !opening.value && !!day.value && !session.value)
+
+/** "Opens Thursday", or the reason there is nothing to open at all. */
+const opensLabel = computed(() => {
+  if (!day.value) return ''
+  if (day.value.status === 'completed') return 'Logged this week'
+  const nights = day.value.opensInNights
+  // `canStart` is false with the day scheduled for today only when something is
+  // already in today's log — saying "opens today" there would be a flat
+  // contradiction of the button it sits under.
+  if (nights === 0) return 'Opens once today’s session clears'
+  if (nights === null) return 'Opens when today’s session is done'
+  return `Opens ${nightsLabel(nights, store.now.value)}`
+})
+
+const setsFor = (exercises: { sets: unknown[] }[]) =>
+  exercises.reduce((n, e) => n + e.sets.length, 0)
 
 // --- Timer -----------------------------------------------------------------
 /**
@@ -312,6 +352,105 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
       </div>
     </div>
 
+    <!--
+      A day the plan has not opened yet, or has already taken.
+
+      Read-only on purpose, and reachable on purpose: the coach's session for
+      Thursday is worth being able to look at on Tuesday, and a member who taps
+      a padlocked day deserves the workout and the date it opens rather than
+      being bounced back to the list they just left. Nothing here writes — no
+      session document exists for this day until its own day comes round.
+    -->
+    <div v-else-if="preview && day" class="session__scroll scroll-y flex-1 min-h-0">
+      <header
+        class="relative overflow-hidden rounded-b-2xl bg-photo text-on-photo shadow-[0_1px_0_rgba(0,0,0,0.25)]"
+      >
+        <img
+          v-if="day.heroImage"
+          :src="day.heroImage.downloadUrl"
+          alt=""
+          aria-hidden="true"
+          decoding="async"
+          class="absolute inset-0 size-full object-cover"
+        />
+        <div v-if="day.heroImage" class="absolute inset-0 bg-photo/80" />
+
+        <div
+          class="relative px-5 pt-(--screen-pad-top) pb-4 lg:mx-auto lg:max-w-(--focus-max) lg:px-10 lg:pt-6 lg:pb-5"
+        >
+          <div class="mb-3.5 flex items-center justify-between gap-3">
+            <h1 class="m-0 min-w-0 truncate font-display text-[17px] font-bold lg:text-[20px]">
+              {{ day.dayNumber ? `Day ${day.dayNumber}: ${day.label}` : day.label }}
+            </h1>
+            <NuxtLink
+              to="/train"
+              class="shrink-0 rounded-pill bg-on-photo/14 px-4 py-2 text-[13px] font-bold text-on-photo transition-opacity duration-100 active:opacity-70"
+            >
+              Close
+            </NuxtLink>
+          </div>
+
+          <!-- The plan's own figures, not a session's. A duration and a volume
+               of zero would read as a workout gone wrong rather than one not
+               started. -->
+          <div class="grid grid-cols-3 gap-3">
+            <div class="flex flex-col gap-0.5">
+              <span class="text-[12px] text-on-photo/60">Exercises</span>
+              <span class="text-[17px] font-bold tabular-nums">{{ day.exercises.length }}</span>
+            </div>
+            <div class="flex flex-col gap-0.5">
+              <span class="text-[12px] text-on-photo/60">Sets</span>
+              <span class="text-[17px] font-bold tabular-nums">{{ setsFor(day.exercises) }}</span>
+            </div>
+            <div class="flex flex-col gap-0.5">
+              <span class="text-[12px] text-on-photo/60">Est. time</span>
+              <span class="text-[17px] font-bold tabular-nums">{{ day.estimatedMinutes }} min</span>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div class="pt-4 px-5 pb-30 flex flex-col gap-3.5 lg:w-full lg:max-w-(--focus-max) lg:my-0 lg:mx-auto lg:pt-6 lg:px-10 lg:pb-37.5">
+        <!-- Says which rule is holding it shut, above the plan rather than
+             below it, so it is read before the scrolling starts. -->
+        <div class="flex items-center gap-3 rounded-card border border-hairline bg-raised px-4.5 py-3.5">
+          <span class="grid size-8.5 shrink-0 place-items-center rounded-pill bg-fill-subtle text-muted">
+            <AppIcon :name="day.status === 'completed' ? 'check' : 'lock'" :size="16" />
+          </span>
+          <span class="flex min-w-0 flex-col gap-0.5">
+            <strong class="font-display text-[14.5px] font-black text-ink">{{ opensLabel }}</strong>
+            <small class="text-[12.5px] text-muted">
+              One session a day, on the day the plan sets it. This one is here to read.
+            </small>
+          </span>
+        </div>
+
+        <article
+          v-for="exercise in day.exercises"
+          :key="exercise.id"
+          class="rounded-card border border-hairline bg-raised p-4.5"
+        >
+          <div class="flex items-baseline justify-between gap-3">
+            <h2 class="m-0 min-w-0 font-display text-[15.5px] font-black tracking-[-0.2325px] text-ink">
+              {{ exercise.name }}
+            </h2>
+            <span class="shrink-0 text-[12.5px] text-muted tabular-nums">
+              {{ exercise.restSeconds }}s rest
+            </span>
+          </div>
+          <p class="mt-1.5 mb-0 text-[13px] text-soft">
+            {{ exercise.sets.length }} × {{ exercise.targetReps }} · {{ exercise.muscleGroup }}
+          </p>
+          <!-- The coach's cues are the reason to open a day early at all. -->
+          <ul v-if="exercise.cues.length" class="mt-2.5 mb-0 flex flex-col gap-1 pl-4.5">
+            <li v-for="cue in exercise.cues" :key="cue" class="text-[12.5px] leading-[1.45] text-muted">
+              {{ cue }}
+            </li>
+          </ul>
+        </article>
+      </div>
+    </div>
+
     <!-- Docked footer: rest timer (when running) + primary CTA -->
     <div class="session__footer absolute left-4 right-4 bottom-4 flex flex-col gap-2.5 lg:left-1/2 lg:right-auto lg:-translate-x-1/2 lg:w-[min(var(--focus-max),100%-80px)] lg:bottom-6">
       <RestTimerBar
@@ -320,14 +459,17 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
         @skip="restActive = false"
         @adjust="(delta) => (restRemaining = Math.max(0, restRemaining + delta))"
       />
+      <AppButton v-if="preview" icon="lock" variant="secondary" disabled>
+        {{ opensLabel }}
+      </AppButton>
       <AppButton
-        v-if="!session?.running"
+        v-else-if="session && !session.running"
         icon="play"
         @click="startWorkout"
       >
         Start workout
       </AppButton>
-      <AppButton v-else variant="primary" @click="finish">
+      <AppButton v-else-if="session" variant="primary" @click="finish">
         {{ allDone ? 'Finish workout' : `Finish (${totals.setsDone}/${totals.setsTotal} sets)` }}
       </AppButton>
     </div>

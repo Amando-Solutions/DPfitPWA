@@ -100,7 +100,6 @@ const STAT_VALUE =
         <WorkoutHeroCard
           :day="store.today.value"
           :all-done="store.weekComplete.value"
-          :locked="store.trainingLocked.value"
           :next-label="nextSessionLabel"
         />
       </section>

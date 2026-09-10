@@ -6,33 +6,77 @@ const props = withDefaults(
     day: WorkoutDayView
     /** Every session for the week is logged, so the card becomes a well-done. */
     allDone?: boolean
-    /** Today's session is already in the log; the next one opens tomorrow. */
-    locked?: boolean
     /** When the next session opens, e.g. "Tuesday 24 Feb". */
     nextLabel?: string
   }>(),
-  { allDone: false, locked: false, nextLabel: '' },
+  { allDone: false, nextLabel: '' },
 )
 
 const setsPlanned = computed(() =>
   props.day.exercises.reduce((n, e) => n + e.targetSets, 0),
 )
 
-/** Nothing to open while today's session is logged, so the card stops being a link. */
-const NuxtLinkComponent = resolveComponent('NuxtLink')
-const tag = computed(() => (props.locked ? 'div' : NuxtLinkComponent))
+/**
+ * Why this card is not offering a workout, when it is not.
+ *
+ *   `null`    the plan has this day open; the card is the usual call to action.
+ *   `logged`  it is done, and done today.
+ *   `rest`    the plan schedules nothing today, so there is nothing to start.
+ *
+ * Read off the day rather than passed in as one `locked` flag, which is what
+ * this used to take: a rest day and a finished day are both "not now" and they
+ * are not the same sentence, and a card that told somebody mid-week "that's the
+ * work done" on a scheduled rest day would be congratulating them for nothing.
+ */
+const shut = computed<'logged' | 'rest' | null>(() => {
+  if (props.day.canStart) return null
+  // Completed *and* today's slot. On a rest day the card falls back to the next
+  // session up, which may well be a day they finished on Monday — reading that
+  // as "logged today" would be congratulating them for the wrong morning.
+  return props.day.status === 'completed' && props.day.opensInNights === 0
+    ? 'logged'
+    : 'rest'
+})
 
 // Sentence case, because these read as a line of copy rather than a set of
 // labels. The only uppercase mono left on Home is the week/phase eyebrow.
 const eyebrow = computed(() => {
-  if (props.locked) return 'Logged today'
-  return props.allDone ? 'Week complete' : `Today · Day ${props.day.dayNumber}`
+  if (props.allDone) return 'Week complete'
+  if (shut.value === 'logged') return 'Logged today'
+  if (shut.value === 'rest') return 'Rest day'
+  return `Today · Day ${props.day.dayNumber}`
 })
 
-const cta = computed(() => {
-  if (props.locked) return props.nextLabel ? `Next session ${props.nextLabel}` : 'Back tomorrow'
-  return props.allDone ? 'Log an extra session' : 'Start today’s workout'
+const headline = computed(() => {
+  if (props.allDone) return 'Rest up. That’s the week done.'
+  if (shut.value === 'logged') return 'Rest up. That’s the work done.'
+  if (shut.value === 'rest') return 'Nothing scheduled today.'
+  return props.day.label
 })
+
+const body = computed(() => {
+  // `allDone` first, so the eyebrow and the sentence under it agree. A finished
+  // week that happens to land on a rest day was reading "Week complete" over
+  // "Nothing scheduled today", which is two different pieces of news.
+  if (props.allDone) {
+    return 'Every session in the plan is logged. Next week picks up from here.'
+  }
+  if (shut.value === 'logged') {
+    return `One session a day is the plan. Day ${props.day.dayNumber} is waiting for you.`
+  }
+  if (shut.value === 'rest') {
+    return `Day ${props.day.dayNumber} is next. Recovery is part of the block, not a gap in it.`
+  }
+  return ''
+})
+
+const cta = computed(() =>
+  shut.value
+    ? props.nextLabel
+      ? `Next session ${props.nextLabel}`
+      : 'Back soon'
+    : 'Start today’s workout',
+)
 </script>
 
 <template>
@@ -46,9 +90,8 @@ const cta = computed(() => {
     art the gradient stands alone, which is a finished card either way — nothing
     below depends on the photograph being there.
   -->
-  <component
-    :is="tag"
-    :to="locked ? undefined : `/train/${day.id}`"
+  <NuxtLink
+    :to="`/train/${day.id}`"
     class="relative block min-h-52 overflow-hidden rounded-lg bg-photo text-on-photo lg:min-h-64"
   >
     <!--
@@ -81,26 +124,26 @@ const cta = computed(() => {
       <h2
         class="mt-4 mb-0 font-display text-[25px] leading-[1.1] font-black tracking-[-0.625px] lg:text-[30px]"
       >
-        {{ locked ? 'Rest up. That’s the work done.' : day.label }}
+        {{ headline }}
       </h2>
 
       <!-- One plain line rather than three chips. The calorie estimate that used
            to sit here was a guess presented with the same weight as two counts
            the plan actually knows, so it is gone rather than quietly wrong. -->
-      <p v-if="!locked" class="mt-2 mb-0 text-[13.5px] text-on-photo/80">
+      <p v-if="!body" class="mt-2 mb-0 text-[13.5px] text-on-photo/80">
         {{ day.exercises.length }} exercises · {{ setsPlanned }} sets
       </p>
       <p v-else class="mt-3.25 mb-0 max-w-80 text-[13.5px] leading-[1.45] text-on-photo/80">
-        One session a day is the plan. Day {{ day.dayNumber }} is waiting for you.
+        {{ body }}
       </p>
 
       <!-- Flat fill: no raised stack, no coloured halo. -->
       <span
         class="mt-4.5 flex items-center justify-center rounded-pill p-3.75 text-[14.5px] font-bold"
-        :class="locked ? 'bg-on-photo/14 text-on-photo/85' : 'bg-rose-fill text-on-rose'"
+        :class="shut ? 'bg-on-photo/14 text-on-photo/85' : 'bg-rose-fill text-on-rose'"
       >
         {{ cta }}
       </span>
     </div>
-  </component>
+  </NuxtLink>
 </template>

@@ -3,7 +3,11 @@ import { Timestamp } from 'firebase/firestore'
 import { DataSourceError, useDataSourceClient } from '~/lib/datasource'
 import type { ActiveSessionInput, CheckInInput } from '~/lib/datasource'
 import { defaultPreferences } from '~/lib/datasource/local'
-import { challengeClock, challengeShapeOf } from '~/lib/domain/challenge'
+import {
+  challengeClock,
+  challengeShapeOf,
+  nightsUntilDayNumber,
+} from '~/lib/domain/challenge'
 import { nutritionTargetsFor } from '~/lib/domain/nutrition'
 import { rankLeaderboard, rewardsContextOf, rewardsSnapshot } from '~/lib/domain/rewards'
 
@@ -500,12 +504,6 @@ const buildStore = () => {
     return state.value.sessions.find((s) => dateKey(s.completedAt) === key) ?? null
   })
 
-  /** No further sessions until tomorrow. */
-  const trainingLocked = computed(() => sessionToday.value !== null)
-
-  /** Local midnight after today, when the next session opens up. */
-  const nextSessionAt = computed(() => startOfNextDay(now.value))
-
   /**
    * The training week: the authored days that count toward the weekly quota.
    *
@@ -530,29 +528,95 @@ const buildStore = () => {
    */
   const days = computed<WorkoutDayView[]>(() => {
     const loggedIds = new Set(sessionsThisWeek.value.map((s) => s.dayId))
-    const locked = trainingLocked.value
-    let markedNext = false
+    const dayInWeek = clock.value.dayInWeek
+    // One session a day. A day scheduled for today is still not startable once
+    // something is in today's log, whichever day that something was.
+    const dayUsed = sessionToday.value !== null
+
     return planDays.value.map((day) => {
-      if (loggedIds.has(day.id)) return { ...day, status: 'completed' as const }
-      // Every remaining day locks, not just the next one: the rule is one
-      // session a day, so skipping ahead to day 4 is the same spam by another
-      // route. Screens single out the first of them as the one that opens next.
-      if (locked) return { ...day, status: 'locked' as const }
-      if (!markedNext) {
-        markedNext = true
-        return { ...day, status: 'today' as const }
+      const opensInNights = nightsUntilDayNumber(day.dayNumber, dayInWeek)
+      const scheduledToday = opensInNights === 0
+
+      if (loggedIds.has(day.id)) {
+        return { ...day, status: 'completed' as const, canStart: false, opensInNights }
       }
-      return { ...day, status: 'upcoming' as const }
+      if (scheduledToday) {
+        return { ...day, status: 'today' as const, canStart: !dayUsed, opensInNights }
+      }
+      // Ahead of them, or behind. `dayNumber` counts position in the week, so
+      // anything numbered above today's slot is still to come and anything
+      // below it has been and gone — the wrap in `opensInNights` is about the
+      // date it next returns, not about which side of today it sits on.
+      const status = day.dayNumber > dayInWeek ? ('upcoming' as const) : ('missed' as const)
+      return { ...day, status, canStart: false, opensInNights }
     })
   })
 
   /**
-   * The next session waiting on them, which is what Home leads with. `null`
-   * when the program has no training days authored yet.
+   * Nothing in the plan can be started right now.
+   *
+   * True on a rest day, once today's session is logged, and on a day whose
+   * scheduled session has already gone past — the three ways the calendar says
+   * "not now" — so screens have one thing to ask rather than three.
+   */
+  const trainingLocked = computed(() => !days.value.some((d) => d.canStart))
+
+  /**
+   * The day whose slot comes round soonest and will be open when it does.
+   *
+   * What the screens name when they have to say which session is next. A day
+   * already logged is still a candidate, but only once its slot has gone past
+   * — `dayNumber < dayInWeek` is the same statement as "it next falls after the
+   * week rolls over", and the rollover is what clears the log it was counted
+   * in. Without that, a member who finished Monday through Thursday would be
+   * told on Friday that nothing was coming.
+   */
+  const nextUp = computed<WorkoutDayView | null>(() => {
+    const dayInWeek = clock.value.dayInWeek
+    const candidates = days.value.filter(
+      (d) =>
+        d.opensInNights !== null &&
+        (d.status !== 'completed' || d.dayNumber < dayInWeek),
+    )
+    return (
+      [...candidates].sort((a, b) => (a.opensInNights ?? 0) - (b.opensInNights ?? 0))[0] ??
+      null
+    )
+  })
+
+  /**
+   * Local midnight on the date the next session opens.
+   *
+   * Not simply tomorrow. Sessions are pinned to their slot in the week, so
+   * after Monday's day 1 the next one is whenever day 2 comes round; a member
+   * on a three-day plan finishing day 3 is waiting four nights, not one, and
+   * telling them "back tomorrow" would be a promise the picker then breaks.
+   *
+   * Floored at tomorrow, because this is only ever read while nothing is open:
+   * a day whose slot is today but whose session is spent opens again at
+   * midnight, not now.
+   */
+  const nextSessionAt = computed(() => {
+    const nights = Math.max(nextUp.value?.opensInNights ?? 1, 1)
+    const at = startOfNextDay(now.value)
+    at.setDate(at.getDate() + nights - 1)
+    return at
+  })
+
+  /**
+   * The session Home leads with. `null` when the program has no training days
+   * authored yet.
+   *
+   * Today's scheduled day first, whether or not it is already logged — a day
+   * that has been done is still the honest answer to "what is today". Only on a
+   * rest day, when the plan schedules nothing, does this fall through to the
+   * next one they are waiting on.
    */
   const today = computed<WorkoutDayView | null>(
     () =>
-      days.value.find((d) => d.status === 'today' || d.status === 'locked') ??
+      days.value.find((d) => d.status === 'today') ??
+      days.value.find((d) => d.status === 'completed' && d.opensInNights === 0) ??
+      nextUp.value ??
       days.value[0] ??
       null,
   )
@@ -665,8 +729,20 @@ const buildStore = () => {
   const getDay = (id: string): WorkoutDayView | undefined => {
     const inWeek = days.value.find((d) => d.id === id)
     if (inWeek) return inWeek
+
+    // An optional day — the core & cardio finisher — holds no slot in the week,
+    // so the calendar has nothing to open or close for it. It stays available
+    // on any day they have not already logged one, which is the one rule it has
+    // ever been under, and it is never scheduled, so it is never `today`.
     const optional = state.value.workoutDays.find((d) => d.id === id)
-    return optional ? { ...optional, status: 'upcoming' as const } : undefined
+    return optional
+      ? {
+          ...optional,
+          status: 'upcoming' as const,
+          canStart: sessionToday.value === null,
+          opensInNights: null,
+        }
+      : undefined
   }
 
   /**
@@ -780,14 +856,22 @@ const buildStore = () => {
 
   // --- Actions: workout logging -------------------------------------------
   /**
-   * Open a session for `day`, or return null if today's is already logged.
+   * Open a session for `day`, or return null if the plan does not open it today.
    *
    * The gate lives here rather than only in the screens, so a deep link into
-   * `/train/<id>` cannot walk around it. Finishing is deliberately *not* gated:
-   * a session opened before midnight has to be able to close after it.
+   * `/train/<id>` cannot walk around it: `canStart` is false on every day the
+   * member's calendar has not reached and every day it has gone past, so a
+   * member cannot run the week's four sessions off in one evening, nor start
+   * Friday's on Tuesday.
+   *
+   * Two things are deliberately *not* gated. A session already in flight for
+   * this day is handed back whatever the calendar now says — it may have been
+   * opened before midnight — and finishing one is not gated at all, for the
+   * same reason.
    */
   const startSession = async (day: WorkoutDayView) => {
-    if (trainingLocked.value && state.value.activeSession?.dayId !== day.id) return null
+    if (state.value.activeSession?.dayId === day.id) return state.value.activeSession
+    if (!day.canStart) return null
 
     const session: ActiveSessionInput = {
       dayId: day.id,
@@ -1043,6 +1127,7 @@ const buildStore = () => {
     targets,
     days,
     today,
+    nextUp,
     weekComplete,
     sessionsThisWeek,
     rewards,

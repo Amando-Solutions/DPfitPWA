@@ -2,7 +2,7 @@
 // 12 · Train · Day Picker
 definePageMeta({ layout: 'app' })
 
-import type { WorkoutDayView } from '~/data/types'
+import { nightsLabel } from '~/lib/time'
 
 const store = useAppStore()
 
@@ -11,53 +11,101 @@ const setsFor = (exercises: { targetSets: number }[]) =>
 
 const resumable = computed(() => store.activeSession.value)
 
-/**
- * A locked day is a plain div, not a link.
- *
- * Leaving it a link and blocking the arrival on the other side works, but the
- * row still looks tappable and still lights up under a finger, which reads as
- * the app being broken rather than as a rule.
- */
-const NuxtLinkComponent = resolveComponent('NuxtLink')
-const rowTag = (day: WorkoutDayView) =>
-  day.status === 'locked' ? 'div' : NuxtLinkComponent
-
-/** The first locked day is the one that opens next; the rest just wait. */
-const nextUpId = computed(() => store.days.value.find((d) => d.status === 'locked')?.id)
-
-const nextSessionLabel = computed(() =>
-  store.nextSessionAt.value.toLocaleDateString(undefined, {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'short',
-  }),
+/** The plan day the calendar opens today, logged or not. `null` on a rest day. */
+const scheduledToday = computed(
+  () => store.days.value.find((d) => d.opensInNights === 0) ?? null,
 )
 
-const lockedNote = computed(() => {
-  // Nothing left to name once the week is done, so don't point at day 1 again.
-  if (store.weekComplete.value) return 'Every session this week is logged. Well played.'
-  const next = store.days.value.find((d) => d.id === nextUpId.value)
-  return `Recovery counts. Day ${next?.dayNumber} opens ${nextSessionLabel.value}.`
+/** A day the plan schedules nothing for. Not the same as having finished. */
+const restDay = computed(() => store.days.value.length > 0 && !scheduledToday.value)
+
+/** "Day 3 opens Thursday", for whichever session they are waiting on. */
+const nextUpNote = computed(() => {
+  const next = store.nextUp.value
+  if (!next) return ''
+  return `Day ${next.dayNumber} opens ${nightsLabel(next.opensInNights ?? 1, store.now.value)}.`
 })
+
+const title = computed(() => {
+  if (!store.trainingLocked.value) return 'Today’s session'
+  if (store.weekComplete.value) return 'Week complete'
+  if (store.sessionToday.value) return 'Today is logged'
+  return restDay.value ? 'Rest day' : 'Nothing open today'
+})
+
+const subtitle = computed(() =>
+  store.trainingLocked.value
+    ? 'One session a day, on the day the plan sets it.'
+    : 'Your day is open. The rest are there to read, not to log.',
+)
+
+/**
+ * Why the Start buttons are away, in one line.
+ *
+ * The banner exists because an inert list is indistinguishable from a broken
+ * one. Each branch names the reason and, where there is one, the date it lifts.
+ */
+const lockedNote = computed(() => {
+  if (store.weekComplete.value) return 'Every session this week is logged. Well played.'
+  if (store.sessionToday.value) return `Recovery counts. ${nextUpNote.value}`
+  if (restDay.value) return `No session scheduled today. ${nextUpNote.value}`
+  return nextUpNote.value
+})
+
+const lockedIcon = computed(() => {
+  if (store.sessionToday.value || store.weekComplete.value) return 'check'
+  return restDay.value ? 'moon' : 'lock'
+})
+
+const lockedHeading = computed(() => {
+  if (store.sessionToday.value) return `${store.sessionToday.value.label} is in the log`
+  if (store.weekComplete.value) return 'That is the week done'
+  return restDay.value ? 'Rest day' : 'Nothing to log today'
+})
+
+const CHIP_ACCENT = 'bg-rose-soft text-rose'
+const CHIP_QUIET = 'bg-fill-subtle text-muted'
+
+/**
+ * The rows, each with the one chip that says where it stands.
+ *
+ * Every row carries one, so the list reads as a schedule rather than as a menu
+ * with some items greyed out: what is done, what is open, and the date each
+ * closed day comes round. Resolved here rather than in the template so the
+ * branch is read once per day per render instead of once per binding.
+ */
+const rows = computed(() =>
+  store.days.value.map((day) => {
+    if (day.status === 'completed') {
+      return { day, chip: { text: 'Logged', cls: CHIP_ACCENT } }
+    }
+    if (day.canStart) return { day, chip: { text: 'Open now', cls: CHIP_ACCENT } }
+    if (day.status === 'missed') return { day, chip: { text: 'Missed', cls: CHIP_QUIET } }
+    return {
+      day,
+      chip: {
+        text: `Opens ${nightsLabel(day.opensInNights ?? 1, store.now.value)}`,
+        cls: CHIP_QUIET,
+      },
+    }
+  }),
+)
 </script>
 
 <template>
   <div class="picker pt-(--screen-pad-top) px-5 pb-0 lg:p-0">
     <ScreenIntro
-      :eyebrow="`${store.clock.value.label} · log workout`"
-      :title="store.trainingLocked.value ? 'Today is logged' : 'Pick today\u2019s session'"
-      :subtitle="
-        store.trainingLocked.value
-          ? 'One session a day. The next one opens tomorrow.'
-          : 'Tap a day to start logging sets.'
-      "
+      :eyebrow="`${store.clock.value.label} · Day ${store.clock.value.dayInWeek}`"
+      :title="title"
+      :subtitle="subtitle"
     />
 
-    <!-- Says why the list is inert, so a locked row isn't just unresponsive. -->
-    <div v-if="store.trainingLocked.value" class="picker__locked flex items-center gap-3 mt-5 py-3.5 px-4.5 rounded-card bg-rose-softer border border-rose-ring">
-      <span class="picker__locked-icon w-8.5 h-8.5 rounded-pill bg-rose-fill text-on-rose grid place-items-center shrink-0"><AppIcon name="check" :size="16" /></span>
+    <!-- Says why no row offers to start, so a day without a Start button reads
+         as a rule rather than as the screen having failed. -->
+    <div v-if="store.trainingLocked.value && store.days.value.length" class="picker__locked flex items-center gap-3 mt-5 py-3.5 px-4.5 rounded-card bg-rose-softer border border-rose-ring">
+      <span class="picker__locked-icon w-8.5 h-8.5 rounded-pill bg-rose-fill text-on-rose grid place-items-center shrink-0"><AppIcon :name="lockedIcon" :size="16" /></span>
       <span class="picker__locked-text flex flex-col gap-0.5 min-w-0 [&_strong]:font-display [&_strong]:font-black [&_strong]:text-[14.5px] [&_strong]:text-ink [&_small]:text-[12.5px] [&_small]:text-muted">
-        <strong>{{ store.sessionToday.value?.label }} is in the log</strong>
+        <strong>{{ lockedHeading }}</strong>
         <small>{{ lockedNote }}</small>
       </span>
     </div>
@@ -73,44 +121,45 @@ const lockedNote = computed(() => {
     </NuxtLink>
 
     <div class="picker__list flex flex-col gap-2.75 pt-7 lg:grid lg:grid-cols-2 lg:gap-4 lg:pt-6">
-      <component
-        :is="rowTag(day)"
-        v-for="day in store.days.value"
+      <!--
+        Every row is a link, the closed ones included.
+
+        A day the calendar has not reached is still the coach's plan for
+        Thursday, and a member who wants to read what is coming should be able
+        to. What a closed day withholds is the Start button on the other side,
+        not the door — `canStart` is the only thing the session screen gates on.
+      -->
+      <NuxtLink
+        v-for="{ day, chip } in rows"
         :key="day.id"
-        :to="day.status === 'locked' ? undefined : `/train/${day.id}`"
-        class="day flex items-center gap-3 p-4.5 rounded-card bg-raised border border-hairline filter-(--drop-md) text-ink [&.day--done]:border-rose-ring [&.day--locked]:opacity-55 [&.day--locked]:cursor-default [&.day--locked_.day__badge]:bg-fill-subtle [&.day--locked_.day__badge]:text-muted lg:transition-[translate,box-shadow] lg:duration-150 lg:ease-[ease] lg:hover:-translate-y-0.5 lg:hover:shadow-raised lg:[&.day--locked:hover]:translate-none lg:[&.day--locked:hover]:shadow-none"
+        :to="`/train/${day.id}`"
+        class="day flex items-center gap-3 p-4.5 rounded-card bg-raised border border-hairline filter-(--drop-md) text-ink [&.day--done]:border-rose-ring [&.day--shut]:opacity-70 [&.day--shut_.day__badge]:bg-fill-subtle [&.day--shut_.day__badge]:text-muted lg:transition-[translate,box-shadow] lg:duration-150 lg:ease-[ease] lg:hover:-translate-y-0.5 lg:hover:shadow-raised"
         :class="{
           'day--done': day.status === 'completed',
-          'day--locked': day.status === 'locked',
+          'day--shut': !day.canStart && day.status !== 'completed',
         }"
       >
         <span class="day__badge w-10.5 h-10.5 rounded-[14px] bg-rose-soft text-rose grid place-items-center shrink-0 text-[13px] font-bold tabular-nums">
           <AppIcon v-if="day.status === 'completed'" name="check" :size="16" />
-          <AppIcon v-else-if="day.status === 'locked'" name="lock" :size="16" />
+          <AppIcon v-else-if="!day.canStart" name="lock" :size="16" />
           <span v-else>D{{ day.dayNumber }}</span>
         </span>
 
         <span class="day__text flex-1 min-w-0 flex flex-col gap-0.5">
           <span class="day__title font-display font-black text-[15.5px] tracking-[-0.2325px] text-ink">Day {{ day.dayNumber }}: {{ day.label }}</span>
           <span class="day__meta flex items-center gap-2 pt-0.75 text-[12.5px] text-soft">
-            <span>{{ day.exercises.length }} exercises · {{ setsFor(day.exercises) }} sets</span>
-            <span v-if="day.status === 'completed'" class="day__logged shrink-0 py-0.5 px-1.75 rounded-pill bg-rose-soft text-rose text-[11px]">Logged</span>
+            <span class="truncate">{{ day.exercises.length }} exercises · {{ setsFor(day.exercises) }} sets</span>
             <span
-              v-else-if="day.id === nextUpId"
-              class="day__logged day__logged--soon shrink-0 py-0.5 px-1.75 rounded-pill bg-fill-subtle text-muted text-[11px]"
+              class="day__chip shrink-0 py-0.5 px-1.75 rounded-pill text-[11px]"
+              :class="chip.cls"
             >
-              Tomorrow
+              {{ chip.text }}
             </span>
           </span>
         </span>
 
-        <AppIcon
-          v-if="day.status !== 'locked'"
-          name="chevronRight"
-          :size="16"
-          class="day__chev text-muted shrink-0"
-        />
-      </component>
+        <AppIcon name="chevronRight" :size="16" class="day__chev text-muted shrink-0" />
+      </NuxtLink>
     </div>
 
     <!--

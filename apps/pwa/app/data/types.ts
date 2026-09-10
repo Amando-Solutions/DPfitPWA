@@ -926,8 +926,36 @@ export type MemberGate =
 
 /** A plan day with this member's progress resolved against it. */
 export interface WorkoutDayView extends WorkoutDay {
-  /** `locked`: next in the plan, but today's session is already logged. */
-  status: 'completed' | 'today' | 'upcoming' | 'rest' | 'locked'
+  /**
+   * Where this day sits on the member's calendar, not whether they may train.
+   *
+   *   `completed`  logged in this challenge week.
+   *   `today`      the day the plan schedules for today.
+   *   `upcoming`   still ahead of them this week.
+   *   `missed`     its date has passed and nothing was logged against it.
+   *
+   * The schedule comes off `joinedAt`, so day 3 is open on the third day of the
+   * member's week and on no other. A day being `today` is necessary for logging
+   * but not sufficient — see `canStart`.
+   */
+  status: 'completed' | 'today' | 'upcoming' | 'missed'
+  /**
+   * Whether logging can begin on this day right now.
+   *
+   * The one thing the screens gate the Start button on. False on every day the
+   * calendar has not reached, every day it has gone past, and on today's own
+   * day once a session is in the log — the plan is one session, on its day.
+   * Opening a day to read it is never gated; only starting one is.
+   */
+  canStart: boolean
+  /**
+   * Nights until this day next comes round, `0` when that is today.
+   *
+   * Carried on the view because the screens all want to say *when* rather than
+   * just "locked", and the wrap to next week is calendar arithmetic no template
+   * should be doing. `null` when the plan numbers it outside a seven-day week.
+   */
+  opensInNights: number | null
 }
 
 export interface GuideView extends Guide {

@@ -98,6 +98,24 @@ export const startOfNextDay = (date: Date): Date => {
 }
 
 /**
+ * When something `nights` away lands, in the words a member would use:
+ * "today", "tomorrow", "Thursday", "next Monday".
+ *
+ * A weekday name rather than a date, because these are all inside the coming
+ * week and "Thursday" is the form somebody can act on without counting. Seven
+ * nights out names the same weekday as today, so it takes the "next" prefix to
+ * keep it from reading as this morning.
+ */
+export const nightsLabel = (nights: number, from: Date = trustedNow()): string => {
+  if (nights <= 0) return 'today'
+  if (nights === 1) return 'tomorrow'
+  const at = new Date(from)
+  at.setDate(at.getDate() + nights)
+  const weekday = at.toLocaleDateString(undefined, { weekday: 'long' })
+  return nights >= 7 ? `next ${weekday}` : weekday
+}
+
+/**
  * The current time, corrected by the last known network offset.
  *
  * A reading taken from the network this session needs no guarding. Between

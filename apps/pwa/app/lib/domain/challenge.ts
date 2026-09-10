@@ -66,6 +66,19 @@ export interface ChallengeClock {
   /** 1-based week, clamped to the programme length. */
   week: number
   totalWeeks: number
+  /**
+   * Where today sits in the training week, 1-7.
+   *
+   * This is what decides which authored day is open for logging: a
+   * `WorkoutDay` numbers itself by its position in the week, so the day whose
+   * `dayNumber` matches this one is today's session and the rest are not yet
+   * theirs to start.
+   *
+   * Counted off the raw elapsed days rather than `dayInChallenge`, which is
+   * clamped to the programme length: past the final day the clamp would pin
+   * this to one weekday forever, and the week has to keep turning.
+   */
+  dayInWeek: number
   title: string
   subtitle: string
   /**
@@ -90,6 +103,7 @@ export const challengeClock = (
   const elapsed = daysSince(joinedAt, now)
   const dayInChallenge = capped(elapsed + 1, shape.totalDays)
   const week = capped(Math.floor(elapsed / 7) + 1, shape.totalWeeks)
+  const dayInWeek = (elapsed % 7) + 1
   // No fallback to the first theme: a program with none authored has nothing to
   // fall back to, and inventing "Foundation" for it would be the fixture again.
   const theme = shape.weekThemes.find((t) => t.weekNumber === week) ?? null
@@ -99,6 +113,7 @@ export const challengeClock = (
     totalDays: shape.totalDays,
     week,
     totalWeeks: shape.totalWeeks,
+    dayInWeek,
     title: theme?.title ?? '',
     subtitle: theme?.subtitle ?? '',
     label: theme?.title ? `Week ${week} · ${theme.title}` : `Week ${week}`,
@@ -115,3 +130,17 @@ export const challengeClock = (
  */
 export const weekOf = (joinedAt: Timestamp, at: Timestamp, totalWeeks = 0): number =>
   capped(Math.floor(daysSince(joinedAt, at.toDate()) / 7) + 1, totalWeeks)
+
+/**
+ * Nights between today and the next time `dayNumber` comes round, 0 if it is
+ * today's slot. `null` for a day the week has no room for.
+ *
+ * The training week is seven days long whatever the plan's session count, so
+ * this wraps: on day 4 of the week, day 2 is not two days behind, it is five
+ * days ahead, which is the date a member is actually waiting on.
+ */
+export const nightsUntilDayNumber = (
+  dayNumber: number,
+  dayInWeek: number,
+): number | null =>
+  dayNumber >= 1 && dayNumber <= 7 ? (dayNumber - dayInWeek + 7) % 7 : null
