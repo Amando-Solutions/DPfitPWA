@@ -14,6 +14,7 @@ import {
 import type { ActivityLevel, HeightUnits, Units } from '~/data/types'
 
 const store = useAppStore()
+const router = useRouter()
 
 /*
   This screen mirrors setup, field for field, because it is where every setup
@@ -29,6 +30,11 @@ const store = useAppStore()
 
   Sign out moved to the More menu. It was the single destructive control at the
   bottom of a form people open to change their weight.
+
+  Past `lg` it comes back, because there is no More there to hold it: the side
+  rail promotes what the "More" tab covers and drops the tab itself, so this is
+  the only screen a desktop member can sign out from. It stays desktop-only,
+  and the phone keeps the arrangement above.
 */
 const WEIGHT_UNITS = [
   { id: 'kg', label: 'kg' },
@@ -136,6 +142,14 @@ const toggles = computed(() => [
   { key: 'coachMessages' as const, label: 'Coach messages', value: store.prefs.value.coachMessages },
   { key: 'weeklyCheckInReminder' as const, label: 'Weekly check-in reminder', value: store.prefs.value.weeklyCheckInReminder },
 ])
+
+// --- Sign out (desktop only) ------------------------------------------------
+// Same confirmation the More menu uses, so the two entry points behave alike.
+const showSignOut = ref(false)
+const signOut = async () => {
+  await store.signOut()
+  await router.push('/access-code')
+}
 
 const startWeight = computed(() => profile.value?.startWeightKg ?? null)
 const change = computed(() => {
@@ -359,6 +373,19 @@ const SNAPSHOT_VALUE = 'text-[17px] font-bold text-on-inverse tabular-nums'
           </div>
         </AppCard>
       </section>
+
+      <!-- Hidden below `lg`, where the More menu owns this. -->
+      <section class="hidden lg:flex lg:flex-col lg:gap-2.5">
+        <span :class="SECTION_LABEL">Account</span>
+        <AppButton variant="danger" @click="showSignOut = true">Sign out</AppButton>
+      </section>
     </div>
+
+    <BottomSheet v-model="showSignOut" title="Do you want to sign out?">
+      <div class="grid grid-cols-2 gap-3">
+        <AppButton variant="secondary" @click="showSignOut = false">Cancel</AppButton>
+        <AppButton variant="danger" @click="signOut">Sign out</AppButton>
+      </div>
+    </BottomSheet>
   </div>
 </template>
