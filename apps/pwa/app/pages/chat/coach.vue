@@ -11,6 +11,7 @@ import type {
   TypingPeer,
 } from '~/data/types'
 import { toggledReactions } from '~/lib/chat'
+import { trustedTimestamp } from '~/lib/time'
 import type { PendingAttachment } from '~/lib/attachments'
 
 const data = useDataSourceClient()
@@ -142,6 +143,38 @@ const send = async (payload: {
 }
 
 /**
+ * Rewrite a message, on screen first and in the document behind it.
+ *
+ * Drawn before it is written, like a reaction and for the same reason: the
+ * member is looking at the bubble they just corrected, and a round trip between
+ * the tap and the words changing is the whole of what the interaction feels
+ * like. The watcher settles the real document a moment later — including the
+ * server's `editedAt`, which is the one field this cannot guess.
+ *
+ * A refusal puts the old words back and rethrows, so the composer can hand the
+ * member their correction along with the reason it did not go. Rethrowing is
+ * the point: swallowing it here would leave the thread showing an edit the
+ * server never took.
+ */
+const editMessage = async (payload: { messageId: string; text: string }) => {
+  const before = messages.value.find((m) => m.id === payload.messageId)
+  if (!before) return
+
+  const apply = (message: ChatMessageView) => {
+    messages.value = messages.value.map((m) => (m.id === payload.messageId ? message : m))
+  }
+
+  apply({ ...before, text: payload.text, editedAt: trustedTimestamp() })
+
+  try {
+    apply(await data.editMessage('coach', payload.messageId, payload.text))
+  } catch (cause) {
+    apply(before)
+    throw cause
+  }
+}
+
+/**
  * Hold a message to react.
  *
  * Drawn before it is written. The toggle is decided by the chip the member
@@ -190,6 +223,7 @@ const react = async (payload: { messageId: string; emoji: string }) => {
         class="dm-page__view [&_.chat__composer]:pb-[calc(16px+env(safe-area-inset-bottom))] [&_.chat__header]:hidden"
         :storage-full="storageFull"
         :send="send"
+        :edit="editMessage"
         @react="react"
         @typing="(on: boolean) => data.setTyping('coach', on)"
       />

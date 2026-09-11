@@ -1,7 +1,8 @@
 import { Timestamp } from 'firebase/firestore'
 
+import { EDIT_WINDOW_MS } from '~/lib/chat'
 import { storage } from '~/lib/storage'
-import { trustedTimestamp } from '~/lib/time'
+import { trustedNow, trustedTimestamp } from '~/lib/time'
 import {
   DataSourceError,
   type ActiveSessionInput,
@@ -190,6 +191,7 @@ const withViewer = (message: Message, viewerUid: string, mine: string[]): ChatMe
     // Seeds and anything stored before replies existed have no such field. See
     // the note on the Firestore implementation's `viewOf`.
     replyTo: message.replyTo ?? null,
+    editedAt: message.editedAt ?? null,
     isSelf: message.authorUid === viewerUid,
     reactions,
   }
@@ -663,6 +665,7 @@ export class LocalDataSource implements DataSource {
       isCoach: false,
       text,
       sentAt: trustedTimestamp(),
+      editedAt: null,
       attachments,
       replyTo,
       reactionCounts: {},
@@ -699,6 +702,54 @@ export class LocalDataSource implements DataSource {
   ): Promise<Unsubscribe> {
     onTyping([])
     return () => {}
+  }
+
+  /**
+   * Rewrite a sent message, inside the window.
+   *
+   * Only what this device has sent can be rewritten, and that is not a rule
+   * being enforced so much as the shape of the store: the seeded half of the
+   * thread is a constant in the bundle, so there is nothing to write back to.
+   * A member who somehow aims an edit at a seeded message is told it is not
+   * theirs, which is both true and the same sentence Firestore would give.
+   */
+  async editMessage(
+    threadId: ThreadId,
+    messageId: string,
+    text: string,
+  ): Promise<ChatMessageView> {
+    const trimmed = text.trim()
+    if (!trimmed) {
+      throw new DataSourceError('An edited message still has to say something.')
+    }
+
+    const viewer = (await this.getAuthUser())?.uid ?? 'me'
+    const all = storage.read<Record<string, Message[]>>(KEY.messages, {})
+    const thread = all[threadId] ?? []
+    const target = thread.find((m) => m.id === messageId)
+
+    if (!target) {
+      throw new DataSourceError('You can only edit your own messages.', 'not-author')
+    }
+    if (target.authorUid !== viewer) {
+      throw new DataSourceError('You can only edit your own messages.', 'not-author')
+    }
+    if (trustedNow().getTime() - target.sentAt.toMillis() >= EDIT_WINDOW_MS) {
+      throw new DataSourceError(
+        'That message is too old to edit now.',
+        'edit-window-closed',
+      )
+    }
+
+    const edited: Message = { ...target, text: trimmed, editedAt: trustedTimestamp() }
+    storage.write(KEY.messages, {
+      ...all,
+      [threadId]: thread.map((m) => (m.id === messageId ? edited : m)),
+    })
+    await this.publishThread(threadId)
+
+    const reactions = storage.read<Record<string, string[]>>(KEY.reactions, {})
+    return withViewer(edited, viewer, reactions[`${threadId}:${messageId}`] ?? [])
   }
 
   async toggleReaction(

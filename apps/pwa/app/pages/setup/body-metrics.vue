@@ -92,18 +92,26 @@ const canContinue = computed(
   () => inRange(weightKg.value, 30, 300) && inRange(heightCm.value, 100, 250),
 )
 
+// Frozen for the write, released only if it fails — see `about-you`.
 const busy = ref(false)
+const error = ref('')
 const next = async () => {
+  if (busy.value) return
   busy.value = true
-  await store.saveProfile({
-    weightKg: weightKg.value,
-    heightCm: heightCm.value,
-    // The weight they started at is fixed here, and every later check-in compares
-    // against it rather than overwriting it.
-    startWeightKg: store.profile.value?.startWeightKg ?? weightKg.value,
-  })
-  busy.value = false
-  router.push('/setup/activity-goal')
+  error.value = ''
+  try {
+    await store.saveProfile({
+      weightKg: weightKg.value,
+      heightCm: heightCm.value,
+      // The weight they started at is fixed here, and every later check-in compares
+      // against it rather than overwriting it.
+      startWeightKg: store.profile.value?.startWeightKg ?? weightKg.value,
+    })
+    await router.push('/setup/activity-goal')
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Could not save that. Check your connection and try again.'
+    busy.value = false
+  }
 }
 
 const FIELD_HEAD = 'mb-1.5 flex items-center justify-between gap-2'
@@ -119,6 +127,7 @@ const FIELD_LABEL = 'text-[13px] text-soft'
     subtitle="Weight and height set your daily food targets. Nothing here is shared with the group."
     :can-continue="canContinue"
     :busy="busy"
+    :error="error"
     @continue="next"
   >
     <AppCard variant="raised" class="flex flex-col gap-4.5 p-4.75">

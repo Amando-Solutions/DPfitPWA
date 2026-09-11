@@ -6,6 +6,24 @@ const store = useAppStore()
 
 const hasUnread = computed(() => store.unreadNotifications.value > 0)
 
+/**
+ * "Mark all read", in flight.
+ *
+ * The button hides itself once the write lands — `hasUnread` goes false — but
+ * that is after the round trip, and the taps in between are the whole problem:
+ * each one is another pass over every unread notification.
+ */
+const marking = ref(false)
+const markAllRead = async () => {
+  if (marking.value) return
+  marking.value = true
+  try {
+    await store.markAllNotificationsRead()
+  } finally {
+    marking.value = false
+  }
+}
+
 // Opening the inbox is the read receipt for whatever is on screen.
 onMounted(() => {
   store.notifications.value.forEach((n) => {
@@ -25,8 +43,12 @@ const accentFor = (type: string) => (type === 'coach' ? 'orange' : 'rose')
       class="inbox__header mb-3"
     >
       <template v-if="hasUnread" #actions>
-        <button class="inbox__mark shrink-0 p-0 text-[12.5px] font-bold text-rose" @click="store.markAllNotificationsRead()">
-          Mark all read
+        <button
+          class="inbox__mark shrink-0 p-0 text-[12.5px] font-bold text-rose disabled:opacity-45"
+          :disabled="marking"
+          @click="markAllRead"
+        >
+          {{ marking ? 'Marking…' : 'Mark all read' }}
         </button>
       </template>
     </ScreenIntro>

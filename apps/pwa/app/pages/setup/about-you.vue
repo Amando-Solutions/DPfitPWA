@@ -17,16 +17,28 @@ const canContinue = computed(
   () => displayName.value.trim().length > 1 && !!age.value && age.value > 12 && !!sex.value,
 )
 
+/*
+  The step is frozen for the whole write, so `busy` is only put back on the
+  failure path: on the way through, the next route is what replaces the screen,
+  and unfreezing first would flash the answers back into play for a frame.
+*/
 const busy = ref(false)
+const error = ref('')
 const next = async () => {
+  if (busy.value) return
   busy.value = true
-  await store.saveProfile({
-    displayName: displayName.value.trim(),
-    age: age.value,
-    sex: sex.value as Sex,
-  })
-  busy.value = false
-  router.push('/setup/body-metrics')
+  error.value = ''
+  try {
+    await store.saveProfile({
+      displayName: displayName.value.trim(),
+      age: age.value,
+      sex: sex.value as Sex,
+    })
+    await router.push('/setup/body-metrics')
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Could not save that. Check your connection and try again.'
+    busy.value = false
+  }
 }
 </script>
 
@@ -39,6 +51,7 @@ const next = async () => {
     subtitle="This name shows up in Cohort Chat and nowhere else."
     :can-continue="canContinue"
     :busy="busy"
+    :error="error"
     @continue="next"
   >
     <AppCard variant="raised" class="form-card flex flex-col gap-4">

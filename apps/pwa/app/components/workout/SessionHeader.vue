@@ -14,6 +14,14 @@ const props = withDefaults(
     imageUrl?: string
     /** Label for the right-hand button. Omitted, and no button is drawn. */
     action?: string
+    /**
+     * Freezes the action button.
+     *
+     * The save screen sets it while a write is open: this button and the one
+     * at the foot of that screen run the same handler, and it is the one that
+     * stays on screen and in reach when the body below it is frozen.
+     */
+    actionDisabled?: boolean
     unit?: Units
   }>(),
   { unit: 'kg' },
@@ -79,7 +87,8 @@ const STAT_VALUE = 'text-[17px] font-bold tabular-nums'
         -->
         <button
           v-if="action"
-          class="shrink-0 rounded-pill bg-on-photo/14 px-4 py-2 text-[13px] font-bold text-on-photo transition-opacity duration-100 active:opacity-70"
+          class="shrink-0 rounded-pill bg-on-photo/14 px-4 py-2 text-[13px] font-bold text-on-photo transition-opacity duration-100 active:opacity-70 disabled:opacity-45"
+          :disabled="actionDisabled"
           @click="emit('action')"
         >
           {{ action }}

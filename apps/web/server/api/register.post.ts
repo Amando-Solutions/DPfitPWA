@@ -43,6 +43,29 @@ const REFERENCE_COOKIE_MAX_AGE = 3 * 60 * 60
 type NamedRegistration = Registration & { firstName: string; lastName: string }
 
 /**
+ * A real IANA zone, in the spelling the rest of the system uses, or a 400.
+ *
+ * `Intl` rather than a list of our own, and rather than the one the picker in
+ * `RegisterSection.vue` is built from. It is the same zone database the browser
+ * chose from, it cannot go stale against the one shipped to the page, and it
+ * canonicalises on the way through: a caller that is not the form and sends a
+ * legacy spelling — `US/Eastern`, `EST5EDT` — has it folded onto
+ * `America/New_York` rather than refused, because refusing a zone that is
+ * genuinely a zone would cost a sale to buy nothing.
+ *
+ * Deliberately wider than the 315 rows the picker offers, then, and narrow
+ * only where it counts: "Lagos, WAT" throws. Which is the one thing this gives
+ * up — a registration taken before the picker cannot be replayed through here.
+ */
+const canonicalTimezone = (value: string) => {
+  try {
+    return new Intl.DateTimeFormat('en-GB', { timeZone: value }).resolvedOptions().timeZone
+  } catch {
+    throw createError({ statusCode: 400, statusMessage: 'Invalid timezone.' })
+  }
+}
+
+/**
  * The same five checks the form makes, made again.
  *
  * Not redundant: the client-side copy in `RegisterSection.vue` is there to give
@@ -75,13 +98,18 @@ const validate = (body: Record<string, unknown>): NamedRegistration => {
   const firstName = text('firstName', 60)
   const lastName = text('lastName', 60)
 
+  // Picked from a list now rather than typed, so this is checked for what it
+  // claims to be instead of merely measured: what reaches Firestore is a zone
+  // the cohort document can be read against, not somebody's spelling of a city.
+  const timezone = canonicalTimezone(text('timezone', 120))
+
   return {
     firstName,
     lastName,
     fullName: `${firstName} ${lastName}`,
     email,
     whatsapp,
-    timezone: text('timezone', 120),
+    timezone,
   }
 }
 

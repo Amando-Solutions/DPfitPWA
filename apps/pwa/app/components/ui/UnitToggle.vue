@@ -16,6 +16,15 @@ defineProps<{
   options: { id: string; label: string }[]
   /** Names the control for screen readers, e.g. "Weight unit". */
   label: string
+  /**
+   * Frozen while the preference it sets is being written.
+   *
+   * Forwarded to the group rather than left to fall through: the root here is
+   * a RadioGroup, and an unclaimed `disabled` would land on its wrapper div and
+   * disable nothing. Reka passes it down to every option, which is what the
+   * `disabled:opacity-45` in `radioGroupItemVariants` is drawn from.
+   */
+  disabled?: boolean
 }>()
 
 defineEmits<{ (e: 'update:modelValue', v: string): void }>()
@@ -26,6 +35,7 @@ defineEmits<{ (e: 'update:modelValue', v: string): void }>()
     :model-value="modelValue"
     orientation="horizontal"
     :aria-label="label"
+    :disabled="disabled"
     class="flex shrink-0 gap-0.5 rounded-pill bg-fill-subtle p-0.75"
     @update:model-value="$emit('update:modelValue', $event as string)"
   >

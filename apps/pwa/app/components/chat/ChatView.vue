@@ -12,13 +12,14 @@ import {
 } from '~/lib/attachments'
 import {
   TYPING_IDLE_MS,
+  canEditMessage,
   continuesRun,
   replyPreview,
   replyRefFor,
   typingLabel,
 } from '~/lib/chat'
 import { storage } from '~/lib/storage'
-import { formatTime } from '~/lib/time'
+import { formatTime, trustedNow } from '~/lib/time'
 
 const props = withDefaults(
   defineProps<{
@@ -57,6 +58,16 @@ const props = withDefaults(
       attachments: PendingAttachment[]
       replyTo: ChatReplyRef | null
     }) => Promise<void>
+    /**
+     * Rewrite a message this member already sent. Awaited for the reason `send`
+     * is: the thread is the only place a refusal can be shown, and the member
+     * has to get their correction back if it does not land.
+     *
+     * Optional, and the hold menu offers editing only when it is here — a
+     * thread mounted without it is one nobody can rewrite, which is a decision
+     * the screen mounting it gets to make rather than one hidden in here.
+     */
+    edit?: (payload: { messageId: string; text: string }) => Promise<void>
   }>(),
   { placeholder: 'Say something…', storageFull: false, typing: () => [] },
 )
@@ -235,6 +246,10 @@ let flashTimer: ReturnType<typeof setTimeout> | null = null
 const startReply = (id: string) => {
   const target = props.messages.find((m) => m.id === id)
   if (!target) return
+  // One strip above the field, one draft in it, so a reply ends an edit — and
+  // `cancelEdit` puts back the draft the edit stashed, which is very often the
+  // message the member was about to reply with anyway.
+  cancelEdit()
   replyingTo.value = target
   navigator.vibrate?.(8)
   // Focusing raises the keyboard, which is the point: a reply that needs a
@@ -245,6 +260,47 @@ const startReply = (id: string) => {
 const cancelReply = () => {
   replyingTo.value = null
 }
+
+// --- Editing ---------------------------------------------------------------
+/**
+ * The sent message the composer is rewriting, or `null` when it is writing a
+ * new one. The whole message, like `replyingTo`, so the strip can show it and
+ * `submitEdit` can tell a real correction from a member who changed nothing.
+ */
+const editing = ref<ChatMessageView | null>(null)
+
+/**
+ * The draft that was in the composer when the edit started.
+ *
+ * Stashed rather than dropped. Noticing a typo in the message you just sent,
+ * while halfway through the next one, is precisely when this feature gets used;
+ * losing the half-written message in order to fix the sent one would be a bad
+ * trade to make silently.
+ */
+const beforeEdit = ref('')
+
+const startEdit = (id: string) => {
+  const target = props.messages.find((m) => m.id === id)
+  if (!target) return
+  // Only on the way in. Editing a second message without leaving the first
+  // must not stash the first message's text as "the draft to go back to".
+  if (!editing.value) beforeEdit.value = draft.value
+  editing.value = target
+  replyingTo.value = null
+  draft.value = target.text
+  navigator.vibrate?.(8)
+  nextTick(() => composer.value?.focus())
+}
+
+const cancelEdit = () => {
+  if (!editing.value) return
+  editing.value = null
+  draft.value = beforeEdit.value
+  beforeEdit.value = ''
+}
+
+/** Esc backs out of whatever the composer is currently attached to. */
+const onEscape = () => (editing.value ? cancelEdit() : cancelReply())
 
 // --- Saying that you are typing --------------------------------------------
 /**
@@ -336,6 +392,10 @@ const GESTURE_SLOP_PX = 10
 
 /** Six emoji, a divider and the reply button, plus the bar's own padding. */
 const BAR_WIDTH = 296
+
+/** The edit button, on the messages that still have one. Widens the bar. */
+const EDIT_BUTTON_PX = 36
+
 const BAR_HEIGHT = 46
 
 /**
@@ -344,9 +404,14 @@ const BAR_HEIGHT = 46
  * Plain numbers rather than the DOMRect: a rect read through a reactive proxy
  * throws, because its getters need the real object as `this`.
  */
-const reacting = ref<{ id: string; top: number; bottom: number; left: number } | null>(
-  null,
-)
+const reacting = ref<{
+  id: string
+  top: number
+  bottom: number
+  left: number
+  /** Whether this message is still the member's to rewrite. Settled on open. */
+  canEdit: boolean
+} | null>(null)
 
 /** The bubble under a finger right now, so it can give while it is held. */
 const pressing = ref('')
@@ -564,7 +629,20 @@ const movePress = (event: PointerEvent) => {
 
 const openReactions = (id: string, bubble: HTMLElement) => {
   const box = bubble.getBoundingClientRect()
-  reacting.value = { id, top: box.top, bottom: box.bottom, left: box.left }
+  const message = props.messages.find((m) => m.id === id)
+
+  // Settled here, once, rather than by a timer re-testing every message on
+  // screen against a deadline that moves for each of them. The menu is open for
+  // seconds; the window is a quarter of an hour. Holding it open until the
+  // window shuts offers an edit that `editMessage` then refuses in words —
+  // which is the right way round, because the member finds out by trying rather
+  // than by watching a button disappear under their thumb.
+  //
+  // `trustedNow`, not `Date.now`: the window is not the device's to extend.
+  const canEdit =
+    Boolean(props.edit) && !!message && canEditMessage(message, trustedNow().getTime())
+
+  reacting.value = { id, top: box.top, bottom: box.bottom, left: box.left, canEdit }
   navigator.vibrate?.(12)
 }
 
@@ -598,7 +676,8 @@ const pickerStyle = computed(() => {
   const above = anchor.top - BAR_HEIGHT - 18
   const top =
     above > 8 ? above : Math.min(anchor.bottom + 10, window.innerHeight - BAR_HEIGHT - 8)
-  const left = Math.min(Math.max(8, anchor.left), window.innerWidth - BAR_WIDTH - 8)
+  const width = BAR_WIDTH + (anchor.canEdit ? EDIT_BUTTON_PX : 0)
+  const left = Math.min(Math.max(8, anchor.left), window.innerWidth - width - 8)
   return { top: `${Math.round(top)}px`, left: `${Math.round(left)}px` }
 })
 
@@ -621,6 +700,20 @@ const replyFromPicker = () => {
   if (id) startReply(id)
 }
 
+/**
+ * Edit from the hold menu, which is the only way in — as it is in WhatsApp.
+ *
+ * No gesture for this one, deliberately. A swipe and a double tap are worth
+ * spending on reply and react, which happen constantly and are trivially
+ * undone; rewriting what you already said is rarer and is not undoable, and is
+ * worth the two deliberate taps it costs here.
+ */
+const editFromPicker = () => {
+  const id = reacting.value?.id
+  reacting.value = null
+  if (id) startEdit(id)
+}
+
 // A hold that scrolls out of view would leave the bar floating over nothing.
 const closePicker = () => (reacting.value = null)
 
@@ -637,8 +730,17 @@ const sending = ref(false)
 /** Why the last send did not go, in the member's words. */
 const sendError = ref('')
 
-const canSend = computed(
-  () => !sending.value && Boolean(draft.value.trim() || pending.value.length),
+/**
+ * An edit has to have words in it, and that is the whole difference.
+ *
+ * Photos cannot rescue an empty one the way they can an empty send: emptying a
+ * message down to nothing is a delete wearing an edit's clothes, and this is
+ * not the control for that.
+ */
+const canSend = computed(() =>
+  editing.value
+    ? !sending.value && Boolean(draft.value.trim())
+    : !sending.value && Boolean(draft.value.trim() || pending.value.length),
 )
 
 /**
@@ -651,6 +753,46 @@ const canSend = computed(
 const reportFailure = (cause: unknown) => {
   console.error('[chat] send failed', cause)
   sendError.value = cause instanceof Error ? cause.message : 'Could not send that. Try again.'
+}
+
+/**
+ * Save a correction.
+ *
+ * The composer is cleared before the write is acknowledged, like a text send
+ * and for the same reason: the screen above already shows the new words — the
+ * page applies them the moment it is asked — so leaving them in the box too
+ * would just be a second copy of the message, sitting under the first.
+ *
+ * Everything needed to undo that is captured first, so a refusal — the window
+ * having closed while they typed, a connection that was not there — puts the
+ * member back exactly where they were, correction and all, rather than
+ * discarding the words and leaving the old ones standing.
+ */
+const submitEdit = () => {
+  const target = editing.value
+  if (!target || !props.edit) return
+
+  const next = draft.value.trim()
+  // Unchanged is not an edit. Writing it anyway would hang "Edited" on a
+  // message nobody edited, which is the one thing that label must never say.
+  if (next === target.text) return cancelEdit()
+
+  const stashed = beforeEdit.value
+  editing.value = null
+  beforeEdit.value = ''
+  draft.value = ''
+  sendError.value = ''
+  stopTyping()
+
+  props.edit({ messageId: target.id, text: next }).catch((cause) => {
+    reportFailure(cause)
+    // Unless they have started something else in the meantime, in which case
+    // what they are writing now matters more than the edit they watched fail.
+    if (draft.value || editing.value || replyingTo.value) return
+    editing.value = target
+    beforeEdit.value = stashed
+    draft.value = next
+  })
 }
 
 /**
@@ -677,6 +819,7 @@ const reportFailure = (cause: unknown) => {
  */
 const submit = () => {
   if (!canSend.value) return
+  if (editing.value) return submitEdit()
 
   const text = draft.value.trim()
   const items = pending.value
@@ -977,6 +1120,10 @@ watch(
 // up behind it on a thread that was sitting exactly at the bottom. The typing
 // indicator is a row at the end of the thread and does the same.
 watch(replyingTo, (target) => {
+  if (target && atEnd()) scrollToEnd()
+})
+
+watch(editing, (target) => {
   if (target && atEnd()) scrollToEnd()
 })
 
@@ -1412,6 +1559,21 @@ const TOOL =
                         <p v-if="m.text" class="m-0 wrap-break-word whitespace-pre-wrap">
                           {{ m.text }}
                         </p>
+
+                        <!--
+                          Inside the bubble rather than out by the time, because
+                          the time is drawn once for a whole run and this is
+                          true of one message in it. It says that the words
+                          above are not the words that were sent, which is the
+                          reader's business; when they changed is not, so no
+                          date and no history — the same as WhatsApp.
+                        -->
+                        <span
+                          v-if="m.editedAt"
+                          class="self-end text-[9px] leading-none opacity-60"
+                        >
+                          Edited
+                        </span>
                       </BubbleContent>
 
                       <!--
@@ -1552,12 +1714,35 @@ const TOOL =
       </p>
 
       <!--
+        What is being rewritten, above the field it is being rewritten in.
+        Shares the reply strip's slot and its shape — one accent bar, one line
+        of context, one way out — because they are the same promise: the field
+        below is attached to that message, and this is how you detach it.
+      -->
+      <div
+        v-if="editing"
+        class="flex items-center gap-2.5 rounded-xl border-l-[3px] border-rose-fill bg-raised py-2 pr-1.5 pl-3 shadow-card"
+      >
+        <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span class="text-[11px] font-bold text-rose">Editing message</span>
+          <span class="truncate text-[12px] text-muted">{{ editing.text }}</span>
+        </div>
+        <button
+          class="grid size-8 shrink-0 place-items-center rounded-full text-muted"
+          aria-label="Cancel edit"
+          @click="cancelEdit"
+        >
+          <AppIcon name="close" :size="14" :stroke="2.4" />
+        </button>
+      </div>
+
+      <!--
         What is being answered, above the field it will be answered in. The
         accent bar is the same one the sent quote carries, so the strip and the
         bubble it becomes are recognisably the same thing.
       -->
       <div
-        v-if="replyingTo"
+        v-else-if="replyingTo"
         class="flex items-center gap-2.5 rounded-xl border-l-[3px] border-rose-fill bg-raised py-2 pr-1.5 pl-3 shadow-card"
       >
         <div class="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -1626,14 +1811,22 @@ const TOOL =
             ref="composer"
             v-model="draft"
             class="h-full min-w-0 flex-1 border-none bg-transparent text-sm text-ink outline-none"
-            :placeholder="replyingTo ? 'Write your reply…' : placeholder"
+            :placeholder="
+              editing ? 'Edit your message…' : replyingTo ? 'Write your reply…' : placeholder
+            "
             @keyup.enter="submit"
-            @keyup.esc="cancelReply"
+            @keyup.esc="onEscape"
           />
+          <!--
+            Both are off while a message is being edited: an edit rewrites the
+            words of a message that has already been sent, and the photos on it
+            went to Cloud Storage with it. Disabled rather than hidden, so the
+            field does not change width the moment an edit starts.
+          -->
           <button
             :class="TOOL"
             aria-label="Attach a file"
-            :disabled="reading || sending || roomLeft <= 0"
+            :disabled="reading || sending || roomLeft <= 0 || Boolean(editing)"
             @click="openPicker(attachInput)"
           >
             <AppIcon name="paperclip" :size="19" :stroke="1.9" />
@@ -1641,7 +1834,7 @@ const TOOL =
           <button
             :class="TOOL"
             aria-label="Take a photo"
-            :disabled="reading || sending || roomLeft <= 0"
+            :disabled="reading || sending || roomLeft <= 0 || Boolean(editing)"
             @click="openPicker(cameraInput)"
           >
             <AppIcon name="camera" :size="19" />
@@ -1655,10 +1848,12 @@ const TOOL =
           class="grid size-12 shrink-0 place-items-center rounded-full bg-rose-fill text-on-rose transition-[transform,opacity,background-color] duration-100 ease-out active:scale-[0.94] motion-reduce:transition-none motion-reduce:active:scale-100"
           :class="!canSend && 'opacity-45'"
           :disabled="!canSend"
-          aria-label="Send"
+          :aria-label="editing ? 'Save edit' : 'Send'"
           @click="submit"
         >
-          <AppIcon name="send" :size="18" fill />
+          <!-- A tick, not a paper plane: this one is not going anywhere new. -->
+          <AppIcon v-if="editing" name="check" :size="19" :stroke="2.6" />
+          <AppIcon v-else name="send" :size="18" fill />
         </button>
       </div>
 
@@ -1715,6 +1910,22 @@ const TOOL =
             @click="replyFromPicker"
           >
             <AppIcon name="reply" :size="18" :stroke="2" />
+          </button>
+
+          <!--
+            Only on the member's own messages, and only while they are still
+            young enough to change. See `canEditMessage`: the absence of this
+            button is the whole of how the window is communicated, which is why
+            it is decided when the menu opens rather than while it is up.
+          -->
+          <button
+            v-if="reacting.canEdit"
+            class="grid size-9 place-items-center rounded-full text-muted transition-colors duration-150 hover:bg-rose-soft hover:text-rose"
+            role="menuitem"
+            aria-label="Edit this message"
+            @click="editFromPicker"
+          >
+            <AppIcon name="edit" :size="18" :stroke="2" />
           </button>
         </div>
       </div>

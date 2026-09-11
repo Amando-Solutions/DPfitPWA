@@ -346,6 +346,26 @@ export interface DataSource {
   ): Promise<ChatMessageView>
 
   /**
+   * Rewrite the text of a message this member already sent.
+   *
+   * Text only. The attachments, the reply it answers and everyone's reactions
+   * stay exactly as they are — none of them is the thing being corrected, and a
+   * reaction left on a message whose words have changed is still a reaction to
+   * that message. Resolves to the message as it now stands.
+   *
+   * Throws `edit-window-closed` once the message is older than
+   * `EDIT_WINDOW_MS`, and `not-author` for somebody else's. Both are checked
+   * here *and* in the security rules, deliberately: the check here is what
+   * gives the member a sentence they can read, and the rule is what makes the
+   * window real, since anything a client enforces a client can skip.
+   */
+  editMessage(
+    threadId: ThreadId,
+    messageId: string,
+    text: string,
+  ): Promise<ChatMessageView>
+
+  /**
    * Add the member's reaction to a message, or take it back off if it is
    * already there. Resolves to that message's reactions as they now stand,
    * counting everyone's.
@@ -493,6 +513,10 @@ export class DataSourceError extends Error {
       | 'code-wrong-email'
       | 'not-found'
       | 'unauthenticated'
+      /** The fifteen minutes a sent message can be rewritten in are up. */
+      | 'edit-window-closed'
+      /** An edit aimed at somebody else's message. */
+      | 'not-author'
       /** The link was opened on a device that never requested it. */
       | 'needs-email'
       | 'expired-link'

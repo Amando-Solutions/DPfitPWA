@@ -24,6 +24,7 @@ export interface Registration {
   fullName: string
   email: string
   whatsapp: string
+  /** An IANA zone, e.g. `Africa/Lagos` — picked from a list, not typed. */
   timezone: string
 }
 

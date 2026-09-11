@@ -470,6 +470,20 @@ export class HttpDataSource implements DataSource {
     }
   }
 
+  /**
+   * A PATCH, because an edit changes one field of a message that already
+   * exists. The window and the authorship are the backend's to enforce; this
+   * sends the correction and surfaces whatever it says about it — see `send`,
+   * which turns a refusal into a `DataSourceError` with the server's sentence.
+   */
+  editMessage(threadId: ThreadId, messageId: string, text: string) {
+    return this.send<ChatMessageView>(
+      `/threads/${threadId}/messages/${messageId}`,
+      'PATCH',
+      { text },
+    )
+  }
+
   toggleReaction(threadId: ThreadId, messageId: string, emoji: string) {
     return this.send<ChatReaction[]>(
       `/threads/${threadId}/messages/${messageId}/reactions`,

@@ -18,15 +18,23 @@ const showActivity = ref(false)
 
 const canContinue = computed(() => !!activity.value && !!goal.value)
 
+// Frozen for the write, released only if it fails — see `about-you`.
 const busy = ref(false)
+const error = ref('')
 const next = async () => {
+  if (busy.value) return
   busy.value = true
-  await store.saveProfile({
-    activity: activity.value as ActivityLevel,
-    goal: goal.value as Goal,
-  })
-  busy.value = false
-  router.push('/setup/safety-call')
+  error.value = ''
+  try {
+    await store.saveProfile({
+      activity: activity.value as ActivityLevel,
+      goal: goal.value as Goal,
+    })
+    await router.push('/setup/safety-call')
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Could not save that. Check your connection and try again.'
+    busy.value = false
+  }
 }
 </script>
 
@@ -39,6 +47,7 @@ const next = async () => {
     subtitle="This just fine-tunes your daily numbers — everyone's doing the same challenge either way."
     :can-continue="canContinue"
     :busy="busy"
+    :error="error"
     @continue="next"
   >
     <AppCard variant="raised" class="form-card flex flex-col gap-5.5">

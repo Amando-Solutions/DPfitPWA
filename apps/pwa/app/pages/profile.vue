@@ -11,7 +11,7 @@ import {
   fromDisplayWeight,
   toDisplayWeight,
 } from '~/lib/domain/nutrition'
-import type { ActivityLevel, HeightUnits, Units } from '~/data/types'
+import type { ActivityLevel, HeightUnits, MemberPreferences, Units } from '~/data/types'
 
 const store = useAppStore()
 const router = useRouter()
@@ -81,21 +81,70 @@ const flashSaved = () => {
 }
 onBeforeUnmount(() => savedTimer && clearTimeout(savedTimer))
 
-const persist = async () => {
-  await store.saveProfile({
-    displayName: displayName.value.trim(),
-    weightKg: weightKg.value,
-    heightCm: heightCm.value,
-    activity: (activity.value || undefined) as ActivityLevel,
-    healthConditions: healthConditions.value.trim(),
-    injuries: injuries.value.trim(),
-    // Held back while it is malformed, rather than blocking the whole save.
-    // Every other field on this screen blur-saves through here, and losing an
-    // edit to the weight field because a phone number is half-typed would be a
-    // strange way to enforce a phone number.
-    ...(whatsappError.value ? {} : { whatsapp: whatsapp.value.trim() }),
-  })
-  flashSaved()
+/**
+ * A profile write is open, and both cards are frozen for it.
+ *
+ * This screen has no button to press, but it is a write flow like any other:
+ * `persist` sends *every* field on it in one patch, so the moment it is called
+ * the whole card has been read. A field that still takes input after that is a
+ * field whose value is no longer the one being saved — and the next blur
+ * starts a second patch built from the half-edited state, racing the first over
+ * the same document.
+ *
+ * Which is why both cards freeze and not just the field that was left: the
+ * patch covers "Your details" and "Coach only" together, so that is the scope
+ * of the write.
+ */
+const savingProfile = ref(false)
+const profileError = ref('')
+
+/**
+ * Where focus was going when the blur that started the save fired.
+ *
+ * Blur-saving and freezing pull against each other: leaving a field is what
+ * starts the write, and the write is what takes the field away — so without
+ * this, clicking from one box to the next would drop the caret on the floor
+ * and the member would have to click again to carry on. `relatedTarget` on the
+ * blur names the control they were moving to, and focus is handed back to it
+ * once the write lands. Keystrokes during the freeze are still refused; that
+ * part is the point.
+ */
+let focusAfterSave: HTMLElement | null = null
+
+const persist = async (ev?: FocusEvent) => {
+  if (savingProfile.value) return
+  focusAfterSave = (ev?.relatedTarget as HTMLElement | null) ?? null
+  savingProfile.value = true
+  profileError.value = ''
+  try {
+    await store.saveProfile({
+      displayName: displayName.value.trim(),
+      weightKg: weightKg.value,
+      heightCm: heightCm.value,
+      activity: (activity.value || undefined) as ActivityLevel,
+      healthConditions: healthConditions.value.trim(),
+      injuries: injuries.value.trim(),
+      // Held back while it is malformed, rather than blocking the whole save.
+      // Every other field on this screen blur-saves through here, and losing an
+      // edit to the weight field because a phone number is half-typed would be a
+      // strange way to enforce a phone number.
+      ...(whatsappError.value ? {} : { whatsapp: whatsapp.value.trim() }),
+    })
+    flashSaved()
+  } catch (cause) {
+    profileError.value =
+      cause instanceof Error
+        ? cause.message
+        : 'Could not save that. Check your connection and try again.'
+  } finally {
+    savingProfile.value = false
+    const next = focusAfterSave
+    focusAfterSave = null
+    // After the re-render that lifts `inert`: focusing a still-inert element
+    // does nothing.
+    await nextTick()
+    if (next?.isConnected) next.focus()
+  }
 }
 
 // --- Units -----------------------------------------------------------------
@@ -103,9 +152,40 @@ const persist = async () => {
 const units = computed(() => store.prefs.value.units)
 const heightUnits = computed(() => store.prefs.value.heightUnits)
 
-const setUnits = (value: string) => store.savePreferences({ units: value as Units })
+/**
+ * Which preference is being written, if any.
+ *
+ * Every preference control on this screen — both unit toggles and the three
+ * switches — writes the same `prefs` document, and `savePreferences` replaces
+ * it with whatever comes back. Two of them open at once is two replacements
+ * racing, and the one that lands second wins regardless of which was asked
+ * for second: flip a switch while a unit toggle is still in the air and the
+ * switch can be undone by an answer built before it was touched.
+ *
+ * So a write freezes every preference control, not only the one that started
+ * it. They are one row of switches over one document, which is the scope the
+ * write actually covers.
+ */
+const savingPrefs = ref(false)
+const prefsError = ref('')
+
+const setPreference = async (patch: Partial<MemberPreferences>) => {
+  if (savingPrefs.value) return
+  savingPrefs.value = true
+  prefsError.value = ''
+  try {
+    await store.savePreferences(patch)
+  } catch (cause) {
+    prefsError.value =
+      cause instanceof Error ? cause.message : 'Could not save that preference.'
+  } finally {
+    savingPrefs.value = false
+  }
+}
+
+const setUnits = (value: string) => setPreference({ units: value as Units })
 const setHeightUnits = (value: string) =>
-  store.savePreferences({ heightUnits: value as HeightUnits })
+  setPreference({ heightUnits: value as HeightUnits })
 
 const weightShown = computed(() =>
   weightKg.value === null ? null : toDisplayWeight(weightKg.value, units.value),
@@ -146,9 +226,21 @@ const toggles = computed(() => [
 // --- Sign out (desktop only) ------------------------------------------------
 // Same confirmation the More menu uses, so the two entry points behave alike.
 const showSignOut = ref(false)
+/*
+  Guarded like a write, because it is one: the session goes, and "Cancel" while
+  it is going cannot put it back. Both buttons in the sheet freeze, not just the
+  one that was pressed.
+*/
+const signingOut = ref(false)
 const signOut = async () => {
-  await store.signOut()
-  await router.push('/access-code')
+  if (signingOut.value) return
+  signingOut.value = true
+  try {
+    await store.signOut()
+    await router.push('/access-code')
+  } catch {
+    signingOut.value = false
+  }
 }
 
 const startWeight = computed(() => profile.value?.startWeightKg ?? null)
@@ -211,11 +303,22 @@ const SNAPSHOT_VALUE = 'text-[17px] font-bold text-on-inverse tabular-nums'
       <div class="flex items-center justify-between">
         <span :class="SECTION_LABEL">Your details</span>
         <Transition name="fade">
-          <span v-if="saved" class="text-[12px] text-rose">Saved</span>
+          <span v-if="savingProfile" class="text-[12px] text-muted">Saving…</span>
+          <span v-else-if="saved" class="text-[12px] text-rose">Saved</span>
         </Transition>
       </div>
 
-      <AppCard variant="raised" class="flex flex-col gap-4.5">
+      <!-- Frozen for the write. The status line above and the failure below sit
+           outside the card on purpose: `inert` takes everything in it out of the
+           accessibility tree, and those two are the only things worth hearing
+           while it is. -->
+      <AppCard
+        variant="raised"
+        class="flex flex-col gap-4.5 transition-opacity duration-150"
+        :class="savingProfile && 'opacity-60'"
+        :inert="savingProfile"
+        :aria-busy="savingProfile || undefined"
+      >
         <TextField v-model="displayName" label="Display name" @blur="persist" />
 
         <!-- The number the coach uses to add somebody to the cohort's group
@@ -240,6 +343,7 @@ const SNAPSHOT_VALUE = 'text-[17px] font-bold text-on-inverse tabular-nums'
               :model-value="units"
               :options="WEIGHT_UNITS"
               label="Weight unit"
+              :disabled="savingPrefs"
               @update:model-value="setUnits"
             />
           </div>
@@ -261,6 +365,7 @@ const SNAPSHOT_VALUE = 'text-[17px] font-bold text-on-inverse tabular-nums'
               :model-value="heightUnits"
               :options="HEIGHT_UNITS"
               label="Height unit"
+              :disabled="savingPrefs"
               @update:model-value="setHeightUnits"
             />
           </div>
@@ -314,13 +419,25 @@ const SNAPSHOT_VALUE = 'text-[17px] font-bold text-on-inverse tabular-nums'
           </div>
         </div>
       </AppCard>
+
+      <p v-if="profileError" role="alert" class="m-0 text-[12.5px] font-bold text-rose">
+        {{ profileError }}
+      </p>
     </section>
 
     <div class="profile__right contents lg:[grid-area:right] lg:flex lg:flex-col lg:gap-4.5 lg:self-start">
       <!-- Coach only -->
       <section :class="SECTION">
         <span :class="SECTION_LABEL">Coach only</span>
-        <AppCard variant="raised" class="flex flex-col gap-4.5">
+        <!-- Frozen with the card above it: one `persist` sends both, so both
+             are inside the same write. -->
+        <AppCard
+          variant="raised"
+          class="flex flex-col gap-4.5 transition-opacity duration-150"
+          :class="savingProfile && 'opacity-60'"
+          :inert="savingProfile"
+          :aria-busy="savingProfile || undefined"
+        >
           <div>
             <label class="mb-2.5 block text-[13px] text-soft" for="health">
               Health conditions
@@ -365,12 +482,20 @@ const SNAPSHOT_VALUE = 'text-[17px] font-bold text-on-inverse tabular-nums'
             :class="ROW"
           >
             <span :class="ROW_LABEL">{{ toggle.label }}</span>
+            <!-- Every switch freezes while any one of them is writing: they
+                 share a document, and a second flip mid-write is resolved by
+                 whichever reply lands last rather than by what was asked. -->
             <Switch
               :model-value="toggle.value"
               :aria-label="toggle.label"
-              @update:model-value="store.savePreferences({ [toggle.key]: $event })"
+              :disabled="savingPrefs"
+              @update:model-value="setPreference({ [toggle.key]: $event })"
             />
           </div>
+
+          <p v-if="prefsError" role="alert" class="m-0 text-[12.5px] font-bold text-rose">
+            {{ prefsError }}
+          </p>
         </AppCard>
       </section>
 
@@ -383,8 +508,12 @@ const SNAPSHOT_VALUE = 'text-[17px] font-bold text-on-inverse tabular-nums'
 
     <BottomSheet v-model="showSignOut" title="Do you want to sign out?">
       <div class="grid grid-cols-2 gap-3">
-        <AppButton variant="secondary" @click="showSignOut = false">Cancel</AppButton>
-        <AppButton variant="danger" @click="signOut">Sign out</AppButton>
+        <AppButton variant="secondary" :disabled="signingOut" @click="showSignOut = false">
+          Cancel
+        </AppButton>
+        <AppButton variant="danger" :disabled="signingOut" @click="signOut">
+          {{ signingOut ? 'Signing out…' : 'Sign out' }}
+        </AppButton>
       </div>
     </BottomSheet>
   </div>

@@ -25,20 +25,43 @@ const note = ref(existing.value?.note ?? '')
 
 const canSubmit = computed(() => energy.value !== null && trainingFeel.value !== null)
 
+/*
+  The form is frozen for the length of the write, not just the button.
+
+  Every field below feeds one document, and they are all read in the same tick
+  the request is built. A stepper that still moves, or a textarea that still
+  takes keys, after that read means the member is editing a check-in that has
+  already gone — and this is the one form in the app that can be submitted
+  twice for the same week, so a second press while the first is open writes the
+  week twice.
+
+  `saving` only goes back to false when something throws. On the way through,
+  /check-in/saved replaces this screen, and unfreezing first would hand the form
+  back for a frame.
+*/
 const saving = ref(false)
+const error = ref('')
 const submit = async () => {
   if (!canSubmit.value || saving.value) return
   saving.value = true
-  await store.saveCheckIn({
-    workoutsDone: workoutsDone.value,
-    nutritionPct: nutritionPct.value,
-    energy: energy.value,
-    trainingFeel: trainingFeel.value,
-    pain: pain.value.trim(),
-    note: note.value.trim(),
-  })
-  saving.value = false
-  router.replace('/check-in/saved')
+  error.value = ''
+  try {
+    await store.saveCheckIn({
+      workoutsDone: workoutsDone.value,
+      nutritionPct: nutritionPct.value,
+      energy: energy.value,
+      trainingFeel: trainingFeel.value,
+      pain: pain.value.trim(),
+      note: note.value.trim(),
+    })
+    await router.replace('/check-in/saved')
+  } catch (cause) {
+    error.value =
+      cause instanceof Error
+        ? cause.message
+        : 'Could not save your check-in. Check your connection and try again.'
+    saving.value = false
+  }
 }
 </script>
 
@@ -57,7 +80,17 @@ const submit = async () => {
       Stamped automatically · week {{ store.clock.value.week }}
     </span>
 
-    <form class="checkin__card flex flex-col gap-3 p-4.5 bg-raised border border-hairline rounded-card filter-(--drop-md) lg:p-6 lg:gap-4" @submit.prevent="submit">
+    <!-- `inert` while saving, so the whole card stops taking input rather than
+         only the button dimming. It also closes the one way the picker sheet
+         could be opened mid-write: the sheet is teleported out of this form, so
+         freezing its trigger is what keeps it shut. -->
+    <form
+      class="checkin__card flex flex-col gap-3 p-4.5 bg-raised border border-hairline rounded-card filter-(--drop-md) transition-opacity duration-150 lg:p-6 lg:gap-4"
+      :class="saving && 'opacity-60'"
+      :inert="saving"
+      :aria-busy="saving || undefined"
+      @submit.prevent="submit"
+    >
       <div class="checkin__row grid grid-cols-[1fr_1fr] gap-3">
         <NumberStepper v-model="workoutsDone" label="Workouts done" :max="14" />
         <NumberStepper v-model="nutritionPct" label="Nutrition (%)" :max="100" :step="5" />
@@ -109,6 +142,17 @@ const submit = async () => {
         Rate your energy and how training felt to submit.
       </p>
     </form>
+
+    <!-- Outside the card on purpose: `inert` takes the form out of the
+         accessibility tree, so a message printed inside it would not be
+         announced on the one occasion it matters. -->
+    <p
+      v-if="error"
+      role="alert"
+      class="checkin__error mt-3 mb-0 mx-0 text-center text-[13px] font-bold text-rose"
+    >
+      {{ error }}
+    </p>
 
     <BottomSheet v-model="showFeel" title="How did training feel?">
       <div class="checkin__options flex flex-col gap-2.5">

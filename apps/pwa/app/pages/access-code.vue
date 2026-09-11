@@ -387,7 +387,11 @@ watch([code, email], () => {
       a click and an Enter cannot both fire it.
     -->
     <form novalidate @submit.prevent="submit">
-      <AppCard variant="raised" class="access__card flex flex-col gap-4 shadow-raised">
+      <AppCard
+        variant="raised"
+        class="access__card flex flex-col gap-4 shadow-raised"
+        :aria-busy="busy !== '' || undefined"
+      >
         <!-- First, because it is the shortest way through. One tap settles the
              address, and it arrives carrying a name and a picture the setup form
              would otherwise have to ask for. The field below is for anyone whose
@@ -408,40 +412,61 @@ watch([code, email], () => {
           </div>
         </template>
 
-        <TextField
-          v-if="phase === 'code'"
-          v-model="code"
-          label="Access code"
-          placeholder="ENTER YOUR CODE"
-          mono
-          :error="error"
-        />
-        <TextField
-          v-else-if="phase === 'email' || confirmingEmail"
-          v-model="email"
-          label="Email address"
-          type="email"
-          inputmode="email"
-          placeholder="you@example.com"
-          :error="error"
-        />
-        <!-- `blocked` has nothing to type. The read failed, so the only fact
-             worth printing is why, and the only useful control is the retry
-             below. Carried here rather than on a field's `:error` because
-             there is no field on this step. -->
-        <p
-          v-else-if="phase === 'blocked'"
-          class="access__blocked m-0 text-[14px] leading-normal text-(--violet-45)"
+        <!--
+          The field is frozen for as long as the request it started is open.
+
+          Every button on this card already goes dead while `busy` is set; the
+          box they read from did not, so an address or a code could still be
+          retyped after the value had been taken and sent. Whichever answer
+          came back then belonged to a string no longer on screen — and on the
+          code step, a redemption is one-shot, so the member would be looking
+          at a code that had just been spent on something they could no longer
+          see.
+
+          A wrapper rather than a `disabled` prop on TextField: only one arm of
+          this chain renders, so it is still a single item in the card's column
+          and the layout is unchanged.
+        -->
+        <div
+          class="transition-opacity duration-150"
+          :class="busy !== '' && 'opacity-60'"
+          :inert="busy !== ''"
         >
-          {{ error || 'Check your connection, then try again. An ad blocker or privacy extension can block it too.' }}
-        </p>
-        <p
-          v-else
-          class="access__sent m-0 text-[14px] leading-normal text-(--violet-45)"
-        >
-          We’ve sent a link to <strong>{{ email }}</strong>. Open it on this
-          device and you’ll come straight back here.
-        </p>
+          <TextField
+            v-if="phase === 'code'"
+            v-model="code"
+            label="Access code"
+            placeholder="ENTER YOUR CODE"
+            mono
+            :error="error"
+          />
+          <TextField
+            v-else-if="phase === 'email' || confirmingEmail"
+            v-model="email"
+            label="Email address"
+            type="email"
+            inputmode="email"
+            placeholder="you@example.com"
+            :error="error"
+          />
+          <!-- `blocked` has nothing to type. The read failed, so the only fact
+               worth printing is why, and the only useful control is the retry
+               below. Carried here rather than on a field's `:error` because
+               there is no field on this step. -->
+          <p
+            v-else-if="phase === 'blocked'"
+            class="access__blocked m-0 text-[14px] leading-normal text-(--violet-45)"
+          >
+            {{ error || 'Check your connection, then try again. An ad blocker or privacy extension can block it too.' }}
+          </p>
+          <p
+            v-else
+            class="access__sent m-0 text-[14px] leading-normal text-(--violet-45)"
+          >
+            We’ve sent a link to <strong>{{ email }}</strong>. Open it on this
+            device and you’ll come straight back here.
+          </p>
+        </div>
 
         <AppButton
           v-if="phase !== 'sent' || confirmingEmail"

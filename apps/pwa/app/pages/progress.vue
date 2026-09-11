@@ -14,7 +14,14 @@ const poseTabs = poses.map((id) => ({ id, label: id }))
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const error = ref('')
-const busy = ref(false)
+
+/**
+ * Which write is open. One ref for both, because the pose picker and the
+ * lightbox are the same library seen twice and neither should move while the
+ * other is writing.
+ */
+const pending = ref<'' | 'add' | 'delete'>('')
+const busy = computed(() => pending.value !== '')
 
 /** Newest week first, each with its three poses. */
 const byWeek = computed(() => {
@@ -32,9 +39,9 @@ const add = () => fileInput.value?.click()
 const onFile = async (event: Event) => {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
-  if (!file) return
+  if (!file || pending.value) return
   error.value = ''
-  busy.value = true
+  pending.value = 'add'
   try {
     // Decode and downscale here; the store hands the result to the data
     // source, which is what decides where the bytes actually live.
@@ -42,19 +49,32 @@ const onFile = async (event: Event) => {
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Could not add that photo.'
   } finally {
-    busy.value = false
+    pending.value = ''
     input.value = ''
   }
 }
 
 // --- Lightbox --------------------------------------------------------------
 const active = ref<ProgressPhoto | null>(null)
-const close = () => (active.value = null)
+// Refuses to close mid-delete: the panel is the only thing naming the photo
+// that is being removed, and Escape and the scrim both land here.
+const close = () => {
+  if (pending.value) return
+  active.value = null
+}
 
 const remove = async () => {
-  if (!active.value) return
-  await store.deletePhoto(active.value.id)
-  close()
+  if (!active.value || pending.value) return
+  error.value = ''
+  pending.value = 'delete'
+  try {
+    await store.deletePhoto(active.value.id)
+    active.value = null
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Could not delete that photo.'
+  } finally {
+    pending.value = ''
+  }
 }
 
 const takenLabel = formatDate
@@ -70,8 +90,16 @@ const takenLabel = formatDate
       class="progress__header lg:[grid-area:header]"
     />
 
-    <AppCard variant="raised" class="progress__capture flex flex-col gap-3.5 lg:[grid-area:capture] lg:sticky lg:top-0">
-      <SegmentedTabs v-model="pose" :tabs="poseTabs" />
+    <!-- The pose picker is frozen alongside the button: it names what is being
+         uploaded, and a tab that still moves while the bytes are in the air
+         says the photo is being filed somewhere it is not. -->
+    <AppCard
+      variant="raised"
+      class="progress__capture flex flex-col gap-3.5 transition-opacity duration-150 lg:[grid-area:capture] lg:sticky lg:top-0"
+      :class="busy && 'opacity-60'"
+      :aria-busy="busy || undefined"
+    >
+      <SegmentedTabs v-model="pose" :tabs="poseTabs" :disabled="busy" />
       <input
         ref="fileInput"
         class="progress__file hidden"
@@ -81,9 +109,15 @@ const takenLabel = formatDate
         @change="onFile"
       />
       <AppButton :disabled="busy" @click="add">
-        {{ busy ? 'Adding…' : `Add ${pose} photo · Week ${store.clock.value.week}` }}
+        {{
+          pending === 'add'
+            ? 'Adding…'
+            : pending === 'delete'
+              ? 'Deleting…'
+              : `Add ${pose} photo · Week ${store.clock.value.week}`
+        }}
       </AppButton>
-      <p v-if="error" class="progress__error -mt-1 mx-0 mb-0 text-[12px] leading-[1.45] text-muted text-center text-rose font-bold">{{ error }}</p>
+      <p v-if="error" role="alert" class="progress__error -mt-1 mx-0 mb-0 text-[12px] leading-[1.45] text-muted text-center text-rose font-bold">{{ error }}</p>
       <p v-else class="progress__note -mt-1 mx-0 mb-0 text-[12px] leading-[1.45] text-muted text-center">
         Stored on this device only. Your coach sees them when you share a check-in.
       </p>
@@ -95,7 +129,11 @@ const takenLabel = formatDate
         <EyebrowLabel tone="muted">Week {{ group.weekNumber }}</EyebrowLabel>
         <span class="progress__week-count tabular-nums text-[12.5px] text-rose">{{ group.photos.length }}/3</span>
       </div>
-        <div class="progress__grid grid grid-cols-[repeat(3,_1fr)] gap-2.5 lg:grid-cols-[repeat(4,_1fr)] lg:gap-3.5">
+        <div
+          class="progress__grid grid grid-cols-[repeat(3,_1fr)] gap-2.5 transition-opacity duration-150 lg:grid-cols-[repeat(4,_1fr)] lg:gap-3.5"
+          :class="busy && 'opacity-60'"
+          :inert="busy"
+        >
           <button
             v-for="photo in group.photos"
             :key="photo.id"
@@ -148,7 +186,13 @@ const takenLabel = formatDate
         <!-- Close is first in the DOM so it, and not Delete, is what the focus
              trap lands on when the lightbox opens. It is absolutely positioned,
              so the order costs nothing visually. -->
-        <DialogClose class="lightbox__close absolute top-2.5 right-2.5 w-9 h-9 rounded-full bg-overlay-medium text-on-photo grid place-items-center" aria-label="Close">
+        <!-- Disabled, not just ignored by `close`: the button has to look shut
+             while the delete it would interrupt is still running. -->
+        <DialogClose
+          class="lightbox__close absolute top-2.5 right-2.5 w-9 h-9 rounded-full bg-overlay-medium text-on-photo grid place-items-center disabled:opacity-45"
+          aria-label="Close"
+          :disabled="busy"
+        >
           <AppIcon name="close" :size="20" :stroke="2.4" />
         </DialogClose>
 
@@ -163,8 +207,24 @@ const takenLabel = formatDate
             <span class="lightbox__pose font-display font-black text-[15px] text-ink capitalize">{{ active.pose }} · Week {{ active.weekNumber }}</span>
             <span class="lightbox__date tabular-nums text-[12px] text-muted">{{ takenLabel(active.takenAt) }}</span>
           </div>
-          <button class="lightbox__delete text-[13px] font-bold text-rose" @click="remove">Delete</button>
+          <button
+            class="lightbox__delete text-[13px] font-bold text-rose disabled:opacity-45"
+            :disabled="busy"
+            @click="remove"
+          >
+            {{ pending === 'delete' ? 'Deleting…' : 'Delete' }}
+          </button>
         </div>
+        <!-- The same `error` the capture card prints, repeated here because a
+             delete that failed happened behind a modal and the card is not on
+             screen to carry it. -->
+        <p
+          v-if="error"
+          role="alert"
+          class="lightbox__error m-0 px-4 pb-3.5 text-[12.5px] font-bold text-rose"
+        >
+          {{ error }}
+        </p>
       </DialogContent>
     </Dialog>
   </div>

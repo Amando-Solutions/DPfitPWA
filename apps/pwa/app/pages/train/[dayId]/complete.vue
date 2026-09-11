@@ -25,9 +25,27 @@ onMounted(() => {
 
 const showError = ref(false)
 const showDiscard = ref(false)
-const saving = ref(false)
 const photoError = ref('')
+const saveError = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
+
+/**
+ * Which write is open, so the screen can freeze for the length of it.
+ *
+ * One ref rather than a flag apiece, because this screen has four separate
+ * writes on it — the proof upload, clearing it, the note, and the save itself —
+ * and they all touch the same session document. Two of them running at once is
+ * two writers racing over `activeSession`; the last to land wins, and which one
+ * that is depends on how long an upload took.
+ *
+ * Everything below the header goes `inert` while it is set, so the freeze is
+ * the whole screen and not just the button that started it. That is what
+ * closes the worst of them: "Discard workout" during a save, which was
+ * reachable the entire time the session was being written and would clear the
+ * document out from under it.
+ */
+const pending = ref<'' | 'photo' | 'save' | 'discard'>('')
+const saving = computed(() => pending.value === 'save')
 
 const totals = computed(() => {
   const exercises = session.value?.exercises ?? []
@@ -81,9 +99,11 @@ const loggedAt = computed(() =>
 const pickPhoto = () => fileInput.value?.click()
 
 const onPhoto = async (event: Event) => {
-  const file = (event.target as HTMLInputElement).files?.[0]
-  if (!file || !session.value) return
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file || !session.value || pending.value) return
   photoError.value = ''
+  pending.value = 'photo'
   try {
     // Uploaded on pick rather than on save: a proof shot that only reaches
     // storage when "Finish" is tapped is one that a closed tab loses along
@@ -92,32 +112,72 @@ const onPhoto = async (event: Event) => {
     showError.value = false
   } catch (cause) {
     photoError.value = cause instanceof Error ? cause.message : 'Could not read that photo.'
+  } finally {
+    pending.value = ''
+    // Cleared so picking the same file again still fires `change`.
+    input.value = ''
   }
 }
 
-const clearPhoto = () => store.clearProofPhoto()
+const clearPhoto = async () => {
+  if (pending.value) return
+  pending.value = 'photo'
+  photoError.value = ''
+  try {
+    await store.clearProofPhoto()
+  } catch (cause) {
+    photoError.value = cause instanceof Error ? cause.message : 'Could not remove that photo.'
+  } finally {
+    pending.value = ''
+  }
+}
 
+/*
+  `change`, not `input`, so this is one write when the member leaves the box
+  rather than one per keystroke — and it is guarded like the rest, because it
+  persists the same session document the save is about to read.
+*/
 const onNote = async (event: Event) => {
-  if (!session.value) return
+  if (!session.value || pending.value) return
   session.value.note = (event.target as HTMLTextAreaElement).value
   await store.persistActiveSession()
 }
 
 const save = async () => {
-  if (saving.value) return
+  if (pending.value) return
   if (day.value?.proofRequired && !session.value?.proofPhoto) {
     showError.value = true
     return
   }
-  saving.value = true
-  const log = await store.finishSession()
-  saving.value = false
-  if (log) router.replace(`/train/${dayId.value}/saved`)
+  saveError.value = ''
+  pending.value = 'save'
+  try {
+    const log = await store.finishSession()
+    // `finishSession` clears the active session, so this screen is already
+    // unmounting; there is nothing to release the freeze for.
+    if (log) await router.replace(`/train/${dayId.value}/saved`)
+    else pending.value = ''
+  } catch (cause) {
+    saveError.value =
+      cause instanceof Error
+        ? cause.message
+        : 'Could not save this workout. Check your connection and try again.'
+    pending.value = ''
+  }
 }
 
 const discard = async () => {
-  await store.discardSession()
-  router.push('/train')
+  if (pending.value) return
+  pending.value = 'discard'
+  try {
+    await store.discardSession()
+    await router.push('/train')
+  } catch (cause) {
+    saveError.value =
+      cause instanceof Error ? cause.message : 'Could not discard this workout.'
+    showDiscard.value = false
+    pending.value = ''
+  }
 }
 </script>
 
@@ -132,10 +192,20 @@ const discard = async () => {
       :unit="units"
       :image-url="day.heroImage?.downloadUrl"
       action="Save"
+      :action-disabled="pending !== ''"
       @action="save"
     />
 
-    <div class="complete__body scroll-y flex-1 min-h-0 p-[20px_20px_110px] flex flex-col gap-3.5 lg:w-full lg:max-w-(--focus-max) lg:m-[0_auto] lg:p-[28px_40px_140px]">
+    <!-- Frozen for the length of any write on this screen. The dropzone, the
+         retake link, the note and "Discard workout" all live in here, and each
+         of them edits the session document that a save in flight has already
+         read. -->
+    <div
+      class="complete__body scroll-y flex-1 min-h-0 p-[20px_20px_110px] flex flex-col gap-3.5 transition-opacity duration-150 lg:w-full lg:max-w-(--focus-max) lg:m-[0_auto] lg:p-[28px_40px_140px]"
+      :class="pending && 'opacity-60'"
+      :inert="pending !== ''"
+      :aria-busy="pending !== '' || undefined"
+    >
       <!-- Proof dropzone -->
       <input
         ref="fileInput"
@@ -212,9 +282,18 @@ const discard = async () => {
       <button class="complete__discard self-center min-h-8 mt-1.5 p-[6px_14px] text-rose font-bold text-[14px]" @click="showDiscard = true">Discard workout</button>
     </div>
 
+    <!-- Outside the frozen body, so the label and any failure stay readable and
+         announced while the screen is inert. -->
     <div class="complete__footer absolute left-4 right-4 bottom-4 lg:left-1/2 lg:right-auto lg:transform-[translateX(-50%)] lg:w-[min(var(--focus-max),100%-80px)] lg:bottom-6">
-      <AppButton :disabled="saving" @click="save">
-        {{ saving ? 'Saving…' : 'Save workout' }}
+      <p
+        v-if="saveError"
+        role="alert"
+        class="complete__save-error mb-2.5 text-center text-[13px] font-bold text-rose"
+      >
+        {{ saveError }}
+      </p>
+      <AppButton :disabled="pending !== ''" @click="save">
+        {{ saving ? 'Saving…' : pending === 'photo' ? 'Uploading photo…' : 'Save workout' }}
       </AppButton>
     </div>
 
@@ -222,9 +301,20 @@ const discard = async () => {
       <p class="ds__body m-[0_0_16px] text-[14px] text-(--violet-45) leading-normal">
         All your logged sets for this session will be lost. This can’t be undone.
       </p>
+      <!-- The sheet is teleported out of the frozen body, so its two buttons
+           carry the guard themselves. Cancel goes too: backing out of a discard
+           that is already running does not un-discard it. -->
       <div class="ds__actions grid grid-cols-2 gap-3">
-        <AppButton variant="secondary" @click="showDiscard = false">Keep it</AppButton>
-        <AppButton variant="danger" @click="discard">Discard workout</AppButton>
+        <AppButton
+          variant="secondary"
+          :disabled="pending !== ''"
+          @click="showDiscard = false"
+        >
+          Keep it
+        </AppButton>
+        <AppButton variant="danger" :disabled="pending !== ''" @click="discard">
+          {{ pending === 'discard' ? 'Discarding…' : 'Discard workout' }}
+        </AppButton>
       </div>
     </BottomSheet>
   </div>

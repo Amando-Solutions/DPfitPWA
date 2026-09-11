@@ -340,9 +340,26 @@ const units = computed(() => store.prefs.value.units)
 
 // --- Leaving ---------------------------------------------------------------
 const showDiscard = ref(false)
+/*
+  Guarded, and both buttons freeze with it.
+
+  Everything else on this screen is a running draft — a set ticked, a weight
+  corrected, the clock — and those persist as they are made, which is why the
+  screen is not frozen for them. This is the one discrete, irreversible act on
+  it: the session document is cleared and "Keep going" cannot bring it back
+  once the write has left, so offering it while the write is open is offering
+  something that is not on the table.
+*/
+const discarding = ref(false)
 const confirmDiscard = async () => {
-  await store.discardSession()
-  router.push('/train')
+  if (discarding.value) return
+  discarding.value = true
+  try {
+    await store.discardSession()
+    await router.push('/train')
+  } catch {
+    discarding.value = false
+  }
 }
 
 const finish = () => router.push(`/train/${dayId.value}/complete`)
@@ -514,8 +531,12 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
         undone.
       </p>
       <div class="discard__actions grid grid-cols-[1fr_1fr] gap-3">
-        <AppButton variant="secondary" @click="showDiscard = false">Keep going</AppButton>
-        <AppButton variant="danger" @click="confirmDiscard">Discard workout</AppButton>
+        <AppButton variant="secondary" :disabled="discarding" @click="showDiscard = false">
+          Keep going
+        </AppButton>
+        <AppButton variant="danger" :disabled="discarding" @click="confirmDiscard">
+          {{ discarding ? 'Discarding…' : 'Discard workout' }}
+        </AppButton>
       </div>
     </BottomSheet>
   </div>

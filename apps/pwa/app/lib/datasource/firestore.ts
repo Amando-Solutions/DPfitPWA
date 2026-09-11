@@ -47,7 +47,7 @@ import {
   firebaseDb,
   firebaseStorage,
 } from '~/lib/firebase/app'
-import { TYPING_REFRESH_MS, TYPING_TTL_MS, typingIsFresh } from '~/lib/chat'
+import { EDIT_WINDOW_MS, TYPING_REFRESH_MS, TYPING_TTL_MS, typingIsFresh } from '~/lib/chat'
 import { weekOf } from '~/lib/domain/challenge'
 import { prescribedSets } from '~/lib/domain/sets'
 import { storage as webStorage } from '~/lib/storage'
@@ -1389,6 +1389,7 @@ export class FirestoreDataSource implements DataSource {
       isCoach: false,
       text,
       sentAt: Timestamp.now(),
+      editedAt: null,
       attachments,
       replyTo,
       reactionCounts: {},
@@ -1502,6 +1503,64 @@ export class FirestoreDataSource implements DataSource {
       if (expiry) clearTimeout(expiry)
       stop()
     }
+  }
+
+  /**
+   * Rewrite a sent message, inside the window and not a second after it.
+   *
+   * A read before the write rather than a transaction, because there is nothing
+   * here to lose a race over: the only field this touches is the author's own
+   * `text`, nobody else may write it, and the author editing from two devices
+   * at once simply gets the later of their two corrections. What the read is
+   * for is the refusal — a member who has held the menu open past the window
+   * deserves the sentence rather than a raw `permission-denied` from the rules.
+   *
+   * `serverTimestamp()` for `editedAt`, never a value from here. "Edited" is a
+   * claim about when, and the client is the one party with a motive to lie
+   * about it; the rule requires the field to equal `request.time`, which is
+   * what a sentinel resolves to and what a number never will.
+   */
+  async editMessage(
+    threadId: ThreadId,
+    messageId: string,
+    text: string,
+  ): Promise<ChatMessageView> {
+    const member = await this.requireMember()
+    const messages = await this.messagesRef(threadId)
+    const messageRef = doc(messages, messageId)
+
+    const trimmed = text.trim()
+    if (!trimmed) {
+      throw new DataSourceError('An edited message still has to say something.')
+    }
+
+    const snap = await getDoc(messageRef)
+    if (!snap.exists()) {
+      throw new DataSourceError('That message is no longer here.', 'not-found')
+    }
+
+    const stored = withId<Message>(snap)
+    if (stored.authorUid !== member.id) {
+      throw new DataSourceError('You can only edit your own messages.', 'not-author')
+    }
+    if (trustedNow().getTime() - stored.sentAt.toMillis() >= EDIT_WINDOW_MS) {
+      throw new DataSourceError(
+        'That message is too old to edit now.',
+        'edit-window-closed',
+      )
+    }
+
+    await updateDoc(messageRef, { text: trimmed, editedAt: serverTimestamp() })
+
+    // The stamp returned is this device's, not the one that committed. It is a
+    // placeholder for the beat before the listener delivers the real document —
+    // `watchMessages` replays the pending write immediately and then confirms
+    // it — and nothing renders the value, only whether there is one.
+    return this.viewOf(
+      { ...stored, text: trimmed, editedAt: Timestamp.now() },
+      member.id,
+      this.myReactions.get(messageRef.path) ?? [],
+    )
   }
 
   async toggleReaction(
@@ -1749,6 +1808,9 @@ export class FirestoreDataSource implements DataSource {
       // `replyTo.authorName` on one is not. Normalised on the way out so the
       // template can trust the type.
       replyTo: message.replyTo ?? null,
+      // Same story, and the same fix: every message sent before editing existed
+      // has no such field, and an absent key is not a message that was edited.
+      editedAt: message.editedAt ?? null,
       isSelf: message.authorUid === viewerUid,
       reactions,
     }

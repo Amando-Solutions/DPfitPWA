@@ -61,9 +61,18 @@ const links = computed(() => [
 // not a setting, and it was the one destructive control sitting at the bottom
 // of a form people scroll through to change their weight.
 const showSignOut = ref(false)
+// Both buttons freeze for the length of it, as they do on the profile screen:
+// the session is already going, and Cancel cannot call it back.
+const signingOut = ref(false)
 const signOut = async () => {
-  await store.signOut()
-  await router.push('/access-code')
+  if (signingOut.value) return
+  signingOut.value = true
+  try {
+    await store.signOut()
+    await router.push('/access-code')
+  } catch {
+    signingOut.value = false
+  }
 }
 
 const initials = computed(() =>
@@ -181,8 +190,12 @@ const initials = computed(() =>
 
     <BottomSheet v-model="showSignOut" title="Do you want to sign out?">
       <div class="grid grid-cols-2 gap-3">
-        <AppButton variant="secondary" @click="showSignOut = false">Cancel</AppButton>
-        <AppButton variant="danger" @click="signOut">Sign out</AppButton>
+        <AppButton variant="secondary" :disabled="signingOut" @click="showSignOut = false">
+          Cancel
+        </AppButton>
+        <AppButton variant="danger" :disabled="signingOut" @click="signOut">
+          {{ signingOut ? 'Signing out…' : 'Sign out' }}
+        </AppButton>
       </div>
     </BottomSheet>
   </div>

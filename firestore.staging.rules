@@ -242,11 +242,38 @@ service cloud.firestore {
             // moved by the increment below.
             && request.resource.data.reactionCounts.size() == 0;
 
-          // Nobody edits a sent message. The only writable part is the
-          // reaction tally, and only ever one emoji at a time.
+          // Two writes may touch a sent message, and nothing else may.
+          //
+          // The first is the reaction tally, moved one emoji at a time by
+          // anyone who can read the thread.
+          //
+          // The second is the author correcting their own words, for fifteen
+          // minutes and then never again — the window in `EDIT_WINDOW_MS`,
+          // enforced here because a limit the client alone applies is a limit
+          // anyone with the SDK can ignore. `hasOnly(['text', 'editedAt'])` is
+          // what keeps an "edit" from being something else wearing its name: an
+          // update free to move `sentAt` could re-date a message back into a
+          // window it has left, one free to move `authorUid` could hand it to
+          // somebody else, and one free to move `reactionCounts` could invent
+          // applause. `editedAt` must be `request.time` rather than a value the
+          // caller chose, because "Edited" is a claim about *when*, and the
+          // caller is the only party with a reason to misstate it.
+          //
+          // The coach's exemption is the one already here: coach tooling runs
+          // on the Admin SDK, which bypasses all of this anyway.
           allow update: if isCoach() || (
             inCohort(cohortId) && myThread()
-            && changed().hasOnly(['reactionCounts'])
+            && (
+              changed().hasOnly(['reactionCounts'])
+              || (
+                changed().hasOnly(['text', 'editedAt'])
+                && resource.data.authorUid == request.auth.uid
+                && request.resource.data.editedAt == request.time
+                && request.resource.data.text is string
+                && request.resource.data.text.size() > 0
+                && request.time < resource.data.sentAt + duration.value(15, 'm')
+              )
+            )
           );
 
           allow delete: if isCoach() || (

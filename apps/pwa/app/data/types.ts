@@ -192,7 +192,11 @@ export interface RegistrationDoc {
   email: string
   /** As typed. Not normalised to E.164 — see `MemberProfile.whatsapp`. */
   whatsapp: string
-  /** Free text: "Lagos, WAT". A human answer, because it picks a call slot. */
+  /**
+   * IANA zone, e.g. `Africa/Lagos`, picked from a list on the landing form —
+   * so it can be read against `Cohort.timezone` rather than only by a person.
+   * Registrations taken before the picker hold free text: "Lagos, WAT".
+   */
   timezone: string
   cohortId: string
   source: RegistrationSource
@@ -851,6 +855,19 @@ export interface MessageDoc {
   /** May be empty when the member is only sharing photos or files. */
   text: string
   sentAt: Timestamp
+  /**
+   * When the author last rewrote this message, or `null` if they never have.
+   *
+   * A stamp rather than a count or a history, because the thread renders
+   * "Edited" and nothing else: what a reader needs to know is that the words
+   * they are looking at are not the words that were sent, and a revision log
+   * nobody can open is weight on every document for a label that never changes.
+   *
+   * Absent entirely on every message sent before editing existed, so it is
+   * normalised on the way out like `replyTo`. See `EDIT_WINDOW_MS` for how long
+   * it can be set, and `firestore.rules` for what makes that true.
+   */
+  editedAt: Timestamp | null
   attachments: ChatAttachment[]
   /** What this message is answering, or `null` when it starts its own thread. */
   replyTo: ChatReplyRef | null

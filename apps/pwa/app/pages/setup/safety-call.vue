@@ -8,16 +8,31 @@ const store = useAppStore()
 const healthConditions = ref(store.profile.value?.healthConditions ?? '')
 const injuries = ref(store.profile.value?.injuries ?? '')
 
+/*
+  Two writes, and the screen stays frozen across both.
+
+  `completeSetup` is what flips the member to `active`, so the gap between it
+  and `saveProfile` is the one moment where an edit to either field would be
+  saved to a profile that is about to be declared finished. Released only if
+  something throws; the success path leaves for /home instead.
+*/
 const busy = ref(false)
+const error = ref('')
 const finish = async () => {
+  if (busy.value) return
   busy.value = true
-  await store.saveProfile({
-    healthConditions: healthConditions.value.trim(),
-    injuries: injuries.value.trim(),
-  })
-  await store.completeSetup()
-  busy.value = false
-  await router.push('/home')
+  error.value = ''
+  try {
+    await store.saveProfile({
+      healthConditions: healthConditions.value.trim(),
+      injuries: injuries.value.trim(),
+    })
+    await store.completeSetup()
+    await router.push('/home')
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Could not save that. Check your connection and try again.'
+    busy.value = false
+  }
 }
 
 const LABEL = 'mb-2.5 block text-[13px] text-soft'
@@ -34,6 +49,7 @@ const AREA =
     subtitle="Health conditions shape your food swaps. Injuries go straight to your coach, privately."
     cta="Save & enter app"
     :busy="busy"
+    :error="error"
     @continue="finish"
   >
     <AppCard variant="raised" class="flex flex-col gap-5">

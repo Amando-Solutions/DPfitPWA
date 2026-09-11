@@ -78,6 +78,44 @@ export const replyPreview = (ref: ChatReplyRef): string => {
   return 'Message'
 }
 
+// --- Editing -----------------------------------------------------------------
+
+/**
+ * How long after sending a message can still be rewritten.
+ *
+ * WhatsApp's fifteen minutes, for WhatsApp's reason. An edit window exists to
+ * fix a typo, a wrong weight or a wrong time while the message is still the
+ * last thing on the screen — not to let somebody quietly restate what they said
+ * after it has been read, answered and acted on. Long enough to catch the
+ * mistake you notice the moment you send it; short enough that the thread
+ * everyone remembers is the thread that happened.
+ *
+ * This constant decides what the hold menu offers. What the *server* accepts is
+ * decided by the same fifteen minutes in `firestore.rules`, measured against
+ * `request.time`. Both exist on purpose: the one here is how a member finds out
+ * politely, the one there is what makes it true.
+ */
+export const EDIT_WINDOW_MS = 15 * 60 * 1000
+
+/**
+ * Whether `message` is still the viewer's to rewrite, as of `nowMs`.
+ *
+ * Three conditions. It has to be theirs — `isSelf`, resolved by the data source
+ * against the identity it authenticated, not by comparing names. It has to have
+ * words in it, because editing is editing text and a photo posted without a
+ * caption has none to edit. And it has to be inside the window.
+ *
+ * `nowMs` is a parameter rather than a `Date.now()` in here so the caller is
+ * forced to hand over the *trusted* clock: a member who sets their phone back
+ * an hour must not thereby get an hour of extra edit window, which is the same
+ * reason the training day is read off the network. See `lib/time.ts`.
+ */
+export const canEditMessage = (message: ChatMessageView, nowMs: number): boolean => {
+  if (!message.isSelf) return false
+  if (!message.text.trim()) return false
+  return nowMs - message.sentAt.toMillis() < EDIT_WINDOW_MS
+}
+
 // --- Reactions ---------------------------------------------------------------
 
 /**
