@@ -53,7 +53,7 @@ watchEffect(() => {
       </li>
     </ol>
 
-    <AppButton variant="secondary" to="/guides" icon="arrowLeft" class="guide__back [margin-top:20px]">
+    <AppButton variant="secondary" to="/guides" class="guide__back [margin-top:20px]">
       All guides
     </AppButton>
   </article>

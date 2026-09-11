@@ -5,8 +5,6 @@ const props = withDefaults(
     size?: 'md' | 'lg'
     block?: boolean
     to?: string
-    icon?: string
-    iconRight?: string
     disabled?: boolean
     /**
      * `button` by default, which is *not* what a bare `<button>` inside a
@@ -68,13 +66,11 @@ const classes = computed(() => [
     :is="to ? NuxtLink : 'button'"
     :to="to"
     :type="to ? undefined : type"
-    class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-pill font-body font-bold transition-[transform,opacity,background-color] duration-100 ease-out active:scale-[0.985] motion-reduce:transition-none motion-reduce:active:scale-100"
+    class="inline-flex items-center justify-center whitespace-nowrap rounded-pill font-body font-bold transition-[transform,opacity,background-color] duration-100 ease-out active:scale-[0.985] motion-reduce:transition-none motion-reduce:active:scale-100"
     :class="classes"
     :disabled="disabled"
     @click="(e: MouseEvent) => $emit('click', e)"
   >
-    <AppIcon v-if="icon" :name="icon" :size="18" :stroke="2.2" />
     <span><slot /></span>
-    <AppIcon v-if="iconRight" :name="iconRight" :size="18" :stroke="2.2" />
   </component>
 </template>

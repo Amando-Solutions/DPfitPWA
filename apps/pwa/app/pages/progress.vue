@@ -80,7 +80,7 @@ const takenLabel = formatDate
         capture="environment"
         @change="onFile"
       />
-      <AppButton icon="camera" :disabled="busy" @click="add">
+      <AppButton :disabled="busy" @click="add">
         {{ busy ? 'Adding…' : `Add ${pose} photo · Week ${store.clock.value.week}` }}
       </AppButton>
       <p v-if="error" class="progress__error -mt-1 mx-0 mb-0 text-[12px] leading-[1.45] text-muted text-center text-rose font-bold">{{ error }}</p>

@@ -104,9 +104,8 @@ const ctaLabel = computed(() => {
          says which day opens next and when. -->
     <NuxtLink
       :to="store.trainingLocked.value ? '/train' : `/train/${store.today.value?.id ?? ''}`"
-      class="sidenav__cta lg:mt-4.5 lg:flex lg:items-center lg:justify-center lg:gap-2 lg:py-3.25 lg:px-3.5 lg:rounded-md lg:bg-rose-fill lg:text-on-rose lg:text-[13.5px] lg:font-bold"
+      class="sidenav__cta lg:mt-4.5 lg:flex lg:items-center lg:justify-center lg:py-3.25 lg:px-3.5 lg:rounded-md lg:bg-rose-fill lg:text-on-rose lg:text-[13.5px] lg:font-bold"
     >
-      <AppIcon :name="store.trainingLocked.value ? 'check' : 'play'" :size="16" fill />
       <span>{{ ctaLabel }}</span>
     </NuxtLink>
 

@@ -45,7 +45,6 @@ const isExternal = (url: string) => /^https?:\/\//i.test(url)
           :variant="a.accent === 'ink' ? 'primary' : 'secondary'"
           size="md"
           :block="false"
-          icon-right="arrowRight"
           :to="a.ctaUrl"
           :target="isExternal(a.ctaUrl) ? '_blank' : undefined"
           :rel="isExternal(a.ctaUrl) ? 'noopener noreferrer' : undefined"

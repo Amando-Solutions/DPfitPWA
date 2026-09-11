@@ -19,8 +19,17 @@ const props = withDefaults(
     unit?: Units
     /** Read-only rendering for a session that has already been saved. */
     readonly?: boolean
+    /**
+     * Whether the member has pressed Start workout.
+     *
+     * The badge and the tick are the two controls on a row that write to the
+     * log, so both stay inert until the clock is running: a set ticked off
+     * before the session has begun is work the timer never sees. The read-only
+     * render has no clock behind it at all, hence the default.
+     */
+    started?: boolean
   }>(),
-  { unit: 'kg' },
+  { unit: 'kg', started: true },
 )
 
 const emit = defineEmits<{
@@ -179,6 +188,14 @@ const ROW =
   'grid grid-cols-[28px_1fr_58px_58px_34px] items-center gap-1.5 border-b py-1.75'
 
 /*
+  The SET badge fills its column edge to edge, so the row gap on its own left
+  last week's numbers pressed up against the chip. The previous column carries
+  the extra space as its own inset rather than widening every gap on the row,
+  which would push the weight and reps cells around for no reason.
+*/
+const PREV = 'pl-2.5'
+
+/*
   One radius, used everywhere on this card that isn't a button.
 
   The card, the inputs and the checkmarks were each rounded differently, and the
@@ -246,19 +263,18 @@ const NO_SPINNER =
 
     <button
       v-if="!readonly"
-      class="mt-0.5 flex min-h-7 items-center gap-1.5 py-1 text-[12.5px] text-rose"
+      class="mt-0.5 flex min-h-7 items-center py-1 text-[12.5px] text-rose"
       @click="emit('rest', restSeconds)"
     >
-      <AppIcon name="clock" :size="14" :stroke="2" />
       <span>Rest timer: {{ restLabel }}</span>
     </button>
 
     <div class="mt-3">
       <div :class="ROW" class="border-fill-muted text-[11.5px] text-muted">
         <span>Set</span>
-        <span>Previous</span>
-        <span class="text-right">{{ unitLabel(unit) }}</span>
-        <span class="text-right">Reps</span>
+        <span :class="PREV">Previous</span>
+        <span class="text-right uppercase">{{ unitLabel(unit) }}</span>
+        <span class="text-right uppercase">Reps</span>
         <span class="grid place-items-center">
           <AppIcon name="check" :size="13" :stroke="2.2" />
         </span>
@@ -279,8 +295,9 @@ const NO_SPINNER =
         <button
           v-if="!readonly"
           type="button"
-          class="grid size-7 place-items-center justify-self-center rounded-field text-[11.5px] font-bold tabular-nums transition-colors duration-150"
+          class="grid size-7 place-items-center justify-self-center rounded-field text-[11.5px] font-bold tabular-nums transition-colors duration-150 disabled:cursor-default disabled:opacity-60"
           :class="SET_BADGE[setTypeOf(row.set)]"
+          :disabled="!started"
           :aria-label="`${row.label} — ${metaFor(setTypeOf(row.set)).label}. Change set type`"
           @click="typeSheetFor = row.index"
         >
@@ -293,7 +310,7 @@ const NO_SPINNER =
         >
           {{ row.label }}
         </span>
-        <span class="truncate text-[11.5px] text-muted tabular-nums">
+        <span :class="PREV" class="truncate text-[11.5px] text-muted tabular-nums">
           {{ previousLabel(row.set) }}
         </span>
 
@@ -332,7 +349,7 @@ const NO_SPINNER =
         <button
           class="grid size-7 place-items-center justify-self-center rounded-field transition-colors duration-150 disabled:cursor-default disabled:opacity-60"
           :class="row.set.done ? 'bg-rose-fill text-on-rose' : 'bg-fill-subtle text-transparent'"
-          :disabled="readonly"
+          :disabled="readonly || !started"
           :aria-label="`Mark ${rowName(row, position)} ${row.set.done ? 'not done' : 'done'}`"
           @click="emit('toggle-set', row.index)"
         >
@@ -343,10 +360,9 @@ const NO_SPINNER =
 
     <button
       v-if="!readonly"
-      class="mt-3 flex h-10 items-center justify-center gap-1.5 rounded-pill bg-fill-subtle text-[13px] text-ink transition-opacity duration-100 active:opacity-70"
+      class="mt-3 flex h-10 items-center justify-center rounded-pill bg-fill-subtle text-[13px] text-ink transition-opacity duration-100 active:opacity-70"
       @click="emit('add-set')"
     >
-      <AppIcon name="plus" :size="15" :stroke="2.4" />
       <span>Add set</span>
     </button>
 

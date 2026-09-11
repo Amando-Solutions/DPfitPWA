@@ -240,7 +240,11 @@ const openRest = async (seconds: number) => {
 const toggleSet = async (exerciseIndex: number, setIndex: number) => {
   const active = store.activeSession.value
   if (!active) return
-  if (!active.running) await startWorkout()
+  // Ticking a set used to start the clock on the member's behalf, which meant a
+  // workout could be half logged before it had officially begun and the
+  // duration on it was nonsense. Start workout is the way in now; the card
+  // disables the tick until then, and this is the guard behind it.
+  if (!active.running) return
   const exercise = active.exercises[exerciseIndex]
   const set = exercise?.sets[setIndex]
   if (!set) return
@@ -370,6 +374,7 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
           :note="exercise.note"
           :sets="exercise.sets"
           :unit="units"
+          :started="session.running"
           @toggle-set="(setIndex) => toggleSet(i, setIndex)"
           @update-set="(payload) => updateSet(i, payload)"
           @update-set-type="(payload) => setSetType(i, payload)"
@@ -489,12 +494,11 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
         @skip="restActive = false"
         @adjust="(delta) => (restRemaining = Math.max(0, restRemaining + delta))"
       />
-      <AppButton v-if="preview" icon="lock" variant="secondary" disabled>
+      <AppButton v-if="preview" variant="secondary" disabled>
         {{ opensLabel }}
       </AppButton>
       <AppButton
         v-else-if="session && !session.running"
-        icon="play"
         @click="startWorkout"
       >
         Start workout

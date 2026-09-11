@@ -395,7 +395,6 @@ watch([code, email], () => {
         <template v-if="showGoogle">
           <AppButton
             variant="secondary"
-            icon="google"
             :disabled="busy !== ''"
             @click="signInWithGoogle"
           >
@@ -447,7 +446,6 @@ watch([code, email], () => {
         <AppButton
           v-if="phase !== 'sent' || confirmingEmail"
           type="submit"
-          icon-right="arrowRight"
           :disabled="busy !== ''"
         >
           {{ submitLabel }}

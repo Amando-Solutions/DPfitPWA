@@ -37,33 +37,55 @@ const markPath = readFileSync(repo('logo/Colored icon.svg'), 'utf8')
 if (!markPath) throw new Error('logo/Colored icon.svg: no path found')
 
 /**
- * The full lockup, for the share card and the email mastheads. Its mark is a
- * separately positioned copy rather than `markPath` under a transform, so it
- * is read from the export too: the spacing between mark and wordmark is the
- * designer's, not ours.
+ * The wordmark — FITNESS, on its own. Seven paths, one per letter.
  *
- * Each path is read with the fill it was exported with, so a colourway is
- * picked by naming a file rather than by choosing colours here. All four
- * lockup exports are the same ten paths in the same order, the mark last.
+ * The brand keeps the wordmark and the mark in separate files, in the same
+ * 90-wide coordinate space, which is what lets the lockup below be composed
+ * rather than pasted.
  */
-const lockupOf = (file) => {
-  const paths = [
-    ...readFileSync(repo(file), 'utf8').matchAll(
-      /<path d="([^"]+)" fill="([^"]+)"/g,
-    ),
-  ].map((m) => ({ d: m[1], fill: m[2] }))
-  if (paths.length !== 10) {
-    throw new Error(`${file}: expected 10 paths, found ${paths.length}`)
-  }
-  return paths
+const wordmarkPaths = [
+  ...readFileSync(repo('logo/Colored wordmark.svg'), 'utf8').matchAll(
+    /<path d="([^"]+)"/g,
+  ),
+].map((m) => m[1])
+if (wordmarkPaths.length !== 7) {
+  throw new Error(
+    `logo/Colored wordmark.svg: expected 7 paths, found ${wordmarkPaths.length}`,
+  )
 }
-
-const lockupPaths = lockupOf('logo/White full logo.svg').map((p) => p.d)
 
 const MARK_W = 90
 const MARK_H = 57
-const LOCKUP_W = 119
-const LOCKUP_H = 93
+const WORDMARK_H = 10
+
+/**
+ * The lockup: the mark, with FITNESS set under it.
+ *
+ * COMPOSED, not read from a file, because the brand ships the combined lockup
+ * as a PNG only — there is no `logo & wordmark` SVG to take paths out of. What
+ * is composed is only the arrangement; both pieces of artwork still come from
+ * their own exports untouched.
+ *
+ * The arrangement is measured off the designer's PNGs rather than invented.
+ * `logo & black wordmark.png` and its siblings are 270x227, which is exactly
+ * 3x the 90-wide source: a 171px mark (3 x 57), a 26px gap, then a 30px
+ * wordmark (3 x 10). So the lockup is authored in that same 3x space, which
+ * keeps every number here an integer and the gap exact.
+ */
+const LOCKUP_SCALE = 3
+const LOCKUP_W = MARK_W * LOCKUP_SCALE // 270
+const LOCKUP_H = 227
+/** Where the wordmark's own box starts: the mark, plus the measured 26px gap. */
+const WORDMARK_Y = MARK_H * LOCKUP_SCALE + 26 // 197
+
+/** The lockup's inner markup, at `viewBox="0 0 270 227"`, in two colours. */
+const lockup = (markFill, wordFill) => `<g transform="scale(${LOCKUP_SCALE})">
+    <path d="${markPath}" fill="${markFill}"/>
+  </g>
+  <g transform="translate(0 ${WORDMARK_Y}) scale(${LOCKUP_SCALE})">
+    ${wordmarkPaths.map((d) => `<path d="${d}" fill="${wordFill}"/>`).join('\n    ')}
+  </g>`
+
 const PLUM = '#430f32'
 /** `--surface-raised`, and the manifest's `background_color`. */
 const CREAM = '#fbf6f2'
@@ -172,7 +194,7 @@ const og = `<svg xmlns="http://www.w3.org/2000/svg" width="${OG_W}" height="${OG
   <ellipse cx="${OG_W / 2}" cy="60" rx="700" ry="440" fill="url(#rose)"/>
   <ellipse cx="${OG_W - 60}" cy="${OG_H - 40}" rx="420" ry="420" fill="url(#amber)"/>
   <g transform="translate(${(OG_W - lockupW) / 2} ${(OG_H - lockupH) / 2}) scale(${lockupH / LOCKUP_H})">
-    ${lockupPaths.map((d) => `<path d="${d}" fill="#ffffff"/>`).join('\n    ')}
+    ${lockup('#ffffff', '#ffffff')}
   </g>
 </svg>`
 
@@ -192,10 +214,11 @@ console.log(`✓ og.png  ${OG_W}x${OG_H}`)
  * `data:` URI on an `<img>`, so a hosted raster is the only way an email
  * carries the real artwork rather than a typeset approximation of it.
  *
- * Two colourways, because the email has two grounds: the all-white export for
- * the night masthead (and for the footer of a client in dark mode), the plum
- * mark over a black wordmark for the footer on paper. Both fills come from the
- * designer's own exports, so nothing about the colour is decided here.
+ * Two colourways, because the email has two grounds: all-white for the night
+ * masthead (and for the footer of a client in dark mode), the plum mark over a
+ * black wordmark for the footer on paper. Both are colourways the brand ships
+ * as PNGs — `White logo & wordmark` and `logo & black wordmark` — rebuilt here
+ * as vector so they rasterise crisply at whatever size the email asks for.
  *
  * 192px wide is 3x the 64px the masthead shows it at, which is what a retina
  * inbox asks for. Transparent, so each one sits on whichever ground it lands.
@@ -203,14 +226,12 @@ console.log(`✓ og.png  ${OG_W}x${OG_H}`)
 const EMAIL_LOGO_W = 192
 const EMAIL_LOGO_H = Math.round((EMAIL_LOGO_W * LOCKUP_H) / LOCKUP_W)
 
-for (const [file, source] of [
-  ['logo-white.png', 'logo/White full logo.svg'],
-  ['logo-color.png', 'logo/Colored full logo black wordmark.svg'],
+for (const [file, markFill, wordFill] of [
+  ['logo-white.png', '#ffffff', '#ffffff'],
+  ['logo-color.png', PLUM, '#000000'],
 ]) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${EMAIL_LOGO_W}" height="${EMAIL_LOGO_H}" viewBox="0 0 ${LOCKUP_W} ${LOCKUP_H}">
-  ${lockupOf(source)
-    .map(({ d, fill }) => `<path d="${d}" fill="${fill}"/>`)
-    .join('\n  ')}
+  ${lockup(markFill, wordFill)}
 </svg>`
   await page.setViewportSize({ width: EMAIL_LOGO_W, height: EMAIL_LOGO_H })
   await page.setContent(
