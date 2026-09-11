@@ -78,7 +78,7 @@ const initials = computed(() =>
 </script>
 
 <template>
-  <div class="more p-[var(--screen-pad-top)_20px_0] flex flex-col gap-4.5 [&_.more__title]:m-[8px_0_0] lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:[grid-template-areas:'header_header'_'profile_rewards'_'links_links'_'signout_signout'] lg:content-start lg:items-start lg:gap-x-6 lg:gap-y-4.5 lg:p-[0_0_8px]">
+  <div class="more p-[var(--screen-pad-top)_20px_0] flex flex-col gap-4.5 [&_.more__title]:m-[8px_0_0] lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:[grid-template-areas:'header_header'_'profile_rewards'_'links_links'_'signout_signout'_'credit_credit'] lg:content-start lg:items-start lg:gap-x-6 lg:gap-y-4.5 lg:p-[0_0_8px]">
     <!-- The cohort-and-coach eyebrow is gone: it named the same cohort on every
          screen that carried it, and neither half was something you act on. -->
     <ScreenIntro title="More" class="more__header lg:[grid-area:header]" />
@@ -163,6 +163,20 @@ const initials = computed(() =>
     <!-- Sign out lives here now rather than at the foot of Profile & settings. -->
     <section class="more__signout lg:[grid-area:signout] lg:mt-1.5">
       <AppButton variant="danger" @click="showSignOut = true">Sign out</AppButton>
+    </section>
+
+    <!--
+      The build credit, at the foot of the hub.
+
+      This screen is the closest thing the app has to an About page — it is
+      where the version-and-provenance kind of information belongs — and the
+      foot of it is the one place a credit can sit without ever being in the
+      way of a member doing something. Deliberately below Sign out: that button
+      is the end of the list, and anything under it reads as a footer rather
+      than as one more thing to tap.
+    -->
+    <section class="more__credit lg:[grid-area:credit] mt-3 flex justify-center">
+      <PoweredBy class="text-(--violet-45)" />
     </section>
 
     <BottomSheet v-model="showSignOut" title="Do you want to sign out?">

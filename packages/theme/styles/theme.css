@@ -18,6 +18,20 @@
    original Figma names are kept below as aliases.
    ========================================================================== */
 
+/* The layer's own components, added to Tailwind's scan.
+   -----------------------------------------------------------------------------
+   Auto-detection starts at the stylesheet that pulled in `tailwindcss`, which
+   is each app's `main.css`, and both of those then narrow it to their own
+   `app/` with an `@source` of their own. Neither base contains this package, so
+   until this line the components sitting next door were never scanned: a class
+   used only in `BrandLogo`, `BrandIcon` or `PoweredBy` published no CSS at all,
+   and the ones that did work did so because an app happened to use them too.
+
+   It belongs here rather than in the two apps because it is the design system
+   describing itself — one line that cannot drift, instead of two that can. The
+   path is relative to this file. */
+@source '../components';
+
 /* Dark mode is driven by a `data-theme="dark"` attribute on <html> (set by
    `useTheme`), not by the media query alone, so members can override the OS. */
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
@@ -104,6 +118,20 @@
      be a deep violet on a deeper one. Nothing but the logo should use it: the
      accent for everything else is the rose. */
   --brand-mark: #430f32;
+
+  /* --- The build credit ---------------------------------------------------
+     amando's terracotta — the colour of the "Powered by" wordmark in the
+     footer, and the only colour here that belongs to somebody else's brand.
+     It sits next to `--brand-mark` because it is governed by the same rule:
+     nothing but the credit may use it, and it is a token rather than a
+     literal inside `PoweredBy` only so it can lift in dark mode.
+
+     `--credit-mark-inverse` is that lift, named separately because a dark
+     *panel* on a light page needs it too — the site footer is a near-black
+     band in a theme that is pinned light, so it cannot get there by asking
+     what the theme is. Same idea as `--rose-on-inverse` above. */
+  --credit-mark: #8f4d2a;
+  --credit-mark-inverse: #c4794f;
 
   --orange: #e8a33d;
   --orange-soft: rgba(232, 163, 61, 0.16);
@@ -387,6 +415,12 @@
      stops being plum and joins the wordmark. Following `--text` rather than a
      flat #fff keeps it the same warm off-white as the type beside it. */
   --brand-mark: var(--text);
+
+  /* #8f4d2a measures 2.5:1 on this ground — readable as a shape, not as a
+     mark. Lifted to the same hue at a higher value, which clears AA for
+     graphics at 5.5:1, so the credit stays recognisably amando's colour
+     instead of degrading to a grey. */
+  --credit-mark: #c4794f;
 
   --orange: #f0b45c;
   --orange-soft: rgba(240, 180, 92, 0.16);

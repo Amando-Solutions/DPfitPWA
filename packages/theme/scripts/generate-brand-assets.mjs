@@ -5,12 +5,12 @@
  * — `BrandLogo` and `BrandIcon` next door. What has to be raster is the set a
  * browser, an OS or a mail client will not take an SVG for: the ICO a legacy
  * tab bar wants, the PNG iOS pins to a home screen, the manifest icons Android
- * renders, the share card a link unfurls into, and the two lockups the
- * access-code email hangs off an `<img>`. Those are what this writes, and
- * nothing else, because every other use of the logo should be reaching for the
- * components.
+ * renders, the share card a link unfurls into, and the two lockups plus the
+ * two build credits the access-code email hangs off an `<img>`. Those are what
+ * this writes, and nothing else, because every other use of the logo should be
+ * reaching for the components.
  *
- * Run it after changing anything in `/logo`:
+ * Run it after changing anything in `/logo` or `/poweredBy`:
  *
  *   bun run --filter @dpfit/theme brand:assets
  *
@@ -53,6 +53,21 @@ if (wordmarkPaths.length !== 7) {
     `logo/Colored wordmark.svg: expected 7 paths, found ${wordmarkPaths.length}`,
   )
 }
+
+/**
+ * amando's wordmark — the build credit, and the one piece of artwork here that
+ * is not DP Fitness's.
+ *
+ * Read for the same reason everything else on this page is read rather than
+ * pasted: `poweredBy/Main logo.svg` stays the single source of the geometry,
+ * shared with `PoweredBy.vue` and the PWA's boot template. One path, 117 x 21.
+ */
+const creditPath = readFileSync(repo('poweredBy/Main logo.svg'), 'utf8')
+  .match(/<path d="([^"]+)"/)?.[1]
+if (!creditPath) throw new Error('poweredBy/Main logo.svg: no path found')
+
+const CREDIT_W = 117
+const CREDIT_H = 21
 
 const MARK_W = 90
 const MARK_H = 57
@@ -245,6 +260,47 @@ for (const [file, markFill, wordFill] of [
     }),
   )
   console.log(`✓ ${file}  ${EMAIL_LOGO_W}x${EMAIL_LOGO_H}  (transparent)`)
+}
+
+/**
+ * The build credit's wordmark, for the footer of that same email.
+ *
+ * Only the wordmark: "Powered by" stays live text in the email, because it is
+ * the half that should be selectable and read aloud, and because it then takes
+ * the footer's own muted ink rather than being baked into a raster at one
+ * colour. What has to be a raster is amando's artwork, for the reason above —
+ * a mail client will not take the SVG.
+ *
+ * Two colourways, and the same pair `--credit-mark` carries in the design
+ * system: the terracotta for the footer on paper, and the lifted version for
+ * the night panel a dark-mode client swaps in, where #8f4d2a measures 2.5:1
+ * and reads as a smudge. The email trades the two the way it trades the
+ * lockups, with a class and an inline `display`.
+ *
+ * 186px wide is 3x the 62px the footer shows it at.
+ */
+const CREDIT_PNG_W = 186
+const CREDIT_PNG_H = Math.round((CREDIT_PNG_W * CREDIT_H) / CREDIT_W)
+
+for (const [file, fill] of [
+  ['credit-color.png', '#8f4d2a'],
+  ['credit-lifted.png', '#c4794f'],
+]) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${CREDIT_PNG_W}" height="${CREDIT_PNG_H}" viewBox="0 0 ${CREDIT_W} ${CREDIT_H}">
+  <path d="${creditPath}" fill="${fill}"/>
+</svg>`
+  await page.setViewportSize({ width: CREDIT_PNG_W, height: CREDIT_PNG_H })
+  await page.setContent(
+    `<style>html,body{margin:0;padding:0;background:transparent}</style>${svg}`,
+  )
+  writeFileSync(
+    OUT + file,
+    await page.screenshot({
+      omitBackground: true,
+      clip: { x: 0, y: 0, width: CREDIT_PNG_W, height: CREDIT_PNG_H },
+    }),
+  )
+  console.log(`✓ ${file}  ${CREDIT_PNG_W}x${CREDIT_PNG_H}  (transparent)`)
 }
 
 await browser.close()

@@ -482,16 +482,16 @@ watch([code, email], () => {
     </form>
 
     <!--
-      Always rendered, usually empty. `mt-auto` here is what balances the same
-      on `access__intro`: between them the card sits in the middle of the
-      screen instead of against the bottom edge, and an empty div holds that
-      shape without printing anything.
+      `mt-auto` here is what balances the same on `access__intro`: between them
+      the card sits in the middle of the screen instead of against the bottom
+      edge.
 
-      Both lines below used to print on every step. "Can't find your code?" was
-      answering a question nobody had yet on the screen that asks for an email
-      address, and the demo code shipped to real members on a real deploy —
-      each one a line of text the member had to read past to find out it was
-      not for them.
+      The two hints are conditional and usually absent — "Can't find your code?"
+      was answering a question nobody had yet on the screen that asks for an
+      email address, and the demo code shipped to real members on a real
+      deploy. The credit under them is the one thing here that always prints,
+      which is also why it is last: it is the floor of the screen, not a line
+      the member is being asked to read.
     -->
     <div class="access__foot mt-auto flex flex-col gap-2.5 pt-5 text-center">
       <p v-if="phase === 'code'" class="access__hint muted m-0 text-[13px]">
@@ -504,6 +504,14 @@ watch([code, email], () => {
       >
         Demo code: <strong>{{ accessCodes[0] }}</strong>
       </p>
+
+      <!-- The first screen a member ever opens, so the credit is set quieter
+           here than anywhere else: this moment belongs to the brand above it. -->
+      <!-- `self-center` rather than `items-center` on the column: an
+           `inline-flex` child of a flex container is blockified, so without it
+           the credit stretches the full width and sets itself hard left. Kept
+           on the child so the two hints above go on filling the column. -->
+      <PoweredBy :size="12" class="access__credit mt-1 self-center text-(--violet-45)" />
     </div>
   </div>
 </template>

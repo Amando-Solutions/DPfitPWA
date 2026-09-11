@@ -44,12 +44,12 @@ function linkAttrs(href: string) {
 </script>
 
 <template>
-  <footer class="bg-[var(--text)]">
+  <footer class="bg-ink">
     <PageContainer>
       <div
         class="grid gap-x-16 gap-y-12 border-t border-rule-inverse pt-14 pb-12 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]"
       >
-        <div class="max-w-[380px]">
+        <div class="max-w-95">
           <!-- The footer band is `--text`, a near-black violet, so this is the
                white lockup for the same reason the header is. -->
           <BrandLogo mono :size="38" class="text-white" label="DP Fitness" />
@@ -82,7 +82,7 @@ function linkAttrs(href: string) {
                 <a
                   :href="link.href"
                   v-bind="linkAttrs(link.href)"
-                  class="font-body text-[14.5px] break-words text-white/78 transition-colors hover:text-white"
+                  class="font-body text-[14.5px] wrap-break-word text-white/78 transition-colors hover:text-white"
                 >
                   {{ link.label }}
                 </a>
@@ -93,7 +93,7 @@ function linkAttrs(href: string) {
       </div>
 
       <div class="border-t border-rule-inverse py-9">
-        <p class="max-w-[620px] font-body text-[12.5px] leading-[1.7] text-white/55">
+        <p class="max-w-155 font-body text-[12.5px] leading-[1.7] text-white/55">
           {{ LEGAL_DISCLAIMER }}
         </p>
         <div
@@ -102,6 +102,15 @@ function linkAttrs(href: string) {
           <p class="meta text-white/55">
             © {{ year }} DP Fitness · The Recomp Challenge
           </p>
+
+          <!-- The build credit, in the middle of the three: it is the one item
+               here that is neither DP Fitness's copyright nor a control, and
+               putting it between them is what keeps it from reading as either.
+               `inverse` because this band is near-black in a theme pinned
+               light, so the terracotta has to be asked for rather than
+               inferred. -->
+          <PoweredBy inverse class="text-white/45" />
+
           <!-- A real anchor to the top of the document rather than a scroll
                handler, so it works with JavaScript off and inherits the smooth
                scrolling `main.css` already sets on `html`. -->

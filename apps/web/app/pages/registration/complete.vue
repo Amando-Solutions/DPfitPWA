@@ -107,7 +107,7 @@ useHead({ title: 'Registration · DP Fitness' })
 
 <template>
   <main class="flex min-h-screen items-center justify-center bg-page px-6 py-16">
-    <div class="w-full max-w-[440px] text-center">
+    <div class="w-full max-w-110 text-center">
       <BrandLogo :size="52" class="mx-auto text-ink" label="DP Fitness" />
 
       <!-- `role="status"` and `aria-live` so each phase is announced as it
@@ -166,6 +166,12 @@ useHead({ title: 'Registration · DP Fitness' })
           Returning in {{ secondsLeft }}s
         </p>
       </div>
+
+      <!-- The credit sits below the way out rather than above it, because this
+           page has exactly one thing it wants the reader to do next and
+           nothing should come between them and it. `inline-flex` inside the
+           centred column, so it centres without a wrapper. -->
+      <PoweredBy class="mt-12 text-ink-mute" />
     </div>
   </main>
 </template>

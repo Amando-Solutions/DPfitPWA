@@ -226,6 +226,10 @@ export const html = (data: AccessCodeTemplate) => {
        block shows the light one on its own rather than both. */
     .logo-light { display: none !important; }
     .logo-dark { display: inline-block !important; }
+    /* And the build credit with it. #8f4d2a is 2.5:1 on the night panel, so
+       the terracotta lifts rather than simply carrying over. */
+    .credit-light { display: none !important; }
+    .credit-dark { display: inline-block !important; }
   }
 </style>
 </head>
@@ -368,6 +372,30 @@ export const html = (data: AccessCodeTemplate) => {
           Results vary by individual and depend on consistency with training and
           nutrition. This program does not replace medical advice, so check with
           a doctor before starting if you have any health concerns.
+        </div>
+
+        <!-- The build credit, on the floor of the email.
+
+             "Powered by" stays live text — it is the half that should be
+             selectable and read aloud, and it takes the footer's muted ink
+             through .t-soft rather than being frozen into a raster at one
+             colour. Only amando's artwork is an image, for the reason the
+             lockups above are: a mail client will not take an SVG.
+
+             text-transform is on the label alone. The wordmark is lowercase by
+             design, and the rule would otherwise reach the alt text and set
+             the brand as AMANDO on any client with images turned off.
+
+             (No backticks anywhere in here: this whole document is one
+             template literal, and one would end it.) -->
+        <div style="margin-top:20px;font-family:${MONO};font-size:9.5px;line-height:1;color:${INK_SOFT};">
+          <span class="t-soft" style="letter-spacing:1px;text-transform:uppercase;color:${INK_SOFT};">Powered by</span>
+          ${
+            assets
+              ? `<img class="credit-light" src="${assets}/brand/credit-color.png" width="62" height="11" alt="amando" style="display:inline-block;vertical-align:middle;margin-left:6px;width:62px;height:11px;border:0;outline:none;text-decoration:none;font-family:${BODY};font-size:11px;color:#8f4d2a;">
+          <img class="credit-dark" src="${assets}/brand/credit-lifted.png" width="62" height="11" alt="amando" style="display:none;vertical-align:middle;margin-left:6px;width:62px;height:11px;border:0;outline:none;text-decoration:none;font-family:${BODY};font-size:11px;color:#c4794f;">`
+              : `<span style="font-family:${BODY};font-size:11px;color:#8f4d2a;">amando</span>`
+          }
         </div>
       </td>
     </tr>
