@@ -70,7 +70,22 @@ const STAT_VALUE =
 </script>
 
 <template>
-  <div class="home pt-(--screen-pad-top) px-5 pb-0 flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,0.82fr)] lg:[grid-template-areas:'intro_intro'_'main_side'] lg:content-start lg:gap-x-6 lg:gap-y-4.5 lg:pt-0 lg:px-0 lg:pb-2">
+  <!--
+    `lg:min-h-[calc(100dvh-72px)]` with a `1fr` last row is what puts the credit
+    on the bottom edge of the screen rather than merely under the longer of the
+    two columns.
+
+    The 72px is the chrome `layouts/app.vue` puts around this page on desktop:
+    32px of top padding on `.layout-app__main`, plus its 40px `.tab-spacer`.
+    Subtracting both is what makes a full-height grid stop exactly at the
+    viewport instead of pushing a scrollbar onto a screen that fits. Those two
+    numbers live in that file — change one there and this follows.
+
+    A floor, not a height: a cohort with a live call and a coach note can run
+    past the viewport, and then the `1fr` row collapses to its content and the
+    page scrolls as it always did.
+  -->
+  <div class="home pt-(--screen-pad-top) px-5 pb-0 flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,0.82fr)] lg:grid-rows-[auto_auto_1fr] lg:[grid-template-areas:'intro_intro'_'main_side'_'credit_credit'] lg:min-h-[calc(100dvh-72px)] lg:content-start lg:gap-x-6 lg:gap-y-4.5 lg:pt-0 lg:px-0 lg:pb-2">
     <!-- Install nudge. Floats over the top of the screen, so it costs the page
          no height; renders nothing once the app is installed, snoozed, or on a
          browser that has no install route. -->
@@ -279,5 +294,42 @@ const STAT_VALUE =
         </div>
       </section>
     </div>
+
+    <!--
+      The build credit, on the floor of Home.
+
+      A direct child of the root rather than a row inside either column, which
+      is what lets it be both things at once: on mobile the two column wrappers
+      are `contents`, so this is just the last flex item and `order-7` puts it
+      after the shortcuts; on desktop it is the grid's own third row, spanning
+      both tracks under whichever of the two columns runs longer.
+
+      Set smaller than anywhere else in the app — 11px against the 13px the
+      hub and the footer use. Home is the screen a member opens every day, so
+      the credit has to survive being seen a hundred times, and the size is what
+      keeps it fine print rather than furniture. `text-faint` for the same
+      reason: it is there to be found, not read.
+
+      `lg:self-end` is the half that pins it: the row above gives it the
+      leftover height, and this puts it at the bottom of that space instead of
+      stretched through the middle of it.
+
+      `lg:-mb-10` then reclaims the last 40px. `layouts/app.vue` ends every
+      screen with a `.tab-spacer`, which it sizes at 96px on mobile "so content
+      clears the floating tab bar" and 40px on desktop — where there is no
+      floating tab bar at all, only the side rail, so those 40px are the one
+      piece of space on this screen that nothing is using. Pulling the credit
+      through them is what puts it on the bottom edge rather than 48px above it.
+
+      It cannot overflow: the margin reclaims exactly the spacer's own height,
+      so the credit ends 8px off the viewport floor — the page's `lg:pb-2` —
+      and the scroll container is no taller than it was. On mobile none of this
+      applies; there the spacer is real clearance for a real tab bar.
+    -->
+    <section
+      class="home__credit order-7 mt-6 flex justify-center lg:mt-2 lg:-mb-10 lg:self-end lg:[grid-area:credit]"
+    >
+      <PoweredBy :size="11" class="text-faint" />
+    </section>
   </div>
 </template>

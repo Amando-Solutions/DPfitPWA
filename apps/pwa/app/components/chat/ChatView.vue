@@ -1414,16 +1414,11 @@ const TOOL =
                         </p>
                       </BubbleContent>
 
-                      <!-- One time per run, under the last thing that was said. -->
-                      <span
-                        v-if="endsRun"
-                        class="data text-[9px] text-muted"
-                        :class="m.isSelf ? 'self-start' : 'self-end'"
-                      >
-                        {{ time }}
-                      </span>
-
-                      <!-- The chips toggle too, so taking a reaction back is one tap. -->
+                      <!--
+                        The chips hang off the message they were left on, so
+                        they sit against the bubble rather than under the time.
+                        They toggle too, so taking a reaction back is one tap.
+                      -->
                       <BubbleReactions
                         v-if="m.reactions?.length"
                         :align="m.isSelf ? 'end' : 'start'"
@@ -1442,6 +1437,15 @@ const TOOL =
                           {{ r.emoji }} {{ r.count }}
                         </button>
                       </BubbleReactions>
+
+                      <!-- One time per run, closing it out under everything else. -->
+                      <span
+                        v-if="endsRun"
+                        class="data text-[9px] text-muted"
+                        :class="m.isSelf ? 'self-start' : 'self-end'"
+                      >
+                        {{ time }}
+                      </span>
                     </Bubble>
                   </div>
                 </div>
