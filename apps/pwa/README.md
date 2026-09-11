@@ -93,20 +93,30 @@ hit the quota is read back from that memory fallback for the rest of the
 session, so the two stores cannot disagree; `DataSource.storageFull()` reports
 when that has happened, and the chat composer says so.
 
-### One session a day
+### What the calendar opens
 
-The plan is one workout per calendar day, and the date it is measured against
-comes off the network rather than the device, so moving the phone's clock
-forward does not unlock the rest of the week. [`lib/time.ts`](lib/time.ts) keeps
-the *offset* between network time and the device clock, which means `trustedNow()`
-stays a synchronous read and the app still works offline on the last known
-offset. `plugins/clock.client.ts` re-syncs on launch and on return to the
-foreground, and rolls the date over at midnight.
+A day opens when the member's week reaches it and stays open until it is logged.
+On day three of the week, days one to three are open and everything after is
+not. That is the whole rule, and it does two things at once: nobody can run the
+block off in an afternoon, because the days ahead are shut; and nobody is locked
+out of a day they missed, because a day behind them is still theirs to log. A
+member who skipped Tuesday can do Tuesday on Thursday, and Thursday's as well if
+they want to be back level.
 
-Once today's session is logged, `store.trainingLocked` is true: every remaining
-day shows as locked, and `startSession` refuses, so a deep link into
-`/train/<id>` cannot walk around it. Finishing is not gated, so a session opened
-before midnight can still be closed after it.
+The date it is all measured against comes off the network rather than the
+device, so moving the phone's clock forward does not unlock the rest of the week.
+[`lib/time.ts`](lib/time.ts) keeps the *offset* between network time and the
+device clock, which means `trustedNow()` stays a synchronous read and the app
+still works offline on the last known offset. `plugins/clock.client.ts` re-syncs
+on launch and on return to the foreground, and rolls the date over at midnight.
+
+`store.trainingLocked` is true only when nothing is open at all — every day the
+week has reached is logged, or the plan schedules none today. `startSession`
+refuses on a day still ahead, so a deep link into `/train/<id>` cannot walk
+around it. Finishing is not gated, so a session opened before midnight can still
+be closed after it. The core & cardio finisher sits outside the week entirely:
+it holds no slot, is never part of the quota, and is the one day with a
+once-a-day rule of its own.
 
 ## The flow
 

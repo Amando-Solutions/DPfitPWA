@@ -7,6 +7,7 @@ import type {
   ChatAttachment,
   ChatMessageView,
   ChatReaction,
+  ChatReplyRef,
   CheckIn,
   CheckInDoc,
   Cohort,
@@ -17,6 +18,7 @@ import type {
   MemberDoc,
   MemberPreferences,
   MemberProfile,
+  Message,
   Notification,
   PhotoPose,
   Program,
@@ -25,6 +27,7 @@ import type {
   SessionLogDoc,
   StoredImage,
   ThreadId,
+  TypingPeer,
   WorkoutDay,
 } from '~/data/types'
 import type { ProcessedImage } from '~/lib/image'
@@ -305,11 +308,41 @@ export interface DataSource {
     onError?: (error: unknown) => void,
   ): Promise<Unsubscribe>
 
-  /** `text` may be empty when the member is only sharing photos or files. */
+  /**
+   * The newest message in a thread, and nothing else, live.
+   *
+   * For the unread dot on the chat tab, which has to stay right on every
+   * screen in the app — not only the one showing the thread. `watchMessages`
+   * would answer the same question, but it reads and re-reads the last 200
+   * documents to do it, on every load, for a badge that only ever needs the
+   * top one.
+   *
+   * `null` means the thread has nothing in it yet. Delivered immediately and
+   * then on every new message, like `watchMessages`, and the raw document
+   * rather than the view: a badge needs `sentAt` and `authorUid`, and resolving
+   * the viewer's reactions for it would be work nothing renders.
+   *
+   * Resolves to the unsubscribe function. Same contract as `watchMessages`:
+   * callers must call it, and `onError` means the subscription has stopped.
+   */
+  watchLatestMessage(
+    threadId: ThreadId,
+    onMessage: (message: Message | null) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe>
+
+  /**
+   * `text` may be empty when the member is only sharing photos or files.
+   *
+   * `replyTo` is stored as given rather than resolved from an id — see
+   * `ChatReplyRef` for why the quote is a snapshot. Callers should build it
+   * with `replyRefFor`, so every implementation excerpts the same way.
+   */
   sendMessage(
     threadId: ThreadId,
     text: string,
     attachments?: ChatAttachment[],
+    replyTo?: ChatReplyRef | null,
   ): Promise<ChatMessageView>
 
   /**
@@ -322,6 +355,41 @@ export interface DataSource {
     messageId: string,
     emoji: string,
   ): Promise<ChatReaction[]>
+
+  /**
+   * Say whether the member is composing in this thread right now.
+   *
+   * Safe to call on every keystroke: implementations rate-limit the write, so
+   * the caller's job is only to describe the state honestly — `true` while
+   * there is something in the composer, `false` on send, on an idle pause, and
+   * on the way off the screen. A marker that is never turned off is the one
+   * failure mode this has, so `false` is also what a reader falls back to after
+   * `TYPING_TTL_MS` of silence.
+   *
+   * Never throws. A typing indicator that could take the composer down with it
+   * would be a bad trade, and there is nothing a member could do about it.
+   */
+  setTyping(threadId: ThreadId, typing: boolean): Promise<void>
+
+  /**
+   * Everyone *else* composing in this thread, live.
+   *
+   * The viewer is filtered out here rather than in the screen: their own
+   * marker is written by the same object that reads it back, so it would
+   * otherwise arrive a beat later and tell them they are typing.
+   *
+   * Stale markers are the reader's problem, not the writer's — see `TypingDoc`
+   * — so the list is filtered by age on delivery and re-delivered when the
+   * oldest entry in it expires, which is what makes an abandoned tab's
+   * indicator go away on its own.
+   *
+   * Resolves to the unsubscribe function, like `watchMessages`.
+   */
+  watchTyping(
+    threadId: ThreadId,
+    onTyping: (peers: TypingPeer[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe>
 
   // --- Rewards ------------------------- `members/{uid}/badges/{badgeId}` --
   /** Badge id → the award record, keyed so a lookup is not a scan. */
@@ -338,6 +406,21 @@ export interface DataSource {
    * `rankLeaderboard`.
    */
   listLeaderboard(): Promise<LeaderboardEntry[]>
+
+  /**
+   * How many members are in this cohort right now.
+   *
+   * Separate from `listLeaderboard().length`, which was standing in for it and
+   * cannot answer it honestly: that query is capped at 200 rows and is read
+   * once at boot, so a cohort larger than the cap undercounts and every cohort
+   * goes stale the moment anyone joins. Chat puts this number in front of
+   * members as "who can see what I am about to say", so it is worth one read of
+   * its own on the screen that shows it.
+   *
+   * The coach is not counted. They are the cohort's `coach`, not a member
+   * document, and the header names them separately.
+   */
+  countCohortMembers(): Promise<number>
 
   // --- Device ---------------------------------------------------------------
   /**

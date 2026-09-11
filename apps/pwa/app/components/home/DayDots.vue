@@ -9,11 +9,19 @@ import type { WorkoutDayView } from '~/data/types'
  * reasonable thing to want, and the session screen is the place that explains
  * why it cannot be logged, with the date it opens.
  *
- * The lock used to sit on only the next day up, which left the rest looking
- * like ordinary days you could log — the one thing they are not. The caption is
- * what keeps them apart: today's day says so, the rest keep their number.
+ * Three states, not two, now that a day left behind stays open: done, open,
+ * and not yet. Only today's dot pulses. A member two days down has three open
+ * dots and three things pulsing at once would be an alarm rather than a
+ * pointer, so the rest carry the ring and the caption says what they are.
  */
 defineProps<{ days: WorkoutDayView[] }>()
+
+/** "Today" for today's slot, "Catch up" for a day still owed, else its number. */
+const caption = (day: WorkoutDayView) => {
+  if (day.status === 'today') return 'Today'
+  if (day.canStart) return 'Catch up'
+  return `Day ${day.dayNumber}`
+}
 </script>
 
 <template>
@@ -34,7 +42,7 @@ defineProps<{ days: WorkoutDayView[] }>()
       >
         <!-- The design rings the open dot; the pulse is what makes it read as "now". -->
         <span
-          v-if="day.canStart"
+          v-if="day.status === 'today'"
           class="pointer-events-none absolute inset-0 rounded-[inherit] border-[1.5px] border-rose animate-day-ping motion-reduce:animate-none motion-reduce:opacity-50"
           aria-hidden="true"
         />
@@ -46,9 +54,9 @@ defineProps<{ days: WorkoutDayView[] }>()
 
       <span
         class="text-[11px]"
-        :class="day.status === 'today' ? 'text-rose' : 'text-muted'"
+        :class="day.canStart ? 'text-rose' : 'text-muted'"
       >
-        {{ day.status === 'today' ? 'Today' : `Day ${day.dayNumber}` }}
+        {{ caption(day) }}
       </span>
     </NuxtLink>
   </div>

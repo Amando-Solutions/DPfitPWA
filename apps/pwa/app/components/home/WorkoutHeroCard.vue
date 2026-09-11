@@ -38,12 +38,23 @@ const shut = computed<'logged' | 'rest' | null>(() => {
     : 'rest'
 })
 
+/**
+ * An open day the week has already gone past: the one they owe.
+ *
+ * Its own voice rather than today's. Home leads with the oldest day still open,
+ * so on a Thursday this card is often offering Tuesday's session, and calling
+ * that "today" would be telling them the plan had moved rather than that they
+ * had fallen behind.
+ */
+const catchUp = computed(() => props.day.canStart && props.day.status === 'missed')
+
 // Sentence case, because these read as a line of copy rather than a set of
 // labels. The only uppercase mono left on Home is the week/phase eyebrow.
 const eyebrow = computed(() => {
   if (props.allDone) return 'Week complete'
   if (shut.value === 'logged') return 'Logged today'
   if (shut.value === 'rest') return 'Rest day'
+  if (catchUp.value) return `Catch up · Day ${props.day.dayNumber}`
   return `Today · Day ${props.day.dayNumber}`
 })
 
@@ -62,7 +73,7 @@ const body = computed(() => {
     return 'Every session in the plan is logged. Next week picks up from here.'
   }
   if (shut.value === 'logged') {
-    return `One session a day is the plan. Day ${props.day.dayNumber} is waiting for you.`
+    return `Day ${props.day.dayNumber} is in the log and the week is level. Nothing else opens until the next session comes round.`
   }
   if (shut.value === 'rest') {
     return `Day ${props.day.dayNumber} is next. Recovery is part of the block, not a gap in it.`
@@ -70,13 +81,10 @@ const body = computed(() => {
   return ''
 })
 
-const cta = computed(() =>
-  shut.value
-    ? props.nextLabel
-      ? `Next session ${props.nextLabel}`
-      : 'Back soon'
-    : 'Start today’s workout',
-)
+const cta = computed(() => {
+  if (shut.value) return props.nextLabel ? `Next session ${props.nextLabel}` : 'Back soon'
+  return catchUp.value ? `Catch up on day ${props.day.dayNumber}` : 'Start today’s workout'
+})
 </script>
 
 <template>

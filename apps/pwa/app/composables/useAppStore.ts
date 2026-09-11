@@ -99,6 +99,13 @@ interface AppState {
   earnedBadges: Record<string, EarnedBadge>
   /** The cohort, as the last load saw it. Never ordered here: see `rankLeaderboard`. */
   leaderboard: LeaderboardEntry[]
+  /**
+   * The roster size, counted by the data source. `null` until something asks.
+   *
+   * Not part of `hydrate`: one screen shows it, so it is read when that screen
+   * opens rather than on every boot. See `refreshCohortMemberCount`.
+   */
+  cohortMemberCount: number | null
   prefs: MemberPreferences
   /** Badge waiting to be celebrated, consumed by the celebration screen. */
   pendingBadge: BadgeRuleId | null
@@ -135,6 +142,7 @@ const emptyState = (): AppState => ({
   notificationReads: {},
   earnedBadges: {},
   leaderboard: [],
+  cohortMemberCount: null,
   prefs: defaultPreferences(),
   pendingBadge: null,
 })
@@ -358,6 +366,8 @@ const buildStore = () => {
       notificationReads,
       earnedBadges,
       leaderboard,
+      // Read on the screen that shows it, not here. See `refreshCohortMemberCount`.
+      cohortMemberCount: null,
       prefs,
       pendingBadge: null,
     }
@@ -493,16 +503,20 @@ const buildStore = () => {
   )
 
   /**
-   * The session already logged on today's date, if there is one.
+   * Everything logged on today's date, newest first.
    *
-   * The plan is one session a day. Without this the four days of a week can all
-   * be logged back to back in a single sitting, which is not training, and it
-   * makes the previous-session column meaningless from week two onwards.
+   * No longer a gate. A member catching up on a day they missed will log two
+   * sessions in one afternoon, and that is the point of catching up; what stops
+   * the whole week going down in a single sitting is the calendar ceiling in
+   * `days` below, not a cap on how many sessions a date may hold.
    */
-  const sessionToday = computed(() => {
+  const sessionsToday = computed(() => {
     const key = dateKey(now.value)
-    return state.value.sessions.find((s) => dateKey(s.completedAt) === key) ?? null
+    return state.value.sessions.filter((s) => dateKey(s.completedAt) === key)
   })
+
+  /** The latest session logged today, if there is one. Read for copy, not gating. */
+  const sessionToday = computed(() => sessionsToday.value[0] ?? null)
 
   /**
    * The training week: the authored days that count toward the weekly quota.
@@ -529,35 +543,35 @@ const buildStore = () => {
   const days = computed<WorkoutDayView[]>(() => {
     const loggedIds = new Set(sessionsThisWeek.value.map((s) => s.dayId))
     const dayInWeek = clock.value.dayInWeek
-    // One session a day. A day scheduled for today is still not startable once
-    // something is in today's log, whichever day that something was.
-    const dayUsed = sessionToday.value !== null
 
     return planDays.value.map((day) => {
       const opensInNights = nightsUntilDayNumber(day.dayNumber, dayInWeek)
-      const scheduledToday = opensInNights === 0
 
       if (loggedIds.has(day.id)) {
         return { ...day, status: 'completed' as const, canStart: false, opensInNights }
       }
-      if (scheduledToday) {
-        return { ...day, status: 'today' as const, canStart: !dayUsed, opensInNights }
+      // Everything the week has reached is open: today's session, and every day
+      // behind it that was never logged. `dayNumber` counts position in the
+      // week, so the calendar has arrived at each of those and a member who
+      // fell behind on Tuesday can still do Tuesday on Thursday — the wrap in
+      // `opensInNights` is about the date a day next comes round, which is a
+      // different question from whether this week's has been and gone.
+      if (day.dayNumber <= dayInWeek) {
+        const status = opensInNights === 0 ? ('today' as const) : ('missed' as const)
+        return { ...day, status, canStart: true, opensInNights }
       }
-      // Ahead of them, or behind. `dayNumber` counts position in the week, so
-      // anything numbered above today's slot is still to come and anything
-      // below it has been and gone — the wrap in `opensInNights` is about the
-      // date it next returns, not about which side of today it sits on.
-      const status = day.dayNumber > dayInWeek ? ('upcoming' as const) : ('missed' as const)
-      return { ...day, status, canStart: false, opensInNights }
+      // Ahead of them. The one thing the calendar still withholds, and the
+      // reason the block cannot be finished in an afternoon.
+      return { ...day, status: 'upcoming' as const, canStart: false, opensInNights }
     })
   })
 
   /**
    * Nothing in the plan can be started right now.
    *
-   * True on a rest day, once today's session is logged, and on a day whose
-   * scheduled session has already gone past — the three ways the calendar says
-   * "not now" — so screens have one thing to ask rather than three.
+   * True once every day the week has reached is logged, and on a rest day where
+   * the plan schedules nothing and nothing was left behind — the two ways the
+   * calendar says "not now" — so screens have one thing to ask rather than two.
    */
   const trainingLocked = computed(() => !days.value.some((d) => d.canStart))
 
@@ -607,14 +621,18 @@ const buildStore = () => {
    * The session Home leads with. `null` when the program has no training days
    * authored yet.
    *
-   * Today's scheduled day first, whether or not it is already logged — a day
-   * that has been done is still the honest answer to "what is today". Only on a
-   * rest day, when the plan schedules nothing, does this fall through to the
-   * next one they are waiting on.
+   * Today's scheduled day first. Then the earliest day still open behind it:
+   * somebody who has already logged today but is a day down has one session
+   * left to do this week and that is the one to lead with, not the one they
+   * finished this morning. `days` arrives ordered by `dayNumber`, so the first
+   * match is the oldest debt. Only when nothing at all is open does this fall
+   * through to a day finished today, and then to the next one they are waiting
+   * on.
    */
   const today = computed<WorkoutDayView | null>(
     () =>
       days.value.find((d) => d.status === 'today') ??
+      days.value.find((d) => d.canStart) ??
       days.value.find((d) => d.status === 'completed' && d.opensInNights === 0) ??
       nextUp.value ??
       days.value[0] ??
@@ -682,10 +700,19 @@ const buildStore = () => {
    * `cohorts/{id}/leaderboard`, written when they set a display name in setup,
    * and it is deleted with them on `reset()`. That also makes it exactly the
    * set of people who can be in the thread: a member who has not finished that
-   * step has not reached Chat either. `leaderboard` above guarantees the
-   * viewer's own row is in the count whether or not the fetch returned it.
+   * step has not reached Chat either.
+   *
+   * The counted answer is preferred over the board's `length` because the board
+   * is one page of at most 200 rows read once at boot, and the header this
+   * feeds tells a member how many people are about to read what they type. The
+   * board stands in until `refreshCohortMemberCount` lands, so the header has a
+   * plausible number immediately rather than a blank; `leaderboard` above
+   * guarantees the viewer's own row is in that fallback whether or not the
+   * fetch returned it.
    */
-  const cohortMemberCount = computed(() => leaderboard.value.length)
+  const cohortMemberCount = computed(
+    () => state.value.cohortMemberCount ?? leaderboard.value.length,
+  )
 
   /**
    * The inbox, with read state and a relative label folded in.
@@ -722,24 +749,25 @@ const buildStore = () => {
    * Any authored day by id, whether or not it is part of the weekly quota.
    *
    * `days` only carries the quota, so an optional day — the core & cardio
-   * finisher — resolves from the full list with a neutral status: it is never
-   * "today", and locking it would be locking a session that was never counted
-   * against the one-a-day rule in the first place.
+   * finisher — resolves from the full list with a neutral status: it holds no
+   * slot in the week, so it is never "today" and the calendar has nothing to
+   * open or close for it.
+   *
+   * The one rule it is under is its own: once a day. It is the finisher, so it
+   * is meant to be stacked on top of a session rather than counted against one,
+   * but a day that could be logged twice over would be a way to farm the same
+   * session all afternoon.
    */
   const getDay = (id: string): WorkoutDayView | undefined => {
     const inWeek = days.value.find((d) => d.id === id)
     if (inWeek) return inWeek
 
-    // An optional day — the core & cardio finisher — holds no slot in the week,
-    // so the calendar has nothing to open or close for it. It stays available
-    // on any day they have not already logged one, which is the one rule it has
-    // ever been under, and it is never scheduled, so it is never `today`.
     const optional = state.value.workoutDays.find((d) => d.id === id)
     return optional
       ? {
           ...optional,
           status: 'upcoming' as const,
-          canStart: sessionToday.value === null,
+          canStart: !sessionsToday.value.some((s) => s.dayId === id),
           opensInNights: null,
         }
       : undefined
@@ -860,9 +888,10 @@ const buildStore = () => {
    *
    * The gate lives here rather than only in the screens, so a deep link into
    * `/train/<id>` cannot walk around it: `canStart` is false on every day the
-   * member's calendar has not reached and every day it has gone past, so a
-   * member cannot run the week's four sessions off in one evening, nor start
-   * Friday's on Tuesday.
+   * member's calendar has not reached, so nobody starts Friday's session on
+   * Tuesday and a new member cannot run the whole week off in one evening. What
+   * it no longer refuses is a day left behind — that one is theirs to pick up
+   * whenever they get to it.
    *
    * Two things are deliberately *not* gated. A session already in flight for
    * this day is handed back whatever the calendar now says — it may have been
@@ -1072,6 +1101,22 @@ const buildStore = () => {
     state.value.leaderboard = await data.listLeaderboard()
   }
 
+  /**
+   * Re-count the roster. Called by Chat when the thread opens.
+   *
+   * Swallows its failure on purpose: the fallback in `cohortMemberCount` is a
+   * number that was true at boot, and a header that keeps a slightly old count
+   * is better than one that shows an error where a subtitle should be. The
+   * cause still reaches the console.
+   */
+  const refreshCohortMemberCount = async () => {
+    try {
+      state.value.cohortMemberCount = await data.countCohortMembers()
+    } catch (cause) {
+      console.error('[cohort] could not count members', cause)
+    }
+  }
+
   const consumePendingBadge = () => {
     const id = state.value.pendingBadge
     state.value.pendingBadge = null
@@ -1147,6 +1192,7 @@ const buildStore = () => {
     hydrate,
     tick,
     refreshClock,
+    refreshCohortMemberCount,
     instantSignIn,
     googleSignIn,
     signInWithGoogle,

@@ -3,12 +3,22 @@
 definePageMeta({ layout: false })
 
 import { useDataSourceClient } from '~/lib/datasource'
-import type { ChatAttachment, ChatMessageView } from '~/data/types'
+import type {
+  ChatAttachment,
+  ChatMessageView,
+  ChatReaction,
+  ChatReplyRef,
+  TypingPeer,
+} from '~/data/types'
+import { toggledReactions } from '~/lib/chat'
 import type { PendingAttachment } from '~/lib/attachments'
 
 const data = useDataSourceClient()
 const store = useAppStore()
 const messages = ref<ChatMessageView[]>([])
+
+/** Everyone else with the composer open, live. See `DataSource.watchTyping`. */
+const typing = ref<TypingPeer[]>([])
 
 /** Set once a write has failed for want of room. See `DataSource.storageFull`. */
 const storageFull = ref(false)
@@ -22,9 +32,14 @@ const storageFull = ref(false)
  * own sends. See `DataSource.watchMessages`.
  */
 let unwatch: (() => void) | null = null
+let unwatchTyping: (() => void) | null = null
 let unmounted = false
 
 onMounted(async () => {
+  // Not awaited with the subscription: the thread is what the member came for,
+  // and a slow count should not hold the first message back. It never throws.
+  store.refreshCohortMemberCount()
+
   const stop = await data.watchMessages(
     'cohort',
     (next) => {
@@ -43,12 +58,34 @@ onMounted(async () => {
   // taps straight back out. Nothing would ever stop this listener otherwise.
   if (unmounted) stop()
   else unwatch = stop
+
+  const stopTyping = await data.watchTyping(
+    'cohort',
+    (peers) => {
+      typing.value = peers
+    },
+    (error) => {
+      // Losing this listener leaves the indicator permanently empty, which
+      // is the right way for it to fail: nobody is worse off for not knowing
+      // that someone is typing. Logged, and otherwise left alone.
+      console.error('[chat] the typing listener stopped', error)
+    },
+  )
+
+  if (unmounted) stopTyping()
+  else unwatchTyping = stopTyping
 })
 
 onBeforeUnmount(() => {
   unmounted = true
   unwatch?.()
   unwatch = null
+  unwatchTyping?.()
+  unwatchTyping = null
+  // The composer emits this on its way out too. Repeated here because leaving
+  // the screen is the one exit that is certain, and a marker nobody clears is
+  // somebody the cohort sees typing a message that will never arrive.
+  data.setTyping('cohort', false)
 })
 
 /**
@@ -66,10 +103,15 @@ const title = computed(
 /**
  * "Coach and 12 members", counted rather than declared.
  *
- * This used to read `cohort.memberCount - 1` off the same fixture, which is why
- * every cohort was told it had 47 of them. See `cohortMemberCount`, and note
- * that the coach is not one of them: they are the cohort's `coach`, not a
- * member document, so the count is not reduced by one to make room for them.
+ * This used to read `cohort.memberCount - 1` off a fixture, which is why every
+ * cohort was told it had 47 of them, and then the length of the leaderboard
+ * page, which is capped and read once at boot. It is now a count of the roster
+ * taken when this screen opens — see `DataSource.countCohortMembers` — because
+ * the line is really answering "how many people will read what I type", and
+ * that is not a number to be casual about.
+ *
+ * The coach is not one of them: they are the cohort's `coach`, not a member
+ * document, so the count is not reduced by one to make room for them.
  */
 const subtitle = computed(() => {
   const count = store.cohortMemberCount.value
@@ -87,7 +129,11 @@ const subtitle = computed(() => {
  * Anything that throws here reaches the composer, which keeps the draft and
  * shows the reason. So the messages thrown are ones a member can read.
  */
-const send = async (payload: { text: string; attachments: PendingAttachment[] }) => {
+const send = async (payload: {
+  text: string
+  attachments: PendingAttachment[]
+  replyTo: ChatReplyRef | null
+}) => {
   const attachments = await Promise.all(
     payload.attachments.map((item) =>
       item.kind === 'image'
@@ -108,22 +154,58 @@ const send = async (payload: { text: string; attachments: PendingAttachment[] })
     ),
   )
 
-  const sent = await data.sendMessage('cohort', payload.text, attachments)
+  const sent = await data.sendMessage('cohort', payload.text, attachments, payload.replyTo)
   // Usually already here: the watcher sees this member's own write as it is
   // made. Appending it is for the implementation that cannot — the polled one,
   // where the next tick is seconds away and the bubble should not be.
   if (!messages.value.some((m) => m.id === sent.id)) {
     messages.value = [...messages.value, sent]
   }
-  storageFull.value = await data.storageFull()
+  // Not awaited, and deliberately outside what the composer treats as the
+  // send. The message has landed by this line; a device-space check that
+  // failed must not be reported to the member as a message that did not go,
+  // and must not put their draft back in the box underneath it.
+  data
+    .storageFull()
+    .then((full) => {
+      storageFull.value = full
+    })
+    .catch(() => {
+      // Not knowing how full the device is changes nothing that just happened.
+    })
 }
 
-/** Hold a message to react; the data source hands back the new counts. */
+/**
+ * Hold a message to react.
+ *
+ * Drawn before it is written. The toggle is decided by the chip the member
+ * tapped and nothing else — see `toggledReactions` — so waiting on a two
+ * document transaction and its confirming read before moving the count put a
+ * visible beat between the tap and anything happening. The write still settles
+ * the real counts, including whatever anyone else did in the meantime, and the
+ * chips move to those when it lands.
+ */
 const react = async (payload: { messageId: string; emoji: string }) => {
-  const reactions = await data.toggleReaction('cohort', payload.messageId, payload.emoji)
-  messages.value = messages.value.map((m) =>
-    m.id === payload.messageId ? { ...m, reactions } : m,
-  )
+  const before = messages.value.find((m) => m.id === payload.messageId)
+  if (!before) return
+
+  const apply = (reactions: ChatReaction[]) => {
+    messages.value = messages.value.map((m) =>
+      m.id === payload.messageId ? { ...m, reactions } : m,
+    )
+  }
+
+  apply(toggledReactions(before.reactions, payload.emoji))
+
+  try {
+    apply(await data.toggleReaction('cohort', payload.messageId, payload.emoji))
+  } catch (cause) {
+    // Put the chip back where it was. A reaction is not worth a message across
+    // the screen, but leaving a count the server never took is worse than the
+    // pause this replaced: the member would go on believing they had reacted.
+    apply(before.reactions)
+    console.error('[chat] the reaction did not stick', cause)
+  }
 }
 </script>
 
@@ -134,6 +216,8 @@ const react = async (payload: { messageId: string; emoji: string }) => {
     <div class="chat-page__main flex-1 min-h-0 flex flex-col lg:min-w-0 lg:w-full lg:max-w-(--focus-max) lg:my-0 lg:mx-auto lg:pt-8 lg:px-10 lg:pb-0">
       <ChatView
         :messages="messages"
+        thread="cohort"
+        :typing="typing"
         eyebrow="Private group"
         :title="title"
         :subtitle="subtitle"
@@ -141,6 +225,7 @@ const react = async (payload: { messageId: string; emoji: string }) => {
         :storage-full="storageFull"
         :send="send"
         @react="react"
+        @typing="(on: boolean) => data.setTyping('cohort', on)"
       />
     </div>
   </div>

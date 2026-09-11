@@ -4,13 +4,29 @@
 // SideNav takes over.
 const { navItems, isActive } = useNavigation()
 const store = useAppStore()
+const chat = useChatUnread()
 
-// The centre action goes straight into today's session rather than the picker,
-// unless today's is already logged, in which case the picker is the screen that
-// can explain why.
+// The centre action goes straight into whichever session is open — today's, or
+// the oldest day still owed when today's is already logged — rather than the
+// picker. Only when nothing at all is open does it fall back to the picker,
+// which is the screen that can explain why.
 const trainTo = computed(() =>
   store.trainingLocked.value ? '/train' : `/train/${store.today.value?.id ?? ''}`,
 )
+
+/**
+ * Which tabs are carrying something the member has not seen.
+ *
+ * Two of them, for two different inboxes: Home stands in for the notification
+ * inbox, and Chat for the cohort room and the coach DM together. Both are the
+ * same dot, because the question a dot answers — is there something here for me
+ * — is the same one either way.
+ */
+const hasDot = (key: string): boolean => {
+  if (key === 'home') return store.unreadNotifications.value > 0
+  if (key === 'chat') return chat.hasUnread.value
+  return false
+}
 </script>
 
 <template>
@@ -20,7 +36,8 @@ const trainTo = computed(() =>
         v-for="tab in navItems"
         :key="tab.key"
         :to="tab.center ? trainTo : tab.to"
-        class="tabbar__item [display:flex] [flex-direction:column] [align-items:center] [gap:4px] [flex:1] [min-width:0] [padding:7px_0_5px] [color:var(--on-inverse-muted)] [transition:color_0.15s_ease] [&.tabbar__item--active]:[color:var(--on-inverse)] [&.tabbar__item--center]:[flex:0_0_60px] [&.tabbar__item--center]:[padding:0]"
+        :aria-current="isActive(tab.to) ? 'page' : undefined"
+        class="tabbar__item [display:flex] [flex-direction:column] [align-items:center] [gap:4px] [flex:1] [min-width:0] [padding:7px_0_5px] [color:var(--on-inverse-muted)] [transition:color_0.15s_ease] [&.tabbar\_\_item--active]:[color:var(--on-inverse)] [&.tabbar\_\_item--active_.tabbar\_\_icon]:[color:var(--rose-on-inverse)] [&.tabbar\_\_item--active_.tabbar\_\_halo]:[opacity:1] [&.tabbar\_\_item--center]:[flex:0_0_60px] [&.tabbar\_\_item--center]:[padding:0]"
         :class="{
           'tabbar__item--active': isActive(tab.to),
           'tabbar__item--center': tab.center,
@@ -36,9 +53,17 @@ const trainTo = computed(() =>
         </template>
         <template v-else>
           <span class="tabbar__icon [position:relative] [display:grid] [place-items:center]">
-            <AppIcon :name="tab.icon" :size="21" :stroke="2" />
+            <!-- The selected pill, drawn out of flow so switching tabs cannot
+                 move the bar or the raised centre button by a pixel. It is the
+                 half of the active state that reads at a glance; the rose the
+                 glyph takes alongside it is the half that says which tab. -->
             <span
-              v-if="tab.key === 'home' && store.unreadNotifications.value"
+              class="tabbar__halo [position:absolute] [inset:-4px_-13px] [border-radius:var(--radius-pill)] [background:var(--face-on-inverse)] [opacity:0] [transition:opacity_0.18s_ease]"
+              aria-hidden="true"
+            />
+            <AppIcon :name="tab.icon" :size="21" :stroke="2" class="[position:relative]" />
+            <span
+              v-if="hasDot(tab.key)"
               class="tabbar__dot [position:absolute] [top:-1px] [right:-2px] [width:7px] [height:7px] [border-radius:50%] [background:var(--rose-fill)] [border:1.5px_solid_var(--surface-inverse)]"
             />
           </span>

@@ -42,6 +42,7 @@ import type {
   ChatAttachment,
   ChatMessageView,
   ChatReaction,
+  ChatReplyRef,
   CheckIn,
   Cohort,
   EarnedBadge,
@@ -59,6 +60,7 @@ import type {
   SessionLog,
   StoredImage,
   ThreadId,
+  TypingPeer,
   WorkoutDay,
 } from '~/data/types'
 
@@ -183,7 +185,14 @@ const withViewer = (message: Message, viewerUid: string, mine: string[]): ChatMe
     mine: mine.includes(emoji),
   }))
 
-  return { ...message, isSelf: message.authorUid === viewerUid, reactions }
+  return {
+    ...message,
+    // Seeds and anything stored before replies existed have no such field. See
+    // the note on the Firestore implementation's `viewOf`.
+    replyTo: message.replyTo ?? null,
+    isSelf: message.authorUid === viewerUid,
+    reactions,
+  }
 }
 
 /**
@@ -621,10 +630,29 @@ export class LocalDataSource implements DataSource {
     }
   }
 
+  /**
+   * The top of the thread, over the same registry `watchMessages` uses.
+   *
+   * The other two implementations read one document instead of two hundred to
+   * answer this, and that saving is the whole reason the method exists. Here
+   * the thread is already in memory, so there is nothing to save and nothing
+   * to gain from a second path through it: this subscribes like any other
+   * watcher and takes the last message off the end.
+   */
+  async watchLatestMessage(
+    threadId: ThreadId,
+    onMessage: (message: Message | null) => void,
+  ): Promise<Unsubscribe> {
+    return this.watchMessages(threadId, (messages) => {
+      onMessage(messages.at(-1) ?? null)
+    })
+  }
+
   async sendMessage(
     threadId: ThreadId,
     text: string,
     attachments: ChatAttachment[] = [],
+    replyTo: ChatReplyRef | null = null,
   ): Promise<ChatMessageView> {
     const [user, member] = await Promise.all([this.getAuthUser(), this.getMember()])
     const message: Message = {
@@ -636,6 +664,7 @@ export class LocalDataSource implements DataSource {
       text,
       sentAt: trustedTimestamp(),
       attachments,
+      replyTo,
       reactionCounts: {},
     }
     const mine = storage.read<Record<string, Message[]>>(KEY.messages, {})
@@ -645,6 +674,31 @@ export class LocalDataSource implements DataSource {
     })
     await this.publishThread(threadId)
     return withViewer(message, message.authorUid, [])
+  }
+
+  /**
+   * Accepted and dropped.
+   *
+   * There is one member in localStorage and nobody on the other end of the
+   * thread, so there is nothing to tell and nobody to tell it to. The method
+   * exists because the composer calls it on every keystroke and must not have
+   * to know which implementation is behind it.
+   */
+  async setTyping(): Promise<void> {}
+
+  /**
+   * Nobody is ever typing.
+   *
+   * Answered once with an empty list rather than left silent: the screen hides
+   * its indicator on the first delivery, and a watcher that never calls back
+   * would leave it waiting on an event that is not coming.
+   */
+  async watchTyping(
+    threadId: ThreadId,
+    onTyping: (peers: TypingPeer[]) => void,
+  ): Promise<Unsubscribe> {
+    onTyping([])
+    return () => {}
   }
 
   async toggleReaction(
@@ -711,6 +765,18 @@ export class LocalDataSource implements DataSource {
       isSelf: true,
     }
     return [...leaderboardSeed.map((peer) => ({ ...peer, isSelf: false })), me]
+  }
+
+  /**
+   * The same roster the board is padded out with.
+   *
+   * There is only ever one real member in localStorage, so the literal answer
+   * is 1 and a chat header reading "Coach and 1 member" is not a preview of
+   * anything. The stand-in cohort is what makes mock mode usable, and counting
+   * the same list the board shows is what keeps the two screens agreeing.
+   */
+  async countCohortMembers(): Promise<number> {
+    return (await this.listLeaderboard()).length
   }
 
   // =========================================================================

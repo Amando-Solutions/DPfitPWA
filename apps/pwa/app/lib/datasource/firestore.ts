@@ -16,6 +16,7 @@ import {
   deleteDoc,
   deleteField,
   doc,
+  getCountFromServer,
   getDoc,
   getDocs,
   increment,
@@ -46,9 +47,11 @@ import {
   firebaseDb,
   firebaseStorage,
 } from '~/lib/firebase/app'
+import { TYPING_REFRESH_MS, TYPING_TTL_MS, typingIsFresh } from '~/lib/chat'
 import { weekOf } from '~/lib/domain/challenge'
 import { prescribedSets } from '~/lib/domain/sets'
 import { storage as webStorage } from '~/lib/storage'
+import { trustedNow } from '~/lib/time'
 import type { ProcessedImage } from '~/lib/image'
 import {
   DataSourceError,
@@ -68,6 +71,7 @@ import type {
   ChatAttachment,
   ChatMessageView,
   ChatReaction,
+  ChatReplyRef,
   CheckIn,
   Cohort,
   CohortDoc,
@@ -90,6 +94,8 @@ import type {
   SessionLog,
   StoredImage,
   ThreadId,
+  TypingDoc,
+  TypingPeer,
   WorkoutDay,
 } from '~/data/types'
 
@@ -315,6 +321,16 @@ export class FirestoreDataSource implements DataSource {
    */
   private readonly myReactions = new Map<string, string[]>()
 
+  /**
+   * When this member's typing marker was last written, by document path.
+   *
+   * The composer says "still typing" on every keystroke; this is what turns
+   * that into one write every few seconds. Cleared on sign-out with the rest,
+   * and cleared for a thread the moment typing stops, so the next first
+   * keystroke is never swallowed by a limit left over from the last message.
+   */
+  private readonly typingWrittenAt = new Map<string, number>()
+
   // =========================================================================
   // Auth — email link and Google
   //
@@ -506,6 +522,7 @@ export class FirestoreDataSource implements DataSource {
     this.memberCache = null
     this.programCache = null
     this.myReactions.clear()
+    this.typingWrittenAt.clear()
     webStorage.clear()
   }
 
@@ -1185,6 +1202,19 @@ export class FirestoreDataSource implements DataSource {
     return threadId === 'coach' ? member.id : threadId
   }
 
+  private async typingRef(threadId: ThreadId) {
+    const member = await this.requireMember()
+    const resolved = await this.resolveThread(threadId)
+    return collection(
+      firebaseDb(),
+      'cohorts',
+      member.cohortId,
+      'threads',
+      resolved,
+      'typing',
+    )
+  }
+
   private async messagesRef(threadId: ThreadId) {
     const member = await this.requireMember()
     const resolved = await this.resolveThread(threadId)
@@ -1304,10 +1334,50 @@ export class FirestoreDataSource implements DataSource {
     }
   }
 
+  /**
+   * The top of the thread, live, for the unread dot.
+   *
+   * One document rather than two hundred: `orderBy('sentAt', 'desc')` with
+   * `limit(1)`. This listener is open on every screen in the app, so what it
+   * costs on a cold load is what the badge costs, and after that Firestore
+   * only sends the message that has just arrived.
+   *
+   * No reaction lookup. A dot does not care who reacted, and `cacheMyReactions`
+   * would put a read per message behind a subscription whose whole point is
+   * that it is cheap.
+   */
+  async watchLatestMessage(
+    threadId: ThreadId,
+    onMessage: (message: Message | null) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
+    const ref = await this.messagesRef(threadId)
+
+    let stopped = false
+
+    const stop = onSnapshot(
+      query(ref, orderBy('sentAt', 'desc'), limit(1)),
+      (snap) => {
+        if (stopped) return
+        const [newest] = snap.docs
+        onMessage(newest ? withId<Message>(newest) : null)
+      },
+      (error) => {
+        if (!stopped) onError?.(error)
+      },
+    )
+
+    return () => {
+      stopped = true
+      stop()
+    }
+  }
+
   async sendMessage(
     threadId: ThreadId,
     text: string,
     attachments: ChatAttachment[] = [],
+    replyTo: ChatReplyRef | null = null,
   ): Promise<ChatMessageView> {
     const member = await this.requireMember()
     const ref = await this.messagesRef(threadId)
@@ -1320,12 +1390,118 @@ export class FirestoreDataSource implements DataSource {
       text,
       sentAt: Timestamp.now(),
       attachments,
+      replyTo,
       reactionCounts: {},
     }
 
     const created = doc(ref)
     await setDoc(created, message)
     return this.viewOf({ id: created.id, ...message }, member.id, [])
+  }
+
+  /**
+   * Say, or stop saying, that this member is composing.
+   *
+   * Rate-limited here rather than at the call site, because the reason for the
+   * limit is the cost of the write and its fan-out, and that is this layer's
+   * concern. `true` writes at most once every `TYPING_REFRESH_MS`; `false`
+   * always deletes, because the one thing that must never be dropped is the
+   * message that somebody has stopped.
+   *
+   * Never throws. A refused marker means an indicator nobody sees; it must not
+   * reach the composer, which is in the middle of a keystroke.
+   */
+  async setTyping(threadId: ThreadId, typing: boolean): Promise<void> {
+    try {
+      const member = await this.requireMember()
+      const ref = doc(await this.typingRef(threadId), member.id)
+      const key = ref.path
+
+      if (!typing) {
+        this.typingWrittenAt.delete(key)
+        await deleteDoc(ref)
+        return
+      }
+
+      const last = this.typingWrittenAt.get(key) ?? 0
+      if (Date.now() - last < TYPING_REFRESH_MS) return
+      this.typingWrittenAt.set(key, Date.now())
+
+      const marker: TypingDoc = {
+        name: member.profile.displayName || 'Someone',
+        // The server's clock, not this device's. Freshness is compared across
+        // phones, and a member whose clock is a minute fast would otherwise
+        // appear to be typing for a minute after they stopped.
+        at: serverTimestamp() as unknown as Timestamp,
+      }
+      await setDoc(ref, marker)
+    } catch (cause) {
+      console.error('[chat] typing marker failed', cause)
+    }
+  }
+
+  /**
+   * Who else is composing, live.
+   *
+   * Two things end an indicator: the writer deleting their marker, which
+   * arrives as a snapshot, and the marker going stale, which does not arrive as
+   * anything at all. The timer is for the second — a phone that went into a
+   * tunnel mid-sentence writes nothing more and deletes nothing, and without a
+   * clock on this side it would leave somebody typing forever.
+   */
+  async watchTyping(
+    threadId: ThreadId,
+    onTyping: (peers: TypingPeer[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
+    const member = await this.requireMember()
+    const ref = await this.typingRef(threadId)
+
+    let stopped = false
+    let latest: TypingPeer[] = []
+    let expiry: ReturnType<typeof setTimeout> | null = null
+
+    const publish = () => {
+      if (stopped) return
+      if (expiry) clearTimeout(expiry)
+      expiry = null
+
+      const now = trustedNow().getTime()
+      const fresh = latest.filter((peer) => typingIsFresh(peer.at, now))
+      onTyping(fresh)
+
+      // Wake once, when the oldest of them is due to expire, rather than
+      // polling a list that is empty almost all of the time.
+      if (!fresh.length) return
+      const oldest = Math.min(...fresh.map((peer) => peer.at.toMillis()))
+      expiry = setTimeout(publish, Math.max(500, oldest + TYPING_TTL_MS - now))
+    }
+
+    const stop = onSnapshot(
+      ref,
+      (snap) => {
+        latest = snap.docs
+          .filter((d) => d.id !== member.id)
+          .map((d) => {
+            const data = d.data() as TypingDoc
+            return { uid: d.id, name: data.name ?? '', at: data.at }
+          })
+          // A marker written a moment ago on another device arrives before the
+          // server has resolved its timestamp. Dropping it is right: it will be
+          // back, with a real instant on it, on the very next snapshot.
+          .filter((peer): peer is TypingPeer => Boolean(peer.at))
+        publish()
+      },
+      (error) => {
+        if (!stopped) onError?.(error)
+      },
+    )
+
+    return () => {
+      stopped = true
+      if (expiry) clearTimeout(expiry)
+      stop()
+    }
   }
 
   async toggleReaction(
@@ -1338,42 +1514,77 @@ export class FirestoreDataSource implements DataSource {
     const messageRef = doc(messages, messageId)
     const mineRef = doc(messageRef, 'reactions', member.id)
 
-    const mine = await runTransaction(firebaseDb(), async (tx) => {
-      const [messageSnap, mineSnap] = await Promise.all([tx.get(messageRef), tx.get(mineRef)])
-      if (!messageSnap.exists()) throw new DataSourceError('Message not found.', 'not-found')
+    // Move the viewer's own half of the answer before the write goes out.
+    //
+    // The SDK replays a pending local write to its own listeners immediately,
+    // so `watchMessages` publishes the new *count* within the same gesture —
+    // but `mine` is not on the document, it is this cache, and leaving it until
+    // the transaction commits meant that replayed snapshot overwrote the
+    // screen's optimistic chip with a lit-up count that was not marked as the
+    // member's. The toggle is decided by what this cache already holds, so it
+    // can be applied here and simply confirmed below. See `myReactions`.
+    const cached = this.myReactions.get(messageRef.path) ?? []
+    this.myReactions.set(
+      messageRef.path,
+      cached.includes(emoji) ? cached.filter((e) => e !== emoji) : [...cached, emoji],
+    )
 
-      const current: string[] = mineSnap.exists()
-        ? ((mineSnap.data() as { emojis: string[] }).emojis ?? [])
-        : []
-      const on = current.includes(emoji)
-      const next = on ? current.filter((e) => e !== emoji) : [...current, emoji]
+    const settle = () =>
+      runTransaction(firebaseDb(), async (tx) => {
+        const [messageSnap, mineSnap] = await Promise.all([tx.get(messageRef), tx.get(mineRef)])
+        if (!messageSnap.exists()) throw new DataSourceError('Message not found.', 'not-found')
 
-      tx.set(mineRef, { emojis: next, updatedAt: serverTimestamp() })
+        const current: string[] = mineSnap.exists()
+          ? ((mineSnap.data() as { emojis: string[] }).emojis ?? [])
+          : []
+        const on = current.includes(emoji)
+        const next = on ? current.filter((e) => e !== emoji) : [...current, emoji]
 
-      // An increment on one field rather than a rewrite of the whole map, so
-      // two members reacting in the same instant do not overwrite each other.
-      // `FieldPath` rather than a dotted string because an emoji is not a
-      // field name anyone should be parsing.
-      const path = new FieldPath('reactionCounts', emoji)
-      const counts = (messageSnap.data() as Message).reactionCounts ?? {}
-      const after = (counts[emoji] ?? 0) + (on ? -1 : 1)
-      // A zero count is an absent key, not a stored zero: otherwise every
-      // emoji anyone ever tried accumulates on the document forever.
-      if (after <= 0) tx.update(messageRef, path, deleteField())
-      else tx.update(messageRef, path, increment(on ? -1 : 1))
+        tx.set(mineRef, { emojis: next, updatedAt: serverTimestamp() })
 
-      return next
-    })
+        // An increment on one field rather than a rewrite of the whole map, so
+        // two members reacting in the same instant do not overwrite each other.
+        // `FieldPath` rather than a dotted string because an emoji is not a
+        // field name anyone should be parsing.
+        const path = new FieldPath('reactionCounts', emoji)
+        const stored = withId<Message>(messageSnap)
+        const counts = stored.reactionCounts ?? {}
+        const after = (counts[emoji] ?? 0) + (on ? -1 : 1)
+        // A zero count is an absent key, not a stored zero: otherwise every
+        // emoji anyone ever tried accumulates on the document forever.
+        if (after <= 0) tx.update(messageRef, path, deleteField())
+        else tx.update(messageRef, path, increment(on ? -1 : 1))
 
-    // The listener in `watchMessages` will see `reactionCounts` move, but not
-    // who moved it — that is this document, and this is the only place in the
-    // session it changes. Without this the count updates live and the member's
-    // own highlight does not.
-    this.myReactions.set(messageRef.path, mine)
+        // The message as this write leaves it, assembled from the read the
+        // transaction already had to make. It used to be re-read afterwards,
+        // which is a second round trip on a gesture the member is watching, to
+        // learn a number that was worked out three lines above. Contention is
+        // not a reason to keep it: a snapshot that moved under the transaction
+        // is what makes the transaction retry, so what is returned here is what
+        // committed.
+        const reactionCounts = { ...counts }
+        if (after > 0) reactionCounts[emoji] = after
+        else delete reactionCounts[emoji]
 
-    const after = await getDoc(messageRef)
-    const message = { id: after.id, ...after.data() } as Message
-    return this.viewOf(message, member.id, mine).reactions
+        return { mine: next, message: { ...stored, reactionCounts } }
+      })
+
+    let settled: Awaited<ReturnType<typeof settle>>
+    try {
+      settled = await settle()
+    } catch (cause) {
+      // The write is off. Put the cache back, or the highlight stays on a
+      // reaction the thread does not have and every later toggle of it is
+      // computed from a lie.
+      this.myReactions.set(messageRef.path, cached)
+      throw cause
+    }
+
+    // What actually committed, which is not always what was guessed above: the
+    // member may have reacted on another device since this thread was read.
+    this.myReactions.set(messageRef.path, settled.mine)
+
+    return this.viewOf(settled.message, member.id, settled.mine).reactions
   }
 
   // =========================================================================
@@ -1453,6 +1664,33 @@ export class FirestoreDataSource implements DataSource {
     return rows
   }
 
+  /**
+   * The roster size, as one aggregation rather than a read of every row.
+   *
+   * `cohorts/{id}/leaderboard` is the roster: a document is written there the
+   * moment a member sets a display name in setup, which is a step earlier than
+   * they can reach Chat, and it is deleted with them.
+   *
+   * This is deliberately not `listLeaderboard().length`, which is what Chat
+   * used to count and undercounts twice over. That query is capped at 200 rows,
+   * and it is ordered by `sessions` — a Firestore `orderBy` drops every
+   * document that has no such field, and a member who has set their name but
+   * not yet logged a qualifying session has exactly that document. So the
+   * header was counting people who had trained, and calling them the people who
+   * can read the thread. This counts the collection.
+   *
+   * The floor of 1 covers the member reading their own header: a cohort with a
+   * member in it is never empty, and a count of zero here would mean their own
+   * projection document has not been written yet, not that nobody is there.
+   */
+  async countCohortMembers(): Promise<number> {
+    const member = await this.requireMember()
+    const snap = await getCountFromServer(
+      collection(firebaseDb(), 'cohorts', member.cohortId, 'leaderboard'),
+    )
+    return Math.max(snap.data().count, 1)
+  }
+
   // =========================================================================
   // Preferences
   // =========================================================================
@@ -1504,7 +1742,16 @@ export class FirestoreDataSource implements DataSource {
       .filter(([, count]) => count > 0)
       .map(([emoji, count]) => ({ emoji, count, mine: mine.includes(emoji) }))
 
-    return { ...message, isSelf: message.authorUid === viewerUid, reactions }
+    return {
+      ...message,
+      // Every message sent before replies existed is missing the field
+      // entirely, and `v-if="m.replyTo"` on an absent key is fine while
+      // `replyTo.authorName` on one is not. Normalised on the way out so the
+      // template can trust the type.
+      replyTo: message.replyTo ?? null,
+      isSelf: message.authorUid === viewerUid,
+      reactions,
+    }
   }
 
   private async requireUser(): Promise<User> {

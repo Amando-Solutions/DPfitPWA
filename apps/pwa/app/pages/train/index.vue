@@ -19,6 +19,21 @@ const scheduledToday = computed(
 /** A day the plan schedules nothing for. Not the same as having finished. */
 const restDay = computed(() => store.days.value.length > 0 && !scheduledToday.value)
 
+/**
+ * The open days the week has already gone past — the ones they owe.
+ *
+ * What the screen counts, because it is the only part of "what is open" the
+ * member did not already know: today's session is on the list either way.
+ */
+const owed = computed(() =>
+  store.days.value.filter((d) => d.canStart && d.status === 'missed'),
+)
+
+/** "one session", "2 sessions" — for the sentences that count them. */
+const owedCount = computed(() =>
+  owed.value.length === 1 ? 'one session' : `${owed.value.length} sessions`,
+)
+
 /** "Day 3 opens Thursday", for whichever session they are waiting on. */
 const nextUpNote = computed(() => {
   const next = store.nextUp.value
@@ -27,17 +42,27 @@ const nextUpNote = computed(() => {
 })
 
 const title = computed(() => {
-  if (!store.trainingLocked.value) return 'Today’s session'
+  if (!store.trainingLocked.value) {
+    if (!owed.value.length) return 'Today’s session'
+    if (scheduledToday.value?.canStart) return `Today, plus ${owedCount.value} to catch up`
+    return owed.value.length === 1
+      ? 'One session to catch up'
+      : `${owed.value.length} sessions to catch up`
+  }
   if (store.weekComplete.value) return 'Week complete'
   if (store.sessionToday.value) return 'Today is logged'
   return restDay.value ? 'Rest day' : 'Nothing open today'
 })
 
-const subtitle = computed(() =>
-  store.trainingLocked.value
-    ? 'One session a day, on the day the plan sets it.'
-    : 'Your day is open. The rest are there to read, not to log.',
-)
+const subtitle = computed(() => {
+  if (store.trainingLocked.value) {
+    return 'Days open as the week reaches them. Nothing is waiting on you today.'
+  }
+  if (owed.value.length) {
+    return 'A day you missed stays open until you log it. Take them in any order.'
+  }
+  return 'Your day is open. The ones ahead are there to read, not to log.'
+})
 
 /**
  * Why the Start buttons are away, in one line.
@@ -47,7 +72,9 @@ const subtitle = computed(() =>
  */
 const lockedNote = computed(() => {
   if (store.weekComplete.value) return 'Every session this week is logged. Well played.'
-  if (store.sessionToday.value) return `Recovery counts. ${nextUpNote.value}`
+  if (store.sessionToday.value) {
+    return `Nothing left behind you. ${nextUpNote.value}`
+  }
   if (restDay.value) return `No session scheduled today. ${nextUpNote.value}`
   return nextUpNote.value
 })
@@ -79,8 +106,14 @@ const rows = computed(() =>
     if (day.status === 'completed') {
       return { day, chip: { text: 'Logged', cls: CHIP_ACCENT } }
     }
-    if (day.canStart) return { day, chip: { text: 'Open now', cls: CHIP_ACCENT } }
-    if (day.status === 'missed') return { day, chip: { text: 'Missed', cls: CHIP_QUIET } }
+    // A day behind them is open on the same terms as today's, but it is not
+    // today's — the chip is what tells them which one they are picking up.
+    if (day.canStart) {
+      return {
+        day,
+        chip: { text: day.status === 'today' ? 'Open now' : 'Catch up', cls: CHIP_ACCENT },
+      }
+    }
     return {
       day,
       chip: {
@@ -126,8 +159,9 @@ const rows = computed(() =>
 
         A day the calendar has not reached is still the coach's plan for
         Thursday, and a member who wants to read what is coming should be able
-        to. What a closed day withholds is the Start button on the other side,
-        not the door — `canStart` is the only thing the session screen gates on.
+        to. What a day still ahead withholds is the Start button on the other
+        side, not the door — `canStart` is the only thing the session screen
+        gates on, and it is only ever false on a day the week has not reached.
       -->
       <NuxtLink
         v-for="{ day, chip } in rows"

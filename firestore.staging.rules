@@ -219,38 +219,69 @@ service cloud.firestore {
       // --- Threads -------------------------------------------------------
       // `cohort` is the group thread. Every other thread id is a member uid:
       // that member's private thread with the coach.
-      match /threads/{threadId}/messages/{messageId} {
+      //
+      // The match is nested on the thread rather than spelled out per
+      // subcollection so `myThread()` is written once. It gates both the
+      // messages and the typing markers, and two copies of a predicate that
+      // decides who may read a private thread with their coach is two copies
+      // to keep in step.
+      match /threads/{threadId} {
         function myThread() {
           return threadId == 'cohort' || threadId == request.auth.uid;
         }
 
-        allow read: if isCoach() || (inCohort(cohortId) && myThread());
+        match /messages/{messageId} {
+          allow read: if isCoach() || (inCohort(cohortId) && myThread());
 
-        allow create: if inCohort(cohortId)
-          && myThread()
-          && request.resource.data.authorUid == request.auth.uid
-          // Only the coach's messages get the coach's styling.
-          && request.resource.data.isCoach == false
-          // A new message starts with no reactions. Counts are only ever
-          // moved by the increment below.
-          && request.resource.data.reactionCounts.size() == 0;
+          allow create: if inCohort(cohortId)
+            && myThread()
+            && request.resource.data.authorUid == request.auth.uid
+            // Only the coach's messages get the coach's styling.
+            && request.resource.data.isCoach == false
+            // A new message starts with no reactions. Counts are only ever
+            // moved by the increment below.
+            && request.resource.data.reactionCounts.size() == 0;
 
-        // Nobody edits a sent message. The only writable part is the
-        // reaction tally, and only ever one emoji at a time.
-        allow update: if isCoach() || (
-          inCohort(cohortId) && myThread()
-          && changed().hasOnly(['reactionCounts'])
-        );
+          // Nobody edits a sent message. The only writable part is the
+          // reaction tally, and only ever one emoji at a time.
+          allow update: if isCoach() || (
+            inCohort(cohortId) && myThread()
+            && changed().hasOnly(['reactionCounts'])
+          );
 
-        allow delete: if isCoach() || (
-          inCohort(cohortId) && resource.data.authorUid == request.auth.uid
-        );
+          allow delete: if isCoach() || (
+            inCohort(cohortId) && resource.data.authorUid == request.auth.uid
+          );
 
-        // Who reacted, one document per reactor, keyed by uid so a member can
-        // only ever move their own.
-        match /reactions/{reactorId} {
-          allow read: if isCoach() || inCohort(cohortId);
-          allow write: if isSelf(reactorId) && inCohort(cohortId);
+          // Who reacted, one document per reactor, keyed by uid so a member can
+          // only ever move their own.
+          match /reactions/{reactorId} {
+            allow read: if isCoach() || inCohort(cohortId);
+            allow write: if isSelf(reactorId) && inCohort(cohortId);
+          }
+        }
+
+        // Who has the composer open, one document per person, keyed by uid.
+        //
+        // The two fields are the whole point of the restriction: a marker that
+        // could carry arbitrary data would be a second, unmoderated way to put
+        // text in front of the cohort, written to a path nothing renders as a
+        // message and nobody would think to look at.
+        match /typing/{typistId} {
+          allow read: if isCoach() || (inCohort(cohortId) && myThread());
+
+          // Split from delete for the reason the leaderboard block is split:
+          // on a delete `request.resource` is null, so a `keys()` check on it
+          // errors and denies — which would leave a member unable to say they
+          // had stopped typing.
+          allow create, update: if isCoach() || (
+            isSelf(typistId)
+            && inCohort(cohortId)
+            && myThread()
+            && request.resource.data.keys().hasOnly(['name', 'at'])
+          );
+
+          allow delete: if isCoach() || (isSelf(typistId) && inCohort(cohortId));
         }
       }
     }

@@ -13,7 +13,13 @@
 // =============================================================================
 import { getApp, getApps, initializeApp, type FirebaseApp } from 'firebase/app'
 import { getAuth, onAuthStateChanged, type Auth, type User } from 'firebase/auth'
-import { getFirestore, type Firestore } from 'firebase/firestore'
+import {
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  type Firestore,
+} from 'firebase/firestore'
 import { getStorage, type FirebaseStorage } from 'firebase/storage'
 
 export interface FirebaseWebConfig {
@@ -77,15 +83,60 @@ const require_ = (): FirebaseApp => {
 
 export const firebaseAuth = (): Auth => getAuth(require_())
 
+let db: Firestore | null = null
+
 /**
- * The configured database, or `(default)` when none is named.
+ * The configured database, or `(default)` when none is named, with its cache on
+ * disk.
  *
- * `getFirestore(app)` — the one-argument form — always means `(default)`, no
- * matter what the app was called or what environment it thinks it is in. This
- * is the only place in the codebase that decides otherwise.
+ * Two separate things are settled here.
+ *
+ * **Which database.** `getFirestore(app)` — the one-argument form — always
+ * means `(default)`, no matter what the app was called or what environment it
+ * thinks it is in. This is the only place in the codebase that decides
+ * otherwise.
+ *
+ * **Where the cache lives.** The SDK's default is an in-memory cache, which is
+ * emptied by every reload. That is what made the app unreadable without a
+ * connection: a member who had been reading their cohort chat all week opened
+ * it on the underground and got an empty thread, because the only copy of those
+ * messages had gone when the tab was last closed. `persistentLocalCache` puts
+ * it in IndexedDB instead, so a thread that has been read once stays readable,
+ * and a message sent offline is queued and goes out on its own when the
+ * connection comes back.
+ *
+ * `persistentMultipleTabManager` because this is a site as well as an installed
+ * app: with the single-tab manager the *second* tab to open fails to acquire
+ * the cache and falls back to memory, which is the same bug again for anybody
+ * who keeps a tab open.
+ *
+ * Memoised because `initializeFirestore` may only be called once per database,
+ * and never after a `getFirestore` for it — a second call throws. The fallback
+ * is for the browsers where it is refused outright: private windows and any
+ * profile with site data blocked have no IndexedDB to hand out. Those sessions
+ * get the old in-memory behaviour, which is worse but is not broken, and it is
+ * not a failure a member can do anything about.
  */
-export const firebaseDb = (): Firestore =>
-  databaseId ? getFirestore(require_(), databaseId) : getFirestore(require_())
+export const firebaseDb = (): Firestore => {
+  if (db) return db
+  const instance = require_()
+  const settings = {
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+  }
+  try {
+    db = databaseId
+      ? initializeFirestore(instance, settings, databaseId)
+      : initializeFirestore(instance, settings)
+  } catch (cause) {
+    console.warn(
+      '[firebase] offline persistence is unavailable, so this session will ' +
+        'only be able to read what it can fetch.',
+      cause,
+    )
+    db = databaseId ? getFirestore(instance, databaseId) : getFirestore(instance)
+  }
+  return db
+}
 
 // `storageBucket` comes from the same config block, so the bucket follows the
 // environment for the same reason and by the same route as everything else.

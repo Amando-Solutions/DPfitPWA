@@ -10,6 +10,8 @@ import {
   type SessionInput,
   type Unsubscribe,
 } from './types'
+import { TYPING_REFRESH_MS, typingIsFresh } from '~/lib/chat'
+import { trustedNow } from '~/lib/time'
 import type { ProcessedImage } from '~/lib/image'
 import type {
   ActiveSessionDoc,
@@ -18,6 +20,7 @@ import type {
   ChatAttachment,
   ChatMessageView,
   ChatReaction,
+  ChatReplyRef,
   CheckIn,
   Cohort,
   EarnedBadge,
@@ -27,17 +30,36 @@ import type {
   MemberDoc,
   MemberPreferences,
   MemberProfile,
+  Message,
   Notification,
   Program,
   ProgressPhoto,
   SessionLog,
   StoredImage,
   ThreadId,
+  TypingPeer,
   WorkoutDay,
 } from '~/data/types'
 
 /** How often an open chat thread is re-read. See `watchMessages`. */
 const THREAD_POLL_MS = 5_000
+
+/**
+ * How often the typing markers are re-read. Faster than the thread, because an
+ * indicator that arrives after the message it was announcing is worse than no
+ * indicator, and the payload is a handful of names rather than 200 messages.
+ */
+const TYPING_POLL_MS = 2_500
+
+/**
+ * How often the unread badge re-reads the top of a thread. See
+ * `watchLatestMessage`.
+ *
+ * Slower than the open thread, because this one is polled from every screen in
+ * the app rather than from the one screen somebody is reading, and a dot that
+ * appears within half a minute is a dot that works.
+ */
+const LATEST_POLL_MS = 30_000
 
 /**
  * HTTP implementation of the same contract, for a REST backend in front of
@@ -57,6 +79,9 @@ const THREAD_POLL_MS = 5_000
  */
 export class HttpDataSource implements DataSource {
   constructor(private readonly baseURL: string) {}
+
+  /** When `setTyping(true)` last went out, per thread. See `setTyping`. */
+  private readonly typingSentAt = new Map<string, number>()
 
   private request<T>(path: string, options: Parameters<typeof $fetch>[1] = {}): Promise<T> {
     return $fetch<T>(path, {
@@ -330,11 +355,119 @@ export class HttpDataSource implements DataSource {
     }
   }
 
-  sendMessage(threadId: ThreadId, text: string, attachments: ChatAttachment[] = []) {
+  /**
+   * Polled like `watchMessages`, on its own slower timer.
+   *
+   * The endpoint hands back the newest message in the thread, or `null` for a
+   * thread nobody has written in — the one document the badge needs, rather
+   * than the 200 `listMessages` returns, because this poll runs on every
+   * screen in the app and not only on the chat one.
+   *
+   * A failed poll is reported once and the timer keeps running, for the same
+   * reason as the thread poll: the usual cause is a phone between cells.
+   */
+  async watchLatestMessage(
+    threadId: ThreadId,
+    onMessage: (message: Message | null) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
+    let stopped = false
+    let reportedError = false
+
+    const poll = async () => {
+      try {
+        const latest = await this.get<Message | null>(`/threads/${threadId}/messages/latest`)
+        reportedError = false
+        if (!stopped) onMessage(latest ?? null)
+      } catch (error) {
+        if (stopped || reportedError) return
+        reportedError = true
+        onError?.(error)
+      }
+    }
+
+    await poll()
+    const timer = setInterval(poll, LATEST_POLL_MS)
+
+    return () => {
+      stopped = true
+      clearInterval(timer)
+    }
+  }
+
+  sendMessage(
+    threadId: ThreadId,
+    text: string,
+    attachments: ChatAttachment[] = [],
+    replyTo: ChatReplyRef | null = null,
+  ) {
     return this.send<ChatMessageView>(`/threads/${threadId}/messages`, 'POST', {
       text,
       attachments,
+      replyTo,
     })
+  }
+
+  /**
+   * Rate-limited here, like the Firestore implementation, and for the same
+   * reason: the composer calls this on every keystroke and a backend should not
+   * be asked to absorb that. `false` is never limited — it is the half that
+   * must always get through.
+   */
+  async setTyping(threadId: ThreadId, typing: boolean): Promise<void> {
+    try {
+      if (!typing) {
+        this.typingSentAt.delete(threadId)
+        await this.send(`/threads/${threadId}/typing`, 'DELETE')
+        return
+      }
+      const last = this.typingSentAt.get(threadId) ?? 0
+      if (Date.now() - last < TYPING_REFRESH_MS) return
+      this.typingSentAt.set(threadId, Date.now())
+      await this.send(`/threads/${threadId}/typing`, 'POST')
+    } catch (cause) {
+      console.error('[chat] typing marker failed', cause)
+    }
+  }
+
+  /**
+   * Polled, like `watchMessages` and for the same reason — but on its own,
+   * faster timer. A typing indicator that lags five seconds behind is worse
+   * than none: it appears after the message it was announcing.
+   *
+   * The backend is expected to have applied `TYPING_TTL_MS` already; the filter
+   * here is the client refusing to render a marker it can see is stale, which
+   * is what covers a poll that arrives late.
+   */
+  async watchTyping(
+    threadId: ThreadId,
+    onTyping: (peers: TypingPeer[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
+    let stopped = false
+    let reportedError = false
+
+    const poll = async () => {
+      try {
+        const peers = await this.get<TypingPeer[]>(`/threads/${threadId}/typing`)
+        reportedError = false
+        if (stopped) return
+        const now = trustedNow().getTime()
+        onTyping(peers.filter((peer) => typingIsFresh(peer.at, now)))
+      } catch (error) {
+        if (stopped || reportedError) return
+        reportedError = true
+        onError?.(error)
+      }
+    }
+
+    await poll()
+    const timer = setInterval(poll, TYPING_POLL_MS)
+
+    return () => {
+      stopped = true
+      clearInterval(timer)
+    }
   }
 
   toggleReaction(threadId: ThreadId, messageId: string, emoji: string) {
@@ -357,6 +490,18 @@ export class HttpDataSource implements DataSource {
   /** Real counts across the cohort, refreshed on load. No placeholder rows. */
   listLeaderboard() {
     return this.get<LeaderboardEntry[]>('/cohort/leaderboard')
+  }
+
+  /**
+   * One number, its own endpoint.
+   *
+   * The board is paginated and this is not a `length` the client can take from
+   * it — see the contract. A backend answering this should count the roster,
+   * not serialise it.
+   */
+  async countCohortMembers() {
+    const { count } = await this.get<{ count: number }>('/cohort/member-count')
+    return Math.max(count, 1)
   }
 
   /** Uploads land in a bucket, so there is no device budget to run out of. */

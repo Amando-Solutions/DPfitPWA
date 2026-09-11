@@ -555,6 +555,8 @@
 @theme {
   --animate-day-ping: day-ping 1.9s cubic-bezier(0, 0, 0.2, 1) infinite;
   --animate-rest-pulse: rest-pulse 2s ease-in-out infinite;
+  --animate-typing-dot: typing-dot 1.25s ease-in-out infinite;
+  --animate-jump-flash: jump-flash 1.4s ease-out forwards;
 }
 
 @keyframes day-ping {
@@ -577,6 +579,44 @@
   }
   50% {
     opacity: 0.55;
+  }
+}
+
+/* The band that marks where a tap on a quoted reply has landed.
+
+   Asymmetric on purpose: in over a tenth of a second, held for half, then a
+   long fade. A highlight that arrives slowly is missed — the eye is still
+   travelling when it appears — and one that leaves as fast as it came reads as
+   a glitch rather than as an answer to "here it is". `forwards` holds it at
+   zero so it is already invisible by the time the element is taken away. */
+@keyframes jump-flash {
+  0% {
+    opacity: 0;
+  }
+  9%,
+  45% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* The three dots under a chat thread while somebody is composing. Each dot runs
+   the same cycle on its own delay, which is what makes the group read as a
+   wave rather than a blink. Small movement on purpose: it sits a few pixels
+   from the composer and should be noticeable without pulling the eye off the
+   conversation. */
+@keyframes typing-dot {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
   }
 }
 

@@ -59,13 +59,42 @@ const opensLabel = computed(() => {
   if (!day.value) return ''
   if (day.value.status === 'completed') return 'Logged this week'
   const nights = day.value.opensInNights
-  // `canStart` is false with the day scheduled for today only when something is
-  // already in today's log — saying "opens today" there would be a flat
-  // contradiction of the button it sits under.
-  if (nights === 0) return 'Opens once today’s session clears'
-  if (nights === null) return 'Opens when today’s session is done'
+  // The finisher holds no slot in the week, so nothing schedules it and the one
+  // thing that shuts it is having already been logged today.
+  if (nights === null) return 'Logged today'
+  // Nothing reaches here with `nights` at zero: a day whose slot is today is
+  // either open or already in the log, and both were answered above.
   return `Opens ${nightsLabel(nights, store.now.value)}`
 })
+
+/**
+ * The sentence under it: which rule is holding this day shut.
+ *
+ * A day already logged and a day the week has not reached are shut for
+ * different reasons, and only one of them is about the calendar. Neither is the
+ * old one-a-day rule, which no longer exists — a day left behind stays open
+ * precisely so a member who missed Tuesday can log it on Thursday.
+ */
+const previewNote = computed(() => {
+  if (!day.value) return ''
+  if (day.value.status === 'completed') {
+    return 'This one is logged for the week. It comes round again when the week does.'
+  }
+  if (day.value.opensInNights === null) {
+    return 'The finisher is once a day. It is here to read until tomorrow.'
+  }
+  return 'Days open as the week reaches them. This one is here to read until it does.'
+})
+
+/**
+ * A padlock only where something is actually shut.
+ *
+ * A day already in the log — this week's, or the finisher done this morning —
+ * is not locked, it is finished, and the tick is the honest mark for it.
+ */
+const previewIcon = computed(() =>
+  day.value?.status === 'completed' || day.value?.opensInNights === null ? 'check' : 'lock',
+)
 
 const setsFor = (exercises: { sets: unknown[] }[]) =>
   exercises.reduce((n, e) => n + e.sets.length, 0)
@@ -360,6 +389,9 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
       a padlocked day deserves the workout and the date it opens rather than
       being bounced back to the list they just left. Nothing here writes — no
       session document exists for this day until its own day comes round.
+
+      A day the week has gone past is not one of these. It stays open to log,
+      so it arrives at the session above rather than here.
     -->
     <div v-else-if="preview && day" class="session__scroll scroll-y flex-1 min-h-0">
       <header
@@ -415,13 +447,11 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
              below it, so it is read before the scrolling starts. -->
         <div class="flex items-center gap-3 rounded-card border border-hairline bg-raised px-4.5 py-3.5">
           <span class="grid size-8.5 shrink-0 place-items-center rounded-pill bg-fill-subtle text-muted">
-            <AppIcon :name="day.status === 'completed' ? 'check' : 'lock'" :size="16" />
+            <AppIcon :name="previewIcon" :size="16" />
           </span>
           <span class="flex min-w-0 flex-col gap-0.5">
             <strong class="font-display text-[14.5px] font-black text-ink">{{ opensLabel }}</strong>
-            <small class="text-[12.5px] text-muted">
-              One session a day, on the day the plan sets it. This one is here to read.
-            </small>
+            <small class="text-[12.5px] text-muted">{{ previewNote }}</small>
           </span>
         </div>
 

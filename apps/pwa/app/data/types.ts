@@ -821,6 +821,28 @@ export interface ChatAttachment {
   downloadUrl: string
 }
 
+/**
+ * The message a reply is answering, snapshotted onto the reply itself.
+ *
+ * A copy rather than an id to look up, for two reasons. A thread is read as
+ * its last 200 messages, so a reply to something older would have nothing to
+ * resolve against and would render an empty quote. And a quote is a record of
+ * what was said at the time: the original's author can delete it, and the
+ * reply still has to read as an answer to something.
+ *
+ * `messageId` is kept anyway, because tapping a quote jumps to the original
+ * when it is still on screen. It is a hint, not a dependency.
+ */
+export interface ChatReplyRef {
+  messageId: string
+  authorUid: string
+  authorName: string
+  /** Trimmed to a preview length at send time; empty for a photos-only message. */
+  text: string
+  /** What the quoted message carried, when there was no text to excerpt. */
+  attachmentKind: 'image' | 'file' | null
+}
+
 export interface MessageDoc {
   authorUid: string
   authorName: string
@@ -830,6 +852,8 @@ export interface MessageDoc {
   text: string
   sentAt: Timestamp
   attachments: ChatAttachment[]
+  /** What this message is answering, or `null` when it starts its own thread. */
+  replyTo: ChatReplyRef | null
   /**
    * Everyone's reactions, as emoji → count.
    *
@@ -847,6 +871,31 @@ export type Message = WithId<MessageDoc>
 export interface MessageReactionDoc {
   emojis: string[]
   updatedAt: Timestamp
+}
+
+/**
+ * `…/threads/{threadId}/typing/{uid}` — one document per person composing.
+ *
+ * Ephemeral, and treated as such at both ends. The writer refreshes it while
+ * the composer has something in it and deletes it the moment it doesn't; the
+ * reader ignores anything older than `TYPING_TTL_MS`, so a tab that was closed
+ * mid-sentence leaves an indicator that expires on its own rather than one that
+ * hangs there until somebody else writes.
+ *
+ * The name is denormalised for the same reason a message's is: rendering
+ * "Tomi is typing…" must not cost a read of Tomi's member document, which this
+ * member is not allowed to make anyway.
+ */
+export interface TypingDoc {
+  name: string
+  at: Timestamp
+}
+
+/** Somebody other than the viewer with the composer open, as the UI sees them. */
+export interface TypingPeer {
+  uid: string
+  name: string
+  at: Timestamp
 }
 
 // =============================================================================
@@ -934,17 +983,20 @@ export interface WorkoutDayView extends WorkoutDay {
    *   `upcoming`   still ahead of them this week.
    *   `missed`     its date has passed and nothing was logged against it.
    *
-   * The schedule comes off `joinedAt`, so day 3 is open on the third day of the
-   * member's week and on no other. A day being `today` is necessary for logging
-   * but not sufficient — see `canStart`.
+   * The schedule comes off `joinedAt`, so day 3 arrives on the third day of the
+   * member's week. `missed` is a statement about the date, not a verdict: a day
+   * behind them is still open to log — see `canStart`.
    */
   status: 'completed' | 'today' | 'upcoming' | 'missed'
   /**
    * Whether logging can begin on this day right now.
    *
-   * The one thing the screens gate the Start button on. False on every day the
-   * calendar has not reached, every day it has gone past, and on today's own
-   * day once a session is in the log — the plan is one session, on its day.
+   * The one thing the screens gate the Start button on. True on today's day and
+   * on every day behind it the member never logged, so falling a day down is
+   * something they can train their way out of. False only on days the calendar
+   * has not reached and on days already in this week's log — which together are
+   * what keep the week from being run off in one evening.
+   *
    * Opening a day to read it is never gated; only starting one is.
    */
   canStart: boolean
