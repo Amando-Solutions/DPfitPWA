@@ -250,7 +250,8 @@ service cloud.firestore {
           // The second is the author correcting their own words, for fifteen
           // minutes and then never again — the window in `EDIT_WINDOW_MS`,
           // enforced here because a limit the client alone applies is a limit
-          // anyone with the SDK can ignore. `hasOnly(['text', 'editedAt'])` is
+          // anyone with the SDK can ignore. `hasOnly` on the three fields an
+          // edit owns — the words, when they changed, and who they name — is
           // what keeps an "edit" from being something else wearing its name: an
           // update free to move `sentAt` could re-date a message back into a
           // window it has left, one free to move `authorUid` could hand it to
@@ -266,11 +267,12 @@ service cloud.firestore {
             && (
               changed().hasOnly(['reactionCounts'])
               || (
-                changed().hasOnly(['text', 'editedAt'])
+                changed().hasOnly(['text', 'editedAt', 'mentions'])
                 && resource.data.authorUid == request.auth.uid
                 && request.resource.data.editedAt == request.time
                 && request.resource.data.text is string
                 && request.resource.data.text.size() > 0
+                && request.resource.data.mentions is list
                 && request.time < resource.data.sentAt + duration.value(15, 'm')
               )
             )

@@ -41,6 +41,7 @@ import type {
   AuthUser,
   BadgeRuleId,
   ChatAttachment,
+  ChatMention,
   ChatMessageView,
   ChatReaction,
   ChatReplyRef,
@@ -192,6 +193,7 @@ const withViewer = (message: Message, viewerUid: string, mine: string[]): ChatMe
     // the note on the Firestore implementation's `viewOf`.
     replyTo: message.replyTo ?? null,
     editedAt: message.editedAt ?? null,
+    mentions: message.mentions ?? [],
     isSelf: message.authorUid === viewerUid,
     reactions,
   }
@@ -655,6 +657,7 @@ export class LocalDataSource implements DataSource {
     text: string,
     attachments: ChatAttachment[] = [],
     replyTo: ChatReplyRef | null = null,
+    mentions: ChatMention[] = [],
   ): Promise<ChatMessageView> {
     const [user, member] = await Promise.all([this.getAuthUser(), this.getMember()])
     const message: Message = {
@@ -668,6 +671,7 @@ export class LocalDataSource implements DataSource {
       editedAt: null,
       attachments,
       replyTo,
+      mentions,
       reactionCounts: {},
     }
     const mine = storage.read<Record<string, Message[]>>(KEY.messages, {})
@@ -717,6 +721,7 @@ export class LocalDataSource implements DataSource {
     threadId: ThreadId,
     messageId: string,
     text: string,
+    mentions: ChatMention[] = [],
   ): Promise<ChatMessageView> {
     const trimmed = text.trim()
     if (!trimmed) {
@@ -741,7 +746,12 @@ export class LocalDataSource implements DataSource {
       )
     }
 
-    const edited: Message = { ...target, text: trimmed, editedAt: trustedTimestamp() }
+    const edited: Message = {
+      ...target,
+      text: trimmed,
+      mentions,
+      editedAt: trustedTimestamp(),
+    }
     storage.write(KEY.messages, {
       ...all,
       [threadId]: thread.map((m) => (m.id === messageId ? edited : m)),

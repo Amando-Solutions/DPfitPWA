@@ -5,6 +5,7 @@ import type {
   Announcement,
   AuthUser,
   ChatAttachment,
+  ChatMention,
   ChatMessageView,
   ChatReaction,
   ChatReplyRef,
@@ -337,12 +338,18 @@ export interface DataSource {
    * `replyTo` is stored as given rather than resolved from an id — see
    * `ChatReplyRef` for why the quote is a snapshot. Callers should build it
    * with `replyRefFor`, so every implementation excerpts the same way.
+   *
+   * `mentions` is the same kind of snapshot and is stored the same way. It is
+   * the sender's record of who they named, not a claim this layer re-derives:
+   * scanning the text for `@` here would highlight names nobody picked and
+   * would have to guess where a name with a space in it ends.
    */
   sendMessage(
     threadId: ThreadId,
     text: string,
     attachments?: ChatAttachment[],
     replyTo?: ChatReplyRef | null,
+    mentions?: ChatMention[],
   ): Promise<ChatMessageView>
 
   /**
@@ -363,6 +370,7 @@ export interface DataSource {
     threadId: ThreadId,
     messageId: string,
     text: string,
+    mentions?: ChatMention[],
   ): Promise<ChatMessageView>
 
   /**

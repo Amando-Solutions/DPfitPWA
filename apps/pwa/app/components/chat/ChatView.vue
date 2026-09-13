@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { Bubble, BubbleContent, BubbleReactions } from '~/components/ui/bubble'
-import type { ChatAttachment, ChatMessageView, ChatReplyRef, TypingPeer } from '~/data/types'
+import type {
+  ChatAttachment,
+  ChatMention,
+  ChatMessageView,
+  ChatReplyRef,
+  TypingPeer,
+} from '~/data/types'
 import {
   FILE_ACCEPT,
   IMAGE_ACCEPT,
@@ -12,11 +18,17 @@ import {
 } from '~/lib/attachments'
 import {
   TYPING_IDLE_MS,
+  activeMention,
+  applyMention,
   canEditMessage,
   continuesRun,
+  matchMentions,
+  mentionSegments,
+  mentionsInText,
   replyPreview,
   replyRefFor,
   typingLabel,
+  type MentionCandidate,
 } from '~/lib/chat'
 import { storage } from '~/lib/storage'
 import { formatTime, trustedNow } from '~/lib/time'
@@ -42,6 +54,27 @@ const props = withDefaults(
     /** The device store is full, so anything sent now is session-only. */
     storageFull?: boolean
     /**
+     * Who can be named with an `@`, if anyone.
+     *
+     * Empty turns the feature off, which is what a thread with two people in it
+     * wants: mentioning the only other person in a direct message is noise. The
+     * roster is passed in rather than read here because who is mentionable is a
+     * fact about the thread — this component renders whatever conversation it
+     * is handed and does not know that one of them has a cohort behind it.
+     */
+    mentionable?: MentionCandidate[]
+    /**
+     * Whether `messages` has come from the live thread yet.
+     *
+     * `false` while the screen is showing the copy it restored from disk — see
+     * `readThreadCache`. That copy exists to be looked at immediately and is
+     * nothing more: it is the tail of the thread as of the last visit, so it
+     * can be missing messages at both ends, and the marker of what the member
+     * has read must not be moved against it. Everything that decides where the
+     * thread opens, and what counts as unread in it, waits for this.
+     */
+    live?: boolean
+    /**
      * Send the composer's contents. A prop rather than an emit, because this
      * one has to be awaited.
      *
@@ -57,6 +90,7 @@ const props = withDefaults(
       text: string
       attachments: PendingAttachment[]
       replyTo: ChatReplyRef | null
+      mentions: ChatMention[]
     }) => Promise<void>
     /**
      * Rewrite a message this member already sent. Awaited for the reason `send`
@@ -67,9 +101,19 @@ const props = withDefaults(
      * thread mounted without it is one nobody can rewrite, which is a decision
      * the screen mounting it gets to make rather than one hidden in here.
      */
-    edit?: (payload: { messageId: string; text: string }) => Promise<void>
+    edit?: (payload: {
+      messageId: string
+      text: string
+      mentions: ChatMention[]
+    }) => Promise<void>
   }>(),
-  { placeholder: 'Say something…', storageFull: false, typing: () => [] },
+  {
+    placeholder: 'Say something…',
+    storageFull: false,
+    live: false,
+    typing: () => [],
+    mentionable: () => [],
+  },
 )
 
 const emit = defineEmits<{
@@ -279,15 +323,24 @@ const editing = ref<ChatMessageView | null>(null)
  */
 const beforeEdit = ref('')
 
+/** The stashed draft's mentions, kept beside it and restored with it. */
+const beforeEditMentions = ref<ChatMention[]>([])
+
 const startEdit = (id: string) => {
   const target = props.messages.find((m) => m.id === id)
   if (!target) return
   // Only on the way in. Editing a second message without leaving the first
   // must not stash the first message's text as "the draft to go back to".
-  if (!editing.value) beforeEdit.value = draft.value
+  if (!editing.value) {
+    beforeEdit.value = draft.value
+    beforeEditMentions.value = draftMentions.value
+  }
   editing.value = target
   replyingTo.value = null
   draft.value = target.text
+  // The message's own mentions become the draft's, so editing the words around
+  // a name keeps it a reference rather than quietly demoting it to plain text.
+  draftMentions.value = [...(target.mentions ?? [])]
   navigator.vibrate?.(8)
   nextTick(() => composer.value?.focus())
 }
@@ -296,11 +349,141 @@ const cancelEdit = () => {
   if (!editing.value) return
   editing.value = null
   draft.value = beforeEdit.value
+  draftMentions.value = beforeEditMentions.value
   beforeEdit.value = ''
+  beforeEditMentions.value = []
 }
 
-/** Esc backs out of whatever the composer is currently attached to. */
-const onEscape = () => (editing.value ? cancelEdit() : cancelReply())
+/**
+ * Esc backs out of one thing at a time, innermost first: the name list if it is
+ * up, then whichever message the composer is attached to. Closing the list and
+ * abandoning the edit it was opened inside would be two undos for one press.
+ */
+const onEscape = () => {
+  if (mentionsOpen.value) {
+    mentionsClosed.value = true
+    return
+  }
+  if (editing.value) cancelEdit()
+  else cancelReply()
+}
+
+// --- Mentions --------------------------------------------------------------
+/**
+ * Who the draft currently claims to name.
+ *
+ * Collected as they are picked and never pruned here, because a member who
+ * backspaces through half a name has not necessarily finished editing it.
+ * `mentionsInText` settles it against the text at the moment it is sent, which
+ * is the only moment the two are certainly in step.
+ */
+const draftMentions = ref<ChatMention[]>([])
+
+/**
+ * Where the caret is, tracked because `v-model` does not report it.
+ *
+ * An `@` only opens the picker for the token the caret is *in*, so this has to
+ * follow clicks and arrow keys as well as typing — otherwise moving back into
+ * an earlier word and typing would filter a list against the wrong one.
+ */
+const caret = ref(0)
+
+/** Closed by hand, until the next keystroke. Escape has to mean something. */
+const mentionsClosed = ref(false)
+
+const mentionToken = computed(() =>
+  props.mentionable.length ? activeMention(draft.value, caret.value) : null,
+)
+
+const mentionMatches = computed(() => {
+  const token = mentionToken.value
+  if (!token) return []
+  return matchMentions(props.mentionable, token.query)
+})
+
+const mentionsOpen = computed(() => !mentionsClosed.value && mentionMatches.value.length > 0)
+
+/** Which row Enter would take. Reset whenever the list underneath it changes. */
+const mentionIndex = ref(0)
+watch(mentionMatches, () => {
+  mentionIndex.value = 0
+})
+
+const trackCaret = (event: Event) => {
+  caret.value = (event.target as HTMLInputElement).selectionStart ?? draft.value.length
+}
+
+/**
+ * Enter chose from the list on the way down, so the keyup it is followed by is
+ * not a send.
+ *
+ * `preventDefault` on a keydown does not stop the keyup, and sending is bound
+ * to the keyup — so without this, picking a name with the keyboard also posted
+ * the half-written message it was being picked into.
+ */
+let enterTookMention = false
+
+/** Typing is what reopens a list that was dismissed. */
+const onComposerInput = (event: Event) => {
+  mentionsClosed.value = false
+  // Cleared here as well as on the keyup it is meant for, so a press that
+  // never produced one — the field lost focus mid-chord, the key was held
+  // through a re-render — cannot swallow the *next* Enter instead.
+  enterTookMention = false
+  trackCaret(event)
+}
+
+const chooseMention = (person: MentionCandidate) => {
+  const token = mentionToken.value
+  if (!token) return
+
+  const next = applyMention(draft.value, token.at, token.query.length, person.name)
+  draft.value = next.text
+  if (!draftMentions.value.some((m) => m.uid === person.uid)) {
+    draftMentions.value = [...draftMentions.value, { uid: person.uid, name: person.name }]
+  }
+
+  // The caret goes back where the member was, which the browser will not do on
+  // its own after the value is replaced wholesale — it would land at the end,
+  // behind whatever they had already written after the mention.
+  nextTick(() => {
+    const field = composer.value
+    if (!field) return
+    field.focus()
+    field.setSelectionRange(next.caret, next.caret)
+    caret.value = next.caret
+  })
+}
+
+const onComposerKeydown = (event: KeyboardEvent) => {
+  if (!mentionsOpen.value) return
+  const matches = mentionMatches.value
+
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    mentionIndex.value = (mentionIndex.value + 1) % matches.length
+    return
+  }
+  if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    mentionIndex.value = (mentionIndex.value - 1 + matches.length) % matches.length
+    return
+  }
+  if (event.key === 'Enter' || event.key === 'Tab') {
+    event.preventDefault()
+    enterTookMention = event.key === 'Enter'
+    const picked = matches[mentionIndex.value]
+    if (picked) chooseMention(picked)
+  }
+}
+
+const onComposerEnter = () => {
+  if (enterTookMention) {
+    enterTookMention = false
+    return
+  }
+  submit()
+}
 
 // --- Saying that you are typing --------------------------------------------
 /**
@@ -777,21 +960,27 @@ const submitEdit = () => {
   // message nobody edited, which is the one thing that label must never say.
   if (next === target.text) return cancelEdit()
 
+  const mentions = mentionsInText(next, draftMentions.value)
   const stashed = beforeEdit.value
+  const stashedMentions = beforeEditMentions.value
   editing.value = null
   beforeEdit.value = ''
+  beforeEditMentions.value = []
   draft.value = ''
+  draftMentions.value = []
   sendError.value = ''
   stopTyping()
 
-  props.edit({ messageId: target.id, text: next }).catch((cause) => {
+  props.edit({ messageId: target.id, text: next, mentions }).catch((cause) => {
     reportFailure(cause)
     // Unless they have started something else in the meantime, in which case
     // what they are writing now matters more than the edit they watched fail.
     if (draft.value || editing.value || replyingTo.value) return
     editing.value = target
     beforeEdit.value = stashed
+    beforeEditMentions.value = stashedMentions
     draft.value = next
+    draftMentions.value = mentions
   })
 }
 
@@ -824,10 +1013,15 @@ const submit = () => {
   const text = draft.value.trim()
   const items = pending.value
   const answering = replyingTo.value
+  // Settled against the text rather than sent as collected: a name that was
+  // picked and then deleted is not a mention, and the document should not carry
+  // a reference to somebody the message no longer names.
+  const mentions = mentionsInText(text, draftMentions.value)
   const payload = {
     text,
     attachments: items.map((item) => item.attachment),
     replyTo: answering ? replyRefFor(answering) : null,
+    mentions,
   }
 
   sendError.value = ''
@@ -838,6 +1032,7 @@ const submit = () => {
       .send(payload)
       .then(() => {
         draft.value = ''
+        draftMentions.value = []
         pending.value = []
         replyingTo.value = null
         attachError.value = ''
@@ -856,6 +1051,7 @@ const submit = () => {
   // until the next tick: pressing send is the clearest statement there is that
   // the typing is over.
   draft.value = ''
+  draftMentions.value = []
   replyingTo.value = null
   attachError.value = ''
   stopTyping()
@@ -869,6 +1065,7 @@ const submit = () => {
     // do not.
     if (draft.value || pending.value.length) return
     draft.value = text
+    draftMentions.value = mentions
     replyingTo.value = answering
   })
 }
@@ -963,6 +1160,13 @@ const saveSeen = () => {
  * scrolled, not to how long the conversation is.
  */
 const trackSeen = () => {
+  // Nothing on screen is being read yet: this is the copy restored from disk,
+  // and its positions are not the live thread's. An index taken against sixty
+  // cached messages means something else entirely once two hundred arrive, and
+  // the marker it would save is the one the tab's unread dot is read off. Both
+  // wait, like everything else that depends on the thread being the thread.
+  if (!props.live) return
+
   const el = scroller.value
   if (!el) return
   const fold = el.getBoundingClientRect().bottom
@@ -1095,17 +1299,34 @@ onBeforeUnmount(() => {
 let placeRestored = false
 
 watch(
-  () => props.messages.length,
-  (next, previous) => {
-    // `immediate` runs this once before anything has arrived, where there is no
-    // previous length at all. Zero is the honest reading of that.
-    const before = previous ?? 0
+  [() => props.messages.length, () => props.live],
+  ([next, live], previous) => {
+    if (!live) {
+      // The restored copy gets the placeholder treatment: sit at the newest
+      // message in it, which is where a chat opens, and do nothing else.
+      // Finding the member's actual place means deciding what they have not
+      // read and writing that decision down — see `openAtEnd` — and neither
+      // belongs to a thread that is missing however much of itself was never
+      // cached.
+      if (next) scrollToEnd()
+      return
+    }
 
+    // The first live delivery is the thread arriving, whatever was on screen
+    // before it. Nothing is counted here: the messages it fills in above the
+    // restored tail are older than everything the member has seen, and
+    // treating the difference as arrivals would put a "140 new" button on a
+    // conversation where nothing had happened at all.
     if (!placeRestored && next) {
       placeRestored = true
       restorePlace()
       return
     }
+
+    // `immediate` runs this once before anything has arrived, where there is no
+    // previous length at all. Zero is the honest reading of that.
+    const before = previous?.[0] ?? 0
+
     if (next > before && !atEnd()) {
       newBelow.value += next - before
       atBottom.value = false
@@ -1190,6 +1411,15 @@ const rows = computed(() =>
     const attachments = m.attachments ?? []
     const next = props.messages[index + 1]
     const startsRun = !continuesRun(m, props.messages[index - 1])
+    const mentions = m.mentions ?? []
+    // Answered by name, and named with an `@`, are two different facts about
+    // one message and are needed separately: the first is what colours the
+    // *quote*, and only a reply has one of those.
+    const repliesToMe = Boolean(
+      m.replyTo && !m.isSelf && m.replyTo.authorUid === viewerUid.value,
+    )
+    const namesMe =
+      !m.isSelf && mentions.some((mention) => mention.uid === viewerUid.value)
     return {
       message: m,
       images: attachments.filter((a) => a.kind === 'image'),
@@ -1204,16 +1434,27 @@ const rows = computed(() =>
       variant: bubbleVariant(m),
       time: formatTime(m.sentAt),
       /**
-       * Somebody else has answered this member, by name.
-       *
-       * The quote says `@You` either way; this is what makes the bubble itself
-       * catch the eye on the way past, because being answered in a thread of
-       * forty people is easy to scroll straight through. Not set when the
-       * member is quoting themselves — they know.
+       * Somebody else has answered this member. Colours the quote, which is
+       * the half that says `@You`, so it only means anything on a reply.
        */
-      mentionsMe: Boolean(
-        m.replyTo && !m.isSelf && m.replyTo.authorUid === viewerUid.value,
-      ),
+      repliesToMe,
+      /**
+       * This message is aimed at the member: answered, or named with an `@`.
+       *
+       * What makes the bubble itself catch the eye on the way past, and what
+       * the jump button counts — being addressed in a thread of forty people
+       * is easy to scroll straight through. Never set on their own messages,
+       * whichever way it happened: they know.
+       */
+      mentionsMe: repliesToMe || namesMe,
+      /**
+       * The text split into plain runs and named ones, ready to render.
+       *
+       * Here rather than in the template so it is computed once per delivery
+       * rather than on every re-render of a screen that re-renders whenever
+       * anybody starts typing. See `mentionSegments`.
+       */
+      runs: mentionSegments(m.text, mentions),
     }
   }),
 )
@@ -1332,6 +1573,8 @@ const TOOL =
               endsRun,
               first,
               mentionsMe,
+              repliesToMe,
+              runs,
               startsUnread,
               quoteShape: quoteCorners,
             } in rows"
@@ -1494,7 +1737,7 @@ const TOOL =
                             quoteCorners,
                             m.isSelf
                               ? 'border-white/55 bg-white/18'
-                              : mentionsMe
+                              : repliesToMe
                                 ? 'border-rose-fill bg-rose-soft'
                                 : 'border-rose-fill bg-fill-subtle',
                           ]"
@@ -1507,7 +1750,7 @@ const TOOL =
                           -->
                           <span
                             class="text-[11px] font-bold"
-                            :class="mentionsMe ? 'text-rose' : 'opacity-85'"
+                            :class="repliesToMe ? 'text-rose' : 'opacity-85'"
                           >
                             @{{ quoteAuthor(m.replyTo) }}
                           </span>
@@ -1556,9 +1799,27 @@ const TOOL =
                           </span>
                         </a>
 
-                        <p v-if="m.text" class="m-0 wrap-break-word whitespace-pre-wrap">
-                          {{ m.text }}
-                        </p>
+                        <!--
+                          Rendered in runs rather than as one string, so the
+                          names that were picked from the list can be marked.
+                          All on one line on purpose: the paragraph keeps its
+                          whitespace, so a line break between these spans would
+                          be a space that nobody typed. See `mentionSegments`.
+                        -->
+                        <p
+                          v-if="m.text"
+                          class="m-0 wrap-break-word whitespace-pre-wrap"
+                        ><span
+                            v-for="(run, i) in runs"
+                            :key="i"
+                            :class="
+                              run.mention
+                                ? m.isSelf
+                                  ? 'font-bold underline underline-offset-2'
+                                  : 'font-bold text-rose'
+                                : ''
+                            "
+                          >{{ run.text }}</span></p>
 
                         <!--
                           Inside the bubble rather than out by the time, because
@@ -1714,6 +1975,48 @@ const TOOL =
       </p>
 
       <!--
+        Who can be named, filtered by whatever has been typed after the `@`.
+        Above the field like every other strip here, because the thumb is at
+        the bottom of the screen and a list that opens over the conversation
+        would cover the message being replied to.
+      -->
+      <div
+        v-if="mentionsOpen"
+        class="flex max-h-52 flex-col overflow-y-auto rounded-xl bg-raised p-1 shadow-card"
+        role="listbox"
+        aria-label="People you can mention"
+      >
+        <!--
+          Chosen on the way *down*, not on the click.
+
+          `prevent` is what keeps the focus in the field: without it the press
+          blurs the input, the soft keyboard begins to close, and the list
+          slides down the screen with it — out from under the finger that is
+          still coming down, so the click lands on whatever has taken its
+          place. Acting on `pointerdown` sidesteps that race entirely, and it
+          behaves the same under a mouse.
+        -->
+        <button
+          v-for="(person, i) in mentionMatches"
+          :key="person.uid"
+          class="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left"
+          :class="i === mentionIndex && 'bg-fill-subtle'"
+          role="option"
+          :aria-selected="i === mentionIndex"
+          @pointerenter="mentionIndex = i"
+          @pointerdown.prevent="chooseMention(person)"
+        >
+          <Avatar size="xs">
+            <AvatarImage :src="person.avatarUrl" :alt="person.name" loading="lazy" />
+            <AvatarFallback>{{ person.name.charAt(0).toUpperCase() }}</AvatarFallback>
+          </Avatar>
+          <span class="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink">
+            {{ person.name }}
+          </span>
+        </button>
+      </div>
+
+      <!--
         What is being rewritten, above the field it is being rewritten in.
         Shares the reply strip's slot and its shape — one accent bar, one line
         of context, one way out — because they are the same promise: the field
@@ -1814,7 +2117,11 @@ const TOOL =
             :placeholder="
               editing ? 'Edit your message…' : replyingTo ? 'Write your reply…' : placeholder
             "
-            @keyup.enter="submit"
+            @input="onComposerInput"
+            @keydown="onComposerKeydown"
+            @keyup="trackCaret"
+            @click="trackCaret"
+            @keyup.enter="onComposerEnter"
             @keyup.esc="onEscape"
           />
           <!--

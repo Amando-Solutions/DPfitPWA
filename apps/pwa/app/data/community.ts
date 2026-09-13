@@ -27,6 +27,7 @@ export const cohortSeed: Message[] = [
     attachments: [],
     editedAt: null,
     replyTo: null,
+    mentions: [],
     reactionCounts: { '🔥': 12, '💪': 8 },
   },
   {
@@ -41,6 +42,7 @@ export const cohortSeed: Message[] = [
     attachments: [],
     editedAt: null,
     replyTo: null,
+    mentions: [],
     reactionCounts: { '👏': 5 },
   },
   {
@@ -55,6 +57,7 @@ export const cohortSeed: Message[] = [
     attachments: [],
     editedAt: null,
     replyTo: null,
+    mentions: [],
     reactionCounts: { '🔥': 9 },
   },
 ]
@@ -72,6 +75,7 @@ export const coachSeed: Message[] = [
     attachments: [],
     editedAt: null,
     replyTo: null,
+    mentions: [],
     reactionCounts: {},
   },
 ]

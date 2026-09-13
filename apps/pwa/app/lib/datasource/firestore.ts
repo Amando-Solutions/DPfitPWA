@@ -69,6 +69,7 @@ import type {
   AuthProvider,
   AuthUser,
   ChatAttachment,
+  ChatMention,
   ChatMessageView,
   ChatReaction,
   ChatReplyRef,
@@ -1302,10 +1303,37 @@ export class FirestoreDataSource implements DataSource {
     let stopped = false
     let latest = 0
 
+    const publish = (docs: QueryDocumentSnapshot<DocumentData>[]) => {
+      onMessages(
+        docs.map((d) =>
+          this.viewOf(withId<Message>(d), member.id, this.myReactions.get(d.ref.path) ?? []),
+        ),
+      )
+    }
+
     const stop = onSnapshot(
       this.threadQuery(ref),
       async (snap) => {
         const seq = (latest += 1)
+        if (stopped) return
+
+        // Draw the thread out of the snapshot first, before going anywhere for
+        // the reactions.
+        //
+        // `cacheMyReactions` is a document read per message nobody has seen
+        // yet — two hundred of them on a thread being opened for the first
+        // time — and this used to await all of them before publishing
+        // anything. So the screen stayed empty for the length of the slowest
+        // one, showing nothing, when the messages themselves had been in hand
+        // since the first line of this callback.
+        //
+        // What the first pass is missing is which chips are the member's own.
+        // That is a highlight on a reaction, not the conversation, and it
+        // arrives a moment later in the second publish below.
+        const complete = snap.docs.every((d) => this.myReactions.has(d.ref.path))
+        publish(snap.docs)
+        if (complete) return
+
         await this.cacheMyReactions(snap.docs, member.id)
 
         // A snapshot that landed while those reads were in flight has already
@@ -1314,11 +1342,7 @@ export class FirestoreDataSource implements DataSource {
         // unsubscribed check is here and not only at the top.
         if (stopped || seq !== latest) return
 
-        onMessages(
-          snap.docs.map((d) =>
-            this.viewOf(withId<Message>(d), member.id, this.myReactions.get(d.ref.path) ?? []),
-          ),
-        )
+        publish(snap.docs)
       },
       (error) => {
         // Firestore does not retry after this: the listener is finished, and
@@ -1378,6 +1402,7 @@ export class FirestoreDataSource implements DataSource {
     text: string,
     attachments: ChatAttachment[] = [],
     replyTo: ChatReplyRef | null = null,
+    mentions: ChatMention[] = [],
   ): Promise<ChatMessageView> {
     const member = await this.requireMember()
     const ref = await this.messagesRef(threadId)
@@ -1392,6 +1417,7 @@ export class FirestoreDataSource implements DataSource {
       editedAt: null,
       attachments,
       replyTo,
+      mentions,
       reactionCounts: {},
     }
 
@@ -1524,6 +1550,7 @@ export class FirestoreDataSource implements DataSource {
     threadId: ThreadId,
     messageId: string,
     text: string,
+    mentions: ChatMention[] = [],
   ): Promise<ChatMessageView> {
     const member = await this.requireMember()
     const messages = await this.messagesRef(threadId)
@@ -1550,14 +1577,21 @@ export class FirestoreDataSource implements DataSource {
       )
     }
 
-    await updateDoc(messageRef, { text: trimmed, editedAt: serverTimestamp() })
+    // `mentions` moves with the text. An edit that adds or removes a name has
+    // changed who the message refers to, and leaving the old list behind would
+    // highlight a name that is no longer written and miss one that now is.
+    await updateDoc(messageRef, {
+      text: trimmed,
+      mentions,
+      editedAt: serverTimestamp(),
+    })
 
     // The stamp returned is this device's, not the one that committed. It is a
     // placeholder for the beat before the listener delivers the real document —
     // `watchMessages` replays the pending write immediately and then confirms
     // it — and nothing renders the value, only whether there is one.
     return this.viewOf(
-      { ...stored, text: trimmed, editedAt: Timestamp.now() },
+      { ...stored, text: trimmed, mentions, editedAt: Timestamp.now() },
       member.id,
       this.myReactions.get(messageRef.path) ?? [],
     )
@@ -1811,6 +1845,7 @@ export class FirestoreDataSource implements DataSource {
       // Same story, and the same fix: every message sent before editing existed
       // has no such field, and an absent key is not a message that was edited.
       editedAt: message.editedAt ?? null,
+      mentions: message.mentions ?? [],
       isSelf: message.authorUid === viewerUid,
       reactions,
     }

@@ -18,6 +18,7 @@ import type {
   Announcement,
   AuthUser,
   ChatAttachment,
+  ChatMention,
   ChatMessageView,
   ChatReaction,
   ChatReplyRef,
@@ -400,11 +401,13 @@ export class HttpDataSource implements DataSource {
     text: string,
     attachments: ChatAttachment[] = [],
     replyTo: ChatReplyRef | null = null,
+    mentions: ChatMention[] = [],
   ) {
     return this.send<ChatMessageView>(`/threads/${threadId}/messages`, 'POST', {
       text,
       attachments,
       replyTo,
+      mentions,
     })
   }
 
@@ -476,11 +479,16 @@ export class HttpDataSource implements DataSource {
    * sends the correction and surfaces whatever it says about it — see `send`,
    * which turns a refusal into a `DataSourceError` with the server's sentence.
    */
-  editMessage(threadId: ThreadId, messageId: string, text: string) {
+  editMessage(
+    threadId: ThreadId,
+    messageId: string,
+    text: string,
+    mentions: ChatMention[] = [],
+  ) {
     return this.send<ChatMessageView>(
       `/threads/${threadId}/messages/${messageId}`,
       'PATCH',
-      { text },
+      { text, mentions },
     )
   }
 

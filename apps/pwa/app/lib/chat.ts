@@ -9,6 +9,7 @@
 import type { Timestamp } from 'firebase/firestore'
 
 import type {
+  ChatMention,
   ChatMessageView,
   ChatReaction,
   ChatReplyRef,
@@ -76,6 +77,174 @@ export const replyPreview = (ref: ChatReplyRef): string => {
   if (ref.attachmentKind === 'image') return 'Photo'
   if (ref.attachmentKind === 'file') return 'Attachment'
   return 'Message'
+}
+
+// --- Mentions ----------------------------------------------------------------
+
+/**
+ * Who can be named, as the composer's picker needs them.
+ *
+ * A shape of its own rather than a `LeaderboardEntry`, because the roster the
+ * picker draws on is a roster and not a board: it must not carry session counts
+ * onto a screen that has no business showing them, least of all in a cohort
+ * whose board has not been revealed yet.
+ */
+export interface MentionCandidate {
+  uid: string
+  name: string
+  avatarUrl: string
+}
+
+/**
+ * The `@`-token the caret is currently sitting in, or `null`.
+ *
+ * `at` is where the `@` is, so the caller can replace from there; `query` is
+ * what has been typed after it, which is what the list filters on.
+ *
+ * Two rules decide whether there is a token at all. The `@` has to start a word
+ * — preceded by the beginning of the text or by whitespace — so that an email
+ * address or a handle typed mid-word does not open a picker over the keyboard.
+ * And the query stops at the first space, even though the names it matches
+ * contain them: what is being typed is a search, not the name itself, and
+ * letting it run past a space means every message that merely *contains* an "@"
+ * keeps the picker open for the rest of the sentence.
+ */
+export const activeMention = (
+  text: string,
+  caret: number,
+): { at: number; query: string } | null => {
+  const upto = text.slice(0, caret)
+  const at = upto.lastIndexOf('@')
+  if (at < 0) return null
+
+  const before = at > 0 ? upto[at - 1] : ''
+  if (before && !/\s/.test(before)) return null
+
+  const query = upto.slice(at + 1)
+  if (/\s/.test(query)) return null
+
+  return { at, query }
+}
+
+/** Candidates whose name matches `query`, best-first, capped for the panel. */
+export const matchMentions = (
+  candidates: MentionCandidate[],
+  query: string,
+  limit = 6,
+): MentionCandidate[] => {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return candidates.slice(0, limit)
+
+  // Names that *start* with what was typed come first: typing "to" means Tomi
+  // before Victoria, even though both match.
+  const starts: MentionCandidate[] = []
+  const contains: MentionCandidate[] = []
+  for (const candidate of candidates) {
+    const name = candidate.name.toLowerCase()
+    if (name.startsWith(needle)) starts.push(candidate)
+    else if (name.includes(needle)) contains.push(candidate)
+  }
+  return [...starts, ...contains].slice(0, limit)
+}
+
+/**
+ * The text with `@query` swapped for `@Name `, and where to put the caret.
+ *
+ * The trailing space is not a nicety: without it the caret sits at the end of a
+ * name that is itself a valid `@`-token, so the picker reopens on the mention
+ * that was just chosen and the next keystroke filters a list nobody asked for.
+ */
+export const applyMention = (
+  text: string,
+  at: number,
+  queryLength: number,
+  name: string,
+): { text: string; caret: number } => {
+  const rest = text.slice(at + 1 + queryLength)
+  // Unless the text already continues with one, in which case adding another
+  // leaves a gap in the middle of a sentence the member did not type.
+  const spaced = !/^\s/.test(rest)
+  const inserted = spaced ? `@${name} ` : `@${name}`
+  return {
+    text: text.slice(0, at) + inserted + rest,
+    // Past the space either way, so typing carries on after the name rather
+    // than between it and the word that follows.
+    caret: at + inserted.length + (spaced ? 0 : 1),
+  }
+}
+
+/**
+ * `text` split into the runs that are mentions and the runs that are not.
+ *
+ * Driven by the stored `mentions` rather than by scanning for `@`, so what gets
+ * highlighted is what the sender actually picked: typing "@nobody" by hand
+ * leaves plain text, which is the honest rendering of a name that was never a
+ * reference to anyone.
+ *
+ * Longest name first, so "@Tomi A" is not eaten by "@Tomi" in a cohort that has
+ * both, and claimed ranges are never re-matched. The result is always a
+ * complete cover of `text`, so a caller can render it end to end.
+ */
+export const mentionSegments = (
+  text: string,
+  mentions: ChatMention[],
+): { text: string; mention: ChatMention | null }[] => {
+  if (!text) return []
+  if (!mentions?.length) return [{ text, mention: null }]
+
+  const hits: { start: number; end: number; mention: ChatMention }[] = []
+  const byLongest = [...mentions].sort((a, b) => b.name.length - a.name.length)
+
+  for (const mention of byLongest) {
+    if (!mention?.name) continue
+    const token = `@${mention.name}`
+    let from = 0
+    for (;;) {
+      const start = text.indexOf(token, from)
+      if (start < 0) break
+      const end = start + token.length
+      // A longer name already covering this span wins it. Anything that
+      // overlaps one at all is skipped rather than trimmed: half a name in
+      // bold is worse than none of it.
+      if (!hits.some((hit) => start < hit.end && end > hit.start)) {
+        hits.push({ start, end, mention })
+      }
+      from = end
+    }
+  }
+
+  if (!hits.length) return [{ text, mention: null }]
+  hits.sort((a, b) => a.start - b.start)
+
+  const segments: { text: string; mention: ChatMention | null }[] = []
+  let cursor = 0
+  for (const hit of hits) {
+    if (hit.start > cursor) {
+      segments.push({ text: text.slice(cursor, hit.start), mention: null })
+    }
+    segments.push({ text: text.slice(hit.start, hit.end), mention: hit.mention })
+    cursor = hit.end
+  }
+  if (cursor < text.length) segments.push({ text: text.slice(cursor), mention: null })
+  return segments
+}
+
+/**
+ * The mentions that survived editing, dropped down to the ones still written.
+ *
+ * The composer collects a mention when it is picked and never removes one, so
+ * a member who backspaces over "@Tomi" would otherwise send a message that
+ * still claims to name her. Checked against the text at send time instead,
+ * which is the only moment the two are certainly in step.
+ */
+export const mentionsInText = (
+  text: string,
+  mentions: ChatMention[],
+): ChatMention[] => {
+  const kept = mentions.filter((m) => m?.name && text.includes(`@${m.name}`))
+  // The same person picked twice is one mention. `uid` rather than name,
+  // because two members may share a display name and both were really named.
+  return kept.filter((m, i) => kept.findIndex((other) => other.uid === m.uid) === i)
 }
 
 // --- Editing -----------------------------------------------------------------

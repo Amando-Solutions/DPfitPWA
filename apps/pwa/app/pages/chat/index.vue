@@ -5,18 +5,53 @@ definePageMeta({ layout: false })
 import { useDataSourceClient } from '~/lib/datasource'
 import type {
   ChatAttachment,
+  ChatMention,
   ChatMessageView,
   ChatReaction,
   ChatReplyRef,
   TypingPeer,
 } from '~/data/types'
-import { toggledReactions } from '~/lib/chat'
+import { toggledReactions, type MentionCandidate } from '~/lib/chat'
+import { readThreadCache, writeThreadCache } from '~/lib/chat-cache'
 import { trustedTimestamp } from '~/lib/time'
 import type { PendingAttachment } from '~/lib/attachments'
 
 const data = useDataSourceClient()
 const store = useAppStore()
-const messages = ref<ChatMessageView[]>([])
+/**
+ * Whose reading of the thread this is, for the on-disk copy below.
+ *
+ * The store has the member by the time this screen can be reached — the route
+ * that leads here is gated on it — so this is read once rather than watched.
+ */
+const viewerUid = computed(() => store.member.value?.id ?? '')
+
+/**
+ * The thread as it was last seen, drawn before anything is fetched.
+ *
+ * `ref([])` is what made opening this screen a blank one: the live listener
+ * cannot deliver until the member has been read, the thread resolved and the
+ * query opened, and until then there was nothing on screen at all — for a
+ * conversation that had been on this device since the last time it was read.
+ * Seeded synchronously, so the first paint already has the thread in it; the
+ * listener replaces it wholesale a moment later, with the same messages plus
+ * whatever has been said since.
+ *
+ * It is also what the screen falls back to with no connection. Firestore's own
+ * cache answers offline too, and answers more fully, but it answers a tick
+ * later — and if the member document itself cannot be read, not at all.
+ */
+const messages = ref<ChatMessageView[]>(readThreadCache('cohort', viewerUid.value))
+
+/**
+ * Whether the live thread has delivered yet.
+ *
+ * Until it has, what is on screen is the copy restored from disk, and the view
+ * treats it as the placeholder it is — see `ChatView`'s `live` prop. It never
+ * goes back to false: a listener that stops leaves the last real thread up,
+ * which is still the thread.
+ */
+const live = ref(false)
 
 /** Everyone else with the composer open, live. See `DataSource.watchTyping`. */
 const typing = ref<TypingPeer[]>([])
@@ -45,6 +80,11 @@ onMounted(async () => {
     'cohort',
     (next) => {
       messages.value = next
+      live.value = true
+      // Kept as it arrives rather than on the way out: the screen can be left
+      // by a route change, a closed tab or a killed app, and only the first of
+      // those would ever reach an unmount hook.
+      writeThreadCache('cohort', viewerUid.value, next)
     },
     (error) => {
       // The listener is over, not retrying. Whatever is already on screen
@@ -120,6 +160,42 @@ const subtitle = computed(() => {
 })
 
 /**
+ * Who can be named with an `@` in here.
+ *
+ * The board projection is the roster, and it is the only list of this cohort a
+ * member is allowed to read — see `LeaderboardEntryDoc`, which exists precisely
+ * so that "who is in my cohort" does not require read access to everyone's
+ * email address and injuries. Only the three fields a name needs are taken off
+ * it; the session counts stay out of a feature that has no business showing
+ * them, least of all in a cohort whose board has not been revealed yet.
+ *
+ * Already in the store from boot, so this costs nothing. The coach goes first
+ * because they are the one person in here everybody has a reason to call; the
+ * rest are alphabetical, since the order sessions ranks them in means nothing
+ * when you are looking for a name.
+ *
+ * The member themselves is left out. Naming yourself does nothing to anyone.
+ */
+const mentionable = computed<MentionCandidate[]>(() => {
+  const coach = store.coach.value
+  const people: MentionCandidate[] = coach?.uid
+    ? [{ uid: coach.uid, name: coach.name, avatarUrl: coach.avatarUrl }]
+    : []
+
+  const members = store.leaderboard.value
+    // A member with no display name has nothing to be named by: their row is
+    // written when they set one, so this is somebody mid-setup.
+    .filter((row) => !row.isSelf && row.name.trim())
+    .map((row) => ({ uid: row.memberId, name: row.name, avatarUrl: row.avatarUrl }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+  for (const member of members) {
+    if (!people.some((person) => person.uid === member.uid)) people.push(member)
+  }
+  return people
+})
+
+/**
  * Upload first, then send.
  *
  * The composer hands over decoded files, not stored ones: documents cap at
@@ -134,6 +210,7 @@ const send = async (payload: {
   text: string
   attachments: PendingAttachment[]
   replyTo: ChatReplyRef | null
+  mentions: ChatMention[]
 }) => {
   const attachments = await Promise.all(
     payload.attachments.map((item) =>
@@ -155,7 +232,13 @@ const send = async (payload: {
     ),
   )
 
-  const sent = await data.sendMessage('cohort', payload.text, attachments, payload.replyTo)
+  const sent = await data.sendMessage(
+    'cohort',
+    payload.text,
+    attachments,
+    payload.replyTo,
+    payload.mentions,
+  )
   // Usually already here: the watcher sees this member's own write as it is
   // made. Appending it is for the implementation that cannot — the polled one,
   // where the next tick is seconds away and the bubble should not be.
@@ -190,7 +273,11 @@ const send = async (payload: {
  * the point: swallowing it here would leave the thread showing an edit the
  * server never took.
  */
-const editMessage = async (payload: { messageId: string; text: string }) => {
+const editMessage = async (payload: {
+  messageId: string
+  text: string
+  mentions: ChatMention[]
+}) => {
   const before = messages.value.find((m) => m.id === payload.messageId)
   if (!before) return
 
@@ -198,10 +285,17 @@ const editMessage = async (payload: { messageId: string; text: string }) => {
     messages.value = messages.value.map((m) => (m.id === payload.messageId ? message : m))
   }
 
-  apply({ ...before, text: payload.text, editedAt: trustedTimestamp() })
+  apply({
+    ...before,
+    text: payload.text,
+    mentions: payload.mentions,
+    editedAt: trustedTimestamp(),
+  })
 
   try {
-    apply(await data.editMessage('cohort', payload.messageId, payload.text))
+    apply(
+      await data.editMessage('cohort', payload.messageId, payload.text, payload.mentions),
+    )
   } catch (cause) {
     apply(before)
     throw cause
@@ -255,6 +349,8 @@ const react = async (payload: { messageId: string; emoji: string }) => {
         :title="title"
         :subtitle="subtitle"
         placeholder="Say something to the group…"
+        :mentionable="mentionable"
+        :live="live"
         :storage-full="storageFull"
         :send="send"
         :edit="editMessage"

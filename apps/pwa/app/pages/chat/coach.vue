@@ -5,18 +5,53 @@ definePageMeta({ layout: false })
 import { useDataSourceClient } from '~/lib/datasource'
 import type {
   ChatAttachment,
+  ChatMention,
   ChatMessageView,
   ChatReaction,
   ChatReplyRef,
   TypingPeer,
 } from '~/data/types'
 import { toggledReactions } from '~/lib/chat'
+import { readThreadCache, writeThreadCache } from '~/lib/chat-cache'
 import { trustedTimestamp } from '~/lib/time'
 import type { PendingAttachment } from '~/lib/attachments'
 
 const data = useDataSourceClient()
 const store = useAppStore()
-const messages = ref<ChatMessageView[]>([])
+/**
+ * Whose reading of the thread this is, for the on-disk copy below.
+ *
+ * The store has the member by the time this screen can be reached — the route
+ * that leads here is gated on it — so this is read once rather than watched.
+ */
+const viewerUid = computed(() => store.member.value?.id ?? '')
+
+/**
+ * The thread as it was last seen, drawn before anything is fetched.
+ *
+ * `ref([])` is what made opening this screen a blank one: the live listener
+ * cannot deliver until the member has been read, the thread resolved and the
+ * query opened, and until then there was nothing on screen at all — for a
+ * conversation that had been on this device since the last time it was read.
+ * Seeded synchronously, so the first paint already has the thread in it; the
+ * listener replaces it wholesale a moment later, with the same messages plus
+ * whatever has been said since.
+ *
+ * It is also what the screen falls back to with no connection. Firestore's own
+ * cache answers offline too, and answers more fully, but it answers a tick
+ * later — and if the member document itself cannot be read, not at all.
+ */
+const messages = ref<ChatMessageView[]>(readThreadCache('coach', viewerUid.value))
+
+/**
+ * Whether the live thread has delivered yet.
+ *
+ * Until it has, what is on screen is the copy restored from disk, and the view
+ * treats it as the placeholder it is — see `ChatView`'s `live` prop. It never
+ * goes back to false: a listener that stops leaves the last real thread up,
+ * which is still the thread.
+ */
+const live = ref(false)
 
 /** Everyone else with the composer open, live. See `DataSource.watchTyping`. */
 const typing = ref<TypingPeer[]>([])
@@ -49,6 +84,11 @@ onMounted(async () => {
     'coach',
     (next) => {
       messages.value = next
+      live.value = true
+      // Kept as it arrives rather than on the way out: the screen can be left
+      // by a route change, a closed tab or a killed app, and only the first of
+      // those would ever reach an unmount hook.
+      writeThreadCache('coach', viewerUid.value, next)
     },
     (error) => {
       console.error('[chat] the live thread stopped', error)
@@ -102,6 +142,7 @@ const send = async (payload: {
   text: string
   attachments: PendingAttachment[]
   replyTo: ChatReplyRef | null
+  mentions: ChatMention[]
 }) => {
   const attachments = await Promise.all(
     payload.attachments.map((item) =>
@@ -123,7 +164,13 @@ const send = async (payload: {
     ),
   )
 
-  const sent = await data.sendMessage('coach', payload.text, attachments, payload.replyTo)
+  const sent = await data.sendMessage(
+    'coach',
+    payload.text,
+    attachments,
+    payload.replyTo,
+    payload.mentions,
+  )
   // The watcher has usually delivered this already. See the cohort thread.
   if (!messages.value.some((m) => m.id === sent.id)) {
     messages.value = [...messages.value, sent]
@@ -156,7 +203,11 @@ const send = async (payload: {
  * the point: swallowing it here would leave the thread showing an edit the
  * server never took.
  */
-const editMessage = async (payload: { messageId: string; text: string }) => {
+const editMessage = async (payload: {
+  messageId: string
+  text: string
+  mentions: ChatMention[]
+}) => {
   const before = messages.value.find((m) => m.id === payload.messageId)
   if (!before) return
 
@@ -164,10 +215,17 @@ const editMessage = async (payload: { messageId: string; text: string }) => {
     messages.value = messages.value.map((m) => (m.id === payload.messageId ? message : m))
   }
 
-  apply({ ...before, text: payload.text, editedAt: trustedTimestamp() })
+  apply({
+    ...before,
+    text: payload.text,
+    mentions: payload.mentions,
+    editedAt: trustedTimestamp(),
+  })
 
   try {
-    apply(await data.editMessage('coach', payload.messageId, payload.text))
+    apply(
+      await data.editMessage('coach', payload.messageId, payload.text, payload.mentions),
+    )
   } catch (cause) {
     apply(before)
     throw cause
@@ -221,6 +279,7 @@ const react = async (payload: { messageId: string; emoji: string }) => {
         :subtitle="coachTitle"
         placeholder="Message your coach…"
         class="dm-page__view [&_.chat__composer]:pb-[calc(16px+env(safe-area-inset-bottom))] [&_.chat__header]:hidden"
+        :live="live"
         :storage-full="storageFull"
         :send="send"
         :edit="editMessage"

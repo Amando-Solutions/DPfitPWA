@@ -847,6 +847,26 @@ export interface ChatReplyRef {
   attachmentKind: 'image' | 'file' | null
 }
 
+/**
+ * One person named in a message, snapshotted onto it.
+ *
+ * The name is stored beside the uid for the reason `ChatReplyRef` stores the
+ * quoted text: a mention is a record of who was named *at the time*, and the
+ * roster it was picked from is not guaranteed to still hold them. A member who
+ * leaves the cohort loses their leaderboard projection, and a mention that
+ * resolved its label through that would degrade from "@Tomi" to nothing on
+ * every message that ever named her.
+ *
+ * It is also what makes the highlight findable at all. Display names contain
+ * spaces — "Coach Dayo" — so `@`-tokens cannot be recovered from the text by
+ * splitting it; the stored name is the span to look for. See `mentionSegments`.
+ */
+export interface ChatMention {
+  uid: string
+  /** Exactly as it appears after the `@` in `text`. */
+  name: string
+}
+
 export interface MessageDoc {
   authorUid: string
   authorName: string
@@ -871,6 +891,13 @@ export interface MessageDoc {
   attachments: ChatAttachment[]
   /** What this message is answering, or `null` when it starts its own thread. */
   replyTo: ChatReplyRef | null
+  /**
+   * Everyone named in `text`, in no particular order.
+   *
+   * Absent on every message sent before mentions existed, and normalised to an
+   * empty list on the way out like `replyTo` and `editedAt`.
+   */
+  mentions: ChatMention[]
   /**
    * Everyone's reactions, as emoji → count.
    *
