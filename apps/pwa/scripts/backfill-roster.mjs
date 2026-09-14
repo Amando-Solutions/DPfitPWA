@@ -175,9 +175,11 @@ const run = async () => {
 
   console.log('')
   console.log(
-    `${members.size} member(s): ${present} already listed, ${written} to add, ${blocked} blocked.`,
+    `${members.size} member(s): ${present} already listed, ` +
+      `${written} ${APPLY ? 'added' : 'to add'}, ${blocked} blocked.`,
   )
   if (!APPLY && written) console.log('Nothing written. Re-run with --apply.')
+  if (APPLY && written) console.log('Written. A dry run now should report them as already listed.')
   if (nameless) {
     console.log(
       `\n${nameless} of those have no display name and will be listed as "Member".\n` +

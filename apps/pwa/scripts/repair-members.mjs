@@ -173,8 +173,15 @@ const run = async () => {
   }
 
   console.log('')
-  console.log(`${members.size} member(s): ${fine} already fine, ${repaired} to repair, ${blocked} blocked.`)
+  // Past tense only once the writes have happened. This line used to read
+  // "to repair" either way, so a run that had just fixed a member printed the
+  // same summary as a dry run and looked like it had done nothing.
+  console.log(
+    `${members.size} member(s): ${fine} already fine, ` +
+      `${repaired} ${APPLY ? 'repaired' : 'to repair'}, ${blocked} blocked.`,
+  )
   if (!APPLY && repaired) console.log('Nothing written. Re-run with --apply.')
+  if (APPLY && repaired) console.log('Written. A dry run now should report them as already fine.')
   if (blocked) {
     console.log(
       '\nBlocked members are not a bug to work around: their cohort does not name a\n' +
