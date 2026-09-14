@@ -455,6 +455,24 @@ const chooseMention = (person: MentionCandidate) => {
   })
 }
 
+/** The picker's scroller, so a highlight moved by the keyboard can be kept in view. */
+const mentionList = ref<HTMLElement | null>(null)
+
+/**
+ * Bring the highlighted row into the list's view.
+ *
+ * Called from the arrow keys only, not from a watcher on the index. A finger
+ * resting on a row also moves the highlight, and scrolling the list to meet it
+ * in the middle of a swipe would fight the swipe.
+ */
+const revealMention = () => {
+  nextTick(() => {
+    mentionList.value
+      ?.querySelector<HTMLElement>(`[data-mention-row="${mentionIndex.value}"]`)
+      ?.scrollIntoView({ block: 'nearest' })
+  })
+}
+
 const onComposerKeydown = (event: KeyboardEvent) => {
   if (!mentionsOpen.value) return
   const matches = mentionMatches.value
@@ -462,11 +480,13 @@ const onComposerKeydown = (event: KeyboardEvent) => {
   if (event.key === 'ArrowDown') {
     event.preventDefault()
     mentionIndex.value = (mentionIndex.value + 1) % matches.length
+    revealMention()
     return
   }
   if (event.key === 'ArrowUp') {
     event.preventDefault()
     mentionIndex.value = (mentionIndex.value - 1 + matches.length) % matches.length
+    revealMention()
     return
   }
   if (event.key === 'Enter' || event.key === 'Tab') {
@@ -1122,6 +1142,20 @@ const atBottom = ref(true)
 const newBelow = ref(0)
 
 /**
+ * Whether the thread has been put where it opens.
+ *
+ * Both jump buttons wait for this. Until `restorePlace` has decided where the
+ * member is, the numbers they read are placeholders: `seenIndex` is still `-1`,
+ * so every mention in the thread counts as unseen, and `atBottom` flips with
+ * every scroll event a thread still being rendered and positioned throws off.
+ * Rendering off those showed an `@` and a down arrow for a moment on every
+ * open, then took them away again once the real answer landed — two controls
+ * announcing things that were not true. Set once, and never unset: after the
+ * first placement those values mean what they say.
+ */
+const settled = ref(false)
+
+/**
  * The first message of the unread run, as an id, fixed when the screen opened.
  *
  * An id rather than an index for the same reason the stored marker is one: the
@@ -1319,7 +1353,11 @@ watch(
     // conversation where nothing had happened at all.
     if (!placeRestored && next) {
       placeRestored = true
-      restorePlace()
+      // `finally`, so a placement that throws still lets the buttons work
+      // rather than hiding them for the rest of the visit.
+      restorePlace().finally(() => {
+        settled.value = true
+      })
       return
     }
 
@@ -1923,14 +1961,16 @@ const TOOL =
         Both are absent rather than dimmed when they have nothing to say: a
         permanent jump button on a thread already at its newest message is a
         control that does nothing, and a permanent `@` is a promise of a reply
-        that is not there. The wrapper ignores pointers so the empty space
-        around them is still thread, and the buttons take them back.
+        that is not there. Neither appears before `settled`, for the same
+        reason: until the thread has been placed, what they would say is not
+        true yet. The wrapper ignores pointers so the empty space around them
+        is still thread, and the buttons take them back.
       -->
       <div
         class="pointer-events-none absolute right-5 bottom-4 z-20 flex flex-col items-end gap-2 lg:right-0"
       >
         <button
-          v-if="unseenMentions.length"
+          v-if="settled && unseenMentions.length"
           class="pointer-events-auto relative grid size-10 place-items-center rounded-full bg-raised text-rose shadow-raised transition-transform duration-100 ease-out active:scale-90"
           :aria-label="`Go to the ${unseenMentions.length} reply that mentions you`"
           @click="jumpToMention"
@@ -1944,7 +1984,7 @@ const TOOL =
         </button>
 
         <button
-          v-if="!atBottom"
+          v-if="settled && !atBottom"
           class="pointer-events-auto relative grid size-10 place-items-center rounded-full bg-raised text-ink shadow-raised transition-transform duration-100 ease-out active:scale-90"
           :aria-label="
             newBelow ? `Go to the ${newBelow} newest messages` : 'Go to the latest message'
@@ -1982,29 +2022,42 @@ const TOOL =
       -->
       <div
         v-if="mentionsOpen"
-        class="flex max-h-52 flex-col overflow-y-auto rounded-xl bg-raised p-1 shadow-card"
+        ref="mentionList"
+        class="flex max-h-52 flex-col overflow-y-auto overscroll-contain rounded-xl bg-raised p-1 shadow-card"
         role="listbox"
         aria-label="People you can mention"
       >
         <!--
-          Chosen on the way *down*, not on the click.
+          Chosen on the click, with the press itself only holding focus.
 
-          `prevent` is what keeps the focus in the field: without it the press
-          blurs the input, the soft keyboard begins to close, and the list
-          slides down the screen with it — out from under the finger that is
-          still coming down, so the click lands on whatever has taken its
-          place. Acting on `pointerdown` sidesteps that race entirely, and it
-          behaves the same under a mouse.
+          It used to choose on `pointerdown`, which made the list impossible to
+          scroll: a finger coming down to drag it picked whoever it happened to
+          land on and closed the list before it had moved a pixel. A click
+          fires for a tap and not for a drag — the browser cancels the pointer
+          once it becomes a scroll — so choosing there is what separates the
+          two.
+
+          `prevent` stays on the press, because that is what keeps the focus in
+          the field: without it the press blurs the input, the soft keyboard
+          starts to close, and the list slides down the screen with it, out
+          from under the finger. It does not stop a touch from scrolling;
+          `touch-action` decides that, and nothing here restricts it.
+
+          `shrink-0` so the rows keep their height and overflow the list rather
+          than being squeezed to fit it. `overscroll-contain` so reaching either
+          end of the list does not carry on and scroll the thread behind it.
         -->
         <button
           v-for="(person, i) in mentionMatches"
           :key="person.uid"
-          class="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left"
+          class="flex w-full shrink-0 items-center gap-2.5 rounded-lg px-2 py-1.5 text-left"
           :class="i === mentionIndex && 'bg-fill-subtle'"
+          :data-mention-row="i"
           role="option"
           :aria-selected="i === mentionIndex"
           @pointerenter="mentionIndex = i"
-          @pointerdown.prevent="chooseMention(person)"
+          @pointerdown.prevent
+          @click="chooseMention(person)"
         >
           <Avatar size="xs">
             <AvatarImage :src="person.avatarUrl" :alt="person.name" loading="lazy" />

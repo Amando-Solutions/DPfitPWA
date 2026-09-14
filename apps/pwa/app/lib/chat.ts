@@ -126,14 +126,20 @@ export const activeMention = (
   return { at, query }
 }
 
-/** Candidates whose name matches `query`, best-first, capped for the panel. */
+/**
+ * Candidates whose name matches `query`, best-first.
+ *
+ * Every match, not the first few. This used to stop at six, which made a bare
+ * `@` in a cohort of forty a list of six people with no way to reach the other
+ * thirty-four except by already knowing how their name was spelled. The panel
+ * scrolls instead.
+ */
 export const matchMentions = (
   candidates: MentionCandidate[],
   query: string,
-  limit = 6,
 ): MentionCandidate[] => {
   const needle = query.trim().toLowerCase()
-  if (!needle) return candidates.slice(0, limit)
+  if (!needle) return candidates
 
   // Names that *start* with what was typed come first: typing "to" means Tomi
   // before Victoria, even though both match.
@@ -144,7 +150,7 @@ export const matchMentions = (
     if (name.startsWith(needle)) starts.push(candidate)
     else if (name.includes(needle)) contains.push(candidate)
   }
-  return [...starts, ...contains].slice(0, limit)
+  return [...starts, ...contains]
 }
 
 /**
