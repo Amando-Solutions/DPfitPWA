@@ -692,6 +692,41 @@ export class FirestoreDataSource implements DataSource {
       }
 
       tx.set(memberRef, created)
+
+      // The roster, written the moment the seat is claimed.
+      //
+      // `cohorts/{id}/leaderboard` is the only collection one member may read
+      // about another — member documents carry email, weight, injuries and
+      // allergies, and the rules never open them to a peer. So this projection
+      // is not merely the board's data source: it is the *entire* answer to
+      // "who is in my cohort", and a member with no row here is invisible to
+      // everyone they train alongside. They cannot be counted, listed, or named
+      // with an `@` in chat.
+      //
+      // It used to be written first at the display-name step of setup, which
+      // left every member invisible between redeeming their code and finishing
+      // setup, and invisible permanently if they never finished. Writing it
+      // here makes the roster complete by construction: one row per member, for
+      // as long as they hold the seat, deleted with them by `deleteAccount`.
+      //
+      // Merged, and deliberately without `sessions`. A rebuilt member document
+      // — see `reclaiming` above — may well have a row already, and a count
+      // written here would reset a board position that was earned. The field
+      // stays absent until `saveSession` creates it, which `listLeaderboard`
+      // reads as zero.
+      tx.set(
+        this.leaderboardRef(codeData.cohortId, user.uid),
+        {
+          // Google hands over a name at sign-in; the email-link path does not,
+          // and setup is where that member picks one. Same fallback the other
+          // two writers use, so the board reads consistently whoever wrote last.
+          name: created.profile.displayName || 'Member',
+          avatarUrl: created.profile.avatarUrl || '',
+          updatedAt: now,
+        },
+        { merge: true },
+      )
+
       // Only a first claim writes to the code. A rebuild has nothing to say
       // there — the seat is already marked claimed, by this uid, at the instant
       // it happened — and the rule would refuse it anyway: it allows the
@@ -1723,10 +1758,24 @@ export class FirestoreDataSource implements DataSource {
    */
   async listLeaderboard(): Promise<LeaderboardEntry[]> {
     const member = await this.requireMember()
+    // No `orderBy`, deliberately, and this is the reason.
+    //
+    // A Firestore query ordered by a field returns only the documents that
+    // *have* that field. This one used to order by `sessions`, and a member who
+    // has finished setup but not yet logged a qualifying session has no such
+    // field: `saveProfile` writes their row as name, avatar and `updatedAt`,
+    // and `sessions` only appears the first time `saveSession` increments it.
+    // So every member who had not trained yet was silently missing — from the
+    // board that is supposed to list the cohort, and from anything built on it,
+    // which is how a whole cohort came to have nobody to `@` in chat.
+    //
+    // Nothing is lost by dropping it. This method's contract is explicitly
+    // unordered and `rankLeaderboard` does the sorting, so the ordering here
+    // only ever decided *which* 200 came back in a cohort larger than the cap —
+    // and silently excluded rows in every cohort smaller than it.
     const snap = await getDocs(
       query(
         collection(firebaseDb(), 'cohorts', member.cohortId, 'leaderboard'),
-        orderBy('sessions', 'desc'),
         limit(200),
       ),
     )
@@ -1765,12 +1814,19 @@ export class FirestoreDataSource implements DataSource {
    * they can reach Chat, and it is deleted with them.
    *
    * This is deliberately not `listLeaderboard().length`, which is what Chat
-   * used to count and undercounts twice over. That query is capped at 200 rows,
-   * and it is ordered by `sessions` — a Firestore `orderBy` drops every
-   * document that has no such field, and a member who has set their name but
-   * not yet logged a qualifying session has exactly that document. So the
-   * header was counting people who had trained, and calling them the people who
-   * can read the thread. This counts the collection.
+   * used to count. That query is capped at 200 rows, so in a cohort past the
+   * cap its length is the cap and not the roster.
+   *
+   * It used to undercount a second way, and that one was worse: the query was
+   * ordered by `sessions`, and a Firestore `orderBy` returns only documents
+   * that *have* the field — which a member who has set their name but not yet
+   * logged a qualifying session does not. So the header was counting the people
+   * who had trained and calling them the people who can read the thread. That
+   * is fixed at the source now (see `listLeaderboard`), which matters well
+   * beyond this count: the same query is the roster behind `@` mentions in
+   * chat, and a cohort where nobody had trained yet had nobody to name. This
+   * still counts the collection, because an aggregation is the honest answer to
+   * "how many" and does not read two hundred documents to give it.
    *
    * The floor of 1 covers the member reading their own header: a cohort with a
    * member in it is never empty, and a count of zero here would mean their own

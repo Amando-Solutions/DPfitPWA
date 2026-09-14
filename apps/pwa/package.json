@@ -13,7 +13,8 @@
     "backfill:codes": "node scripts/backfill-access-codes.mjs",
     "seed:program": "bun run scripts/seed-program.ts",
     "live-call": "node scripts/set-live-call.mjs",
-    "repair:members": "node scripts/repair-members.mjs"
+    "repair:members": "node scripts/repair-members.mjs",
+    "backfill:roster": "node scripts/backfill-roster.mjs"
   },
   "dependencies": {
     "@dpfit/theme": "workspace:*",
