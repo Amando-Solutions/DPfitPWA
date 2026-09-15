@@ -75,6 +75,15 @@ const props = withDefaults(
      */
     live?: boolean
     /**
+     * A message to open on, instead of wherever the member left off.
+     *
+     * Set when the member arrives from a notification: they tapped a mention or
+     * a reply, and the thing they came to see is that message, not the unread
+     * band. Best effort, like tapping a quote: a message older than the loaded
+     * window has no row to land on, and the thread opens as it normally would.
+     */
+    focusMessage?: string
+    /**
      * Send the composer's contents. A prop rather than an emit, because this
      * one has to be awaited.
      *
@@ -111,6 +120,7 @@ const props = withDefaults(
     placeholder: 'Say something…',
     storageFull: false,
     live: false,
+    focusMessage: '',
     typing: () => [],
     mentionable: () => [],
   },
@@ -124,6 +134,15 @@ const emit = defineEmits<{
    * going, and once when they stop — because the handler behind it is a write.
    */
   (e: 'typing', typing: boolean): void
+  /**
+   * The read marker just moved past these messages, and each was aimed at the
+   * member — see `MessageDoc.addressedUids`. Ids, oldest first.
+   *
+   * What lets reading a mention in the thread clear it from the inbox. An emit
+   * rather than a store call, because whether a thread has an inbox behind it
+   * is the screen's to know, not this component's.
+   */
+  (e: 'seen', messageIds: string[]): void
 }>()
 
 const store = useAppStore()
@@ -600,12 +619,14 @@ const quoteAuthor = (quote: ChatReplyRef) =>
 /** The band's own `--animate-jump-flash`, plus a beat so it is gone before it is. */
 const FLASH_MS = 1500
 
-const jumpToMessage = async (messageId: string) => {
+const jumpToMessage = async (messageId: string, smooth = true) => {
   const target = scroller.value?.querySelector<HTMLElement>(
     `[data-message="${CSS.escape(messageId)}"]`,
   )
   if (!target) return
-  target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  // Smooth for a tap inside the thread, where watching it travel says where the
+  // message was. Not when the screen opens on it: there is no "from" to show.
+  target.scrollIntoView({ block: 'center', behavior: smooth ? 'smooth' : 'auto' })
 
   if (flashTimer) clearTimeout(flashTimer)
 
@@ -1400,9 +1421,16 @@ watch(
       placeRestored = true
       // `finally`, so a placement that throws still lets the buttons work
       // rather than hiding them for the rest of the visit.
-      restorePlace().finally(() => {
-        settled.value = true
-      })
+      restorePlace()
+        // After the member's place is found rather than instead of it: the band
+        // still belongs where they left off, and scrolling back up to it from
+        // the message they came for is how they catch up on the rest.
+        .then(() => {
+          if (props.focusMessage) return jumpToMessage(props.focusMessage, false)
+        })
+        .finally(() => {
+          settled.value = true
+        })
       return
     }
 
@@ -1419,6 +1447,34 @@ watch(
   },
   { immediate: true },
 )
+
+// A notification tapped while the thread is already placed. The first one is
+// handled by the placement above, which has to wait for the thread to arrive.
+watch(
+  () => props.focusMessage,
+  (id) => {
+    if (id && settled.value) jumpToMessage(id, false)
+  },
+)
+
+/**
+ * Tell the screen which messages aimed at the member have just been read.
+ *
+ * Off `seenIndex`, which only ever moves down, so each message is reported
+ * once per visit however the member scrolls. `addressedUids` rather than the
+ * `mentionsMe` the bubbles are lit by: that one is worked out from `mentions`
+ * and `replyTo`, and is also true of messages sent before the field existed,
+ * which never reached anybody's inbox and have nothing there to clear.
+ */
+watch(seenIndex, (next, previous) => {
+  if (next <= previous) return
+  const uid = viewerUid.value
+  const ids = props.messages
+    .slice(previous + 1, next + 1)
+    .filter((m) => !m.isSelf && m.addressedUids?.includes(uid))
+    .map((m) => m.id)
+  if (ids.length) emit('seen', ids)
+})
 
 // The reply strip changes the composer's height, so the last bubble would end
 // up behind it on a thread that was sitting exactly at the bottom. The typing

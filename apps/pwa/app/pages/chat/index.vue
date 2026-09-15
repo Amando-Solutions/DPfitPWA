@@ -18,6 +18,17 @@ import type { PendingAttachment } from '~/lib/attachments'
 
 const data = useDataSourceClient()
 const store = useAppStore()
+const route = useRoute()
+
+/**
+ * The message a notification was tapped for, from `?message=`.
+ *
+ * Left in the URL once used. Reloading on it lands on the same message again,
+ * which is what the address says, and nothing else reads it.
+ */
+const focusMessage = computed(() =>
+  typeof route.query.message === 'string' ? route.query.message : '',
+)
 /**
  * Whose reading of the thread this is, for the on-disk copy below.
  *
@@ -351,11 +362,13 @@ const react = async (payload: { messageId: string; emoji: string }) => {
         placeholder="Say something to the group…"
         :mentionable="mentionable"
         :live="live"
+        :focus-message="focusMessage"
         :storage-full="storageFull"
         :send="send"
         :edit="editMessage"
         @react="react"
         @typing="(on: boolean) => data.setTyping('cohort', on)"
+        @seen="store.markChatMessagesSeen"
       />
     </div>
   </div>

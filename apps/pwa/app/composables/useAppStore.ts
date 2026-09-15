@@ -5,9 +5,12 @@ import type { ActiveSessionInput, CheckInInput } from '~/lib/datasource'
 import { defaultPreferences } from '~/lib/datasource/local'
 import {
   challengeClock,
-  challengeShapeOf,
-  nightsUntilDayNumber,
+  daysBetween,
+  isDateKey,
+  planDaysOf,
+  weekAt,
 } from '~/lib/domain/challenge'
+import { chatNotificationFor, chatNotificationId } from '~/lib/chat'
 import { nutritionTargetsFor } from '~/lib/domain/nutrition'
 import { rankLeaderboard, rewardsContextOf, rewardsSnapshot } from '~/lib/domain/rewards'
 
@@ -36,13 +39,14 @@ import type {
   MemberGate,
   MemberPreferences,
   MemberProfile,
+  Message,
   Notification,
   NotificationView,
   PhotoPose,
   Program,
   ProgressPhoto,
   SessionLog,
-  WorkoutDay,
+  TrainingWeek,
   WorkoutDayView,
 } from '~/data/types'
 
@@ -84,15 +88,19 @@ interface AppState {
    * numbers a member is shown are the coach's or they are not shown.
    */
   program: Program | null
-  workoutDays: WorkoutDay[]
+  /** The dated schedule: every week, each with its days. See `listProgramWeeks`. */
+  weeks: TrainingWeek[]
   guides: Guide[]
   cohort: Cohort | null
-  announcements: Announcement[]
+  // The announcement deck is not here either, for the reason the notifications
+  // below are not: it is live. See `announcementFeed`.
   sessions: SessionLog[]
   activeSession: ActiveSessionDoc | null
   checkIns: CheckIn[]
   photos: ProgressPhoto[]
-  notifications: Notification[]
+  // The notifications themselves are not here. They are live, not loaded — see
+  // `watchInbox` — and a re-hydrate for the same member would wipe them with
+  // nothing to bring them back until that member changed.
   /** Notification id → when this member read it. Absent means unread. */
   notificationReads: Record<string, Timestamp>
   /** Badge id → award record. */
@@ -130,15 +138,13 @@ const emptyState = (): AppState => ({
   member: null,
   memberUnreadable: false,
   program: null,
-  workoutDays: [],
+  weeks: [],
   guides: [],
   cohort: null,
-  announcements: [],
   sessions: [],
   activeSession: null,
   checkIns: [],
   photos: [],
-  notifications: [],
   notificationReads: {},
   earnedBadges: {},
   leaderboard: [],
@@ -266,20 +272,19 @@ const buildStore = () => {
     // The authored half of the load, alongside the member's own.
     //
     // It is not a second round trip: the program, the training week, the guide
-    // library, the cohort and the announcement deck go out with the member's
-    // logs and settle together, because every screen needs both halves and
-    // there is nothing worth painting with only one of them. They are also the
+    // library and the cohort go out with the member's logs and settle together,
+    // because every screen needs both halves and there is nothing worth
+    // painting with only one of them. They are also the
     // reads that used to be `import` statements, which is why they cost nothing
     // before and are the whole of the difference now.
     /**
      * A read the app can do without.
      *
-     * The deck, the guide library and the cohort document are each one screen
-     * or one card, and none of them is load-bearing: an empty deck renders its
-     * empty state, an empty library renders its own, and a missing cohort costs
-     * the live-call card and the board. Inside `Promise.all` they were none of
-     * those things — a single rejection takes the whole array down and blanks
-     * the app, so a rules file that had not been deployed for one collection
+     * The guide library and the cohort document are each one screen or one
+     * card, and neither is load-bearing: an empty library renders its empty
+     * state, and a missing cohort costs the live-call card and the board.
+     * Inside `Promise.all` they were neither — a single rejection takes the
+     * whole array down and blanks the app, so a rules file that had not been deployed for one collection
      * would present as a member's entire account failing to load.
      *
      * The training data below is deliberately *not* wrapped this way. A member
@@ -303,16 +308,14 @@ const buildStore = () => {
         data.getActiveSession(),
         data.listCheckIns(),
         data.listPhotos(),
-        data.listNotifications(),
         data.listNotificationReads(),
         data.listEarnedBadges(),
         data.listLeaderboard(),
         data.getPreferences(),
         data.getProgram(),
-        data.listWorkoutDays(),
+        data.listProgramWeeks(),
         optional(data.listGuides(), [], 'the guide library'),
         optional(data.getCohort(), null, 'the cohort'),
-        optional(data.listAnnouncements(), [], 'the announcement deck'),
       ])
     } catch (cause) {
       // The member document was readable and the rest was not, so keep them:
@@ -335,16 +338,14 @@ const buildStore = () => {
       activeSession,
       checkIns,
       photos,
-      notifications,
       notificationReads,
       earnedBadges,
       leaderboard,
       prefs,
       program,
-      workoutDays,
+      weeks,
       guides,
       cohort,
-      announcements,
     ] = loaded
 
     state.value = {
@@ -354,15 +355,13 @@ const buildStore = () => {
       member,
       memberUnreadable: false,
       program,
-      workoutDays,
+      weeks,
       guides,
       cohort,
-      announcements,
       sessions,
       activeSession,
       checkIns,
       photos,
-      notifications,
       notificationReads,
       earnedBadges,
       leaderboard,
@@ -438,7 +437,16 @@ const buildStore = () => {
   const program = computed(() => state.value.program)
   const cohort = computed(() => state.value.cohort)
   const guides = computed(() => state.value.guides)
-  const announcements = computed(() => state.value.announcements)
+  /**
+   * `cohorts/{id}/announcements`, as the listener last delivered them.
+   *
+   * Live rather than loaded, and fed by the inbox's listeners below. The admin
+   * announces a new card with a notification, and the inbox links to the deck:
+   * a deck read once at boot would not have the card the bell just announced
+   * until the member happened to reload.
+   */
+  const announcementFeed = ref<Announcement[]>([])
+  const announcements = computed(() => announcementFeed.value)
 
   /** The coach, off the cohort document. `null` before the cohort has loaded. */
   const coach = computed(() => state.value.cohort?.coach ?? null)
@@ -484,15 +492,11 @@ const buildStore = () => {
     ...[...new Set(state.value.guides.map((g) => g.category).filter(Boolean))].sort(),
   ])
 
-  const challengeShape = computed(() => challengeShapeOf(state.value.program))
+  /** Where the challenge is today, off the dated weeks. The same for the whole cohort. */
+  const clock = computed(() => challengeClock(state.value.weeks, now.value))
 
-  const clock = computed(() =>
-    challengeClock(
-      state.value.member?.joinedAt ?? nowTs.value,
-      now.value,
-      challengeShape.value,
-    ),
-  )
+  /** The week today falls in, with its days. `null` until a schedule has loaded. */
+  const currentWeek = computed(() => weekAt(state.value.weeks, clock.value.today))
 
   const targets = computed(() =>
     nutritionTargetsFor(profile.value ?? ({} as MemberProfile)),
@@ -519,14 +523,14 @@ const buildStore = () => {
   const sessionToday = computed(() => sessionsToday.value[0] ?? null)
 
   /**
-   * The training week: the authored days that count toward the weekly quota.
+   * This week's training days: the ones that count toward the weekly quota.
    *
    * `optional` days — the core & cardio finisher is the one that exists — are
    * not in it. They are still resolvable by id through `getDay`, so a member
    * who opens one can log it, but they are not part of "3 of 4 sessions" and a
    * week is not incomplete for skipping one.
    */
-  const planDays = computed(() => state.value.workoutDays.filter((day) => !day.optional))
+  const planDays = computed(() => planDaysOf(currentWeek.value))
 
   /**
    * The plan for this week, with each day's status resolved from the log.
@@ -537,26 +541,24 @@ const buildStore = () => {
    *
    * A plain array, where this used to be a non-empty tuple. The tuple was
    * honest about a hard-coded four-day week and is a lie about an authored one:
-   * a program whose `workoutDays` have not been written yet has no days, and
-   * the screens have to be able to say so rather than index into nothing.
+   * a week whose days have not been written yet has none, and the screens have
+   * to be able to say so rather than index into nothing.
    */
   const days = computed<WorkoutDayView[]>(() => {
     const loggedIds = new Set(sessionsThisWeek.value.map((s) => s.dayId))
-    const dayInWeek = clock.value.dayInWeek
+    const today = clock.value.today
 
     return planDays.value.map((day) => {
-      const opensInNights = nightsUntilDayNumber(day.dayNumber, dayInWeek)
+      const opensInNights = daysBetween(today, day.date)
 
       if (loggedIds.has(day.id)) {
         return { ...day, status: 'completed' as const, canStart: false, opensInNights }
       }
       // Everything the week has reached is open: today's session, and every day
-      // behind it that was never logged. `dayNumber` counts position in the
-      // week, so the calendar has arrived at each of those and a member who
-      // fell behind on Tuesday can still do Tuesday on Thursday — the wrap in
-      // `opensInNights` is about the date a day next comes round, which is a
-      // different question from whether this week's has been and gone.
-      if (day.dayNumber <= dayInWeek) {
+      // behind it that was never logged, so a member who fell behind on Tuesday
+      // can still do Tuesday on Thursday. Only this week's, though — `days` is
+      // the current week, and last week's debts closed with it.
+      if (opensInNights <= 0) {
         const status = opensInNights === 0 ? ('today' as const) : ('missed' as const)
         return { ...day, status, canStart: true, opensInNights }
       }
@@ -576,35 +578,41 @@ const buildStore = () => {
   const trainingLocked = computed(() => !days.value.some((d) => d.canStart))
 
   /**
-   * The day whose slot comes round soonest and will be open when it does.
+   * The next training day whose date is still ahead, in this week or a later one.
    *
-   * What the screens name when they have to say which session is next. A day
-   * already logged is still a candidate, but only once its slot has gone past
-   * — `dayNumber < dayInWeek` is the same statement as "it next falls after the
-   * week rolls over", and the rollover is what clears the log it was counted
-   * in. Without that, a member who finished Monday through Thursday would be
-   * told on Friday that nothing was coming.
+   * What the screens name when they have to say which session is next. It
+   * crosses into next week, because the days are dated: a member who finished
+   * the week on Friday is waiting on next Wednesday's session, and that is a
+   * real document with a real date rather than this week's day 1 wrapped round.
+   * `null` once the schedule has nothing left in it.
    */
   const nextUp = computed<WorkoutDayView | null>(() => {
-    const dayInWeek = clock.value.dayInWeek
-    const candidates = days.value.filter(
-      (d) =>
-        d.opensInNights !== null &&
-        (d.status !== 'completed' || d.dayNumber < dayInWeek),
-    )
-    return (
-      [...candidates].sort((a, b) => (a.opensInNights ?? 0) - (b.opensInNights ?? 0))[0] ??
-      null
-    )
+    const inWeek = days.value.find((d) => d.status === 'upcoming')
+    if (inWeek) return inWeek
+
+    const today = clock.value.today
+    for (const week of state.value.weeks) {
+      if (week.weekNumber <= clock.value.week) continue
+      const day = planDaysOf(week).find((d) => d.date > today)
+      if (day) {
+        return {
+          ...day,
+          status: 'upcoming' as const,
+          canStart: false,
+          opensInNights: daysBetween(today, day.date),
+        }
+      }
+    }
+    return null
   })
 
   /**
    * Local midnight on the date the next session opens.
    *
-   * Not simply tomorrow. Sessions are pinned to their slot in the week, so
-   * after Monday's day 1 the next one is whenever day 2 comes round; a member
-   * on a three-day plan finishing day 3 is waiting four nights, not one, and
-   * telling them "back tomorrow" would be a promise the picker then breaks.
+   * Not simply tomorrow. Sessions are pinned to their dates, so after Monday's
+   * day 1 the next one is whenever day 2 is dated; a member on a three-day plan
+   * finishing day 3 is waiting four nights, not one, and telling them "back
+   * tomorrow" would be a promise the picker then breaks.
    *
    * Floored at tomorrow, because this is only ever read while nothing is open:
    * a day whose slot is today but whose session is spent opens again at
@@ -624,8 +632,8 @@ const buildStore = () => {
    * Today's scheduled day first. Then the earliest day still open behind it:
    * somebody who has already logged today but is a day down has one session
    * left to do this week and that is the one to lead with, not the one they
-   * finished this morning. `days` arrives ordered by `dayNumber`, so the first
-   * match is the oldest debt. Only when nothing at all is open does this fall
+   * finished this morning. `days` arrives ordered by date, so the first match
+   * is the oldest debt. Only when nothing at all is open does this fall
    * through to a day finished today, and then to the next one they are waiting
    * on.
    */
@@ -645,7 +653,7 @@ const buildStore = () => {
   )
 
   const rewardsContext = computed(() =>
-    rewardsContextOf(state.value.program, state.value.workoutDays),
+    rewardsContextOf(state.value.program, state.value.weeks),
   )
 
   const rewards = computed(() =>
@@ -714,6 +722,149 @@ const buildStore = () => {
     () => state.value.cohortMemberCount ?? leaderboard.value.length,
   )
 
+  // --- Inbox ---------------------------------------------------------------
+  //
+  // Two sources, both live: the coach's notifications, and cohort chat messages
+  // aimed at this member. Held outside `state` for the reason given on
+  // `AppState`: they belong to a subscription, not to a load. The announcement
+  // deck rides on the same listeners without being a source; see
+  // `announcementFeed`.
+
+  /** `cohorts/{id}/notifications`, as the listener last delivered them. */
+  const broadcasts = ref<Notification[]>([])
+
+  /** Cohort chat messages that name or answer this member. See `addressedUidsOf`. */
+  const addressed = ref<Message[]>([])
+
+  let stopInbox: Array<() => void> = []
+
+  const unwatchInbox = () => {
+    stopInbox.forEach((stop) => stop())
+    stopInbox = []
+  }
+
+  /**
+   * Open every inbox listener for `memberId`.
+   *
+   * Each on its own, so a failure in one leaves the others working: an index
+   * that has not built yet costs the member their mentions, not their coach's
+   * notifications or the deck.
+   */
+  const watchInbox = async (memberId: string) => {
+    const subscriptions: Array<[string, () => Promise<() => void>]> = [
+      [
+        'coach notifications',
+        () =>
+          data.watchNotifications(
+            (next) => {
+              broadcasts.value = next
+            },
+            (error) => console.error('[inbox] the coach notifications listener stopped', error),
+          ),
+      ],
+      [
+        'announcements',
+        () =>
+          data.watchAnnouncements(
+            (next) => {
+              announcementFeed.value = next
+            },
+            (error) => console.error('[inbox] the announcements listener stopped', error),
+          ),
+      ],
+      [
+        'mentions',
+        () =>
+          data.watchAddressedMessages(
+            (next) => {
+              addressed.value = next
+            },
+            (error) => console.error('[inbox] the mentions listener stopped', error),
+          ),
+      ],
+    ]
+
+    for (const [what, subscribe] of subscriptions) {
+      try {
+        const stop = await subscribe()
+        // Signed out, or in as somebody else, while this was resolving. Nothing
+        // else would ever stop it.
+        if (state.value.member?.id !== memberId) stop()
+        else stopInbox.push(stop)
+      } catch (cause) {
+        console.error(`[inbox] could not watch ${what}`, cause)
+      }
+    }
+  }
+
+  /**
+   * Follow the signed-in member, like the chat tab's dot does.
+   *
+   * Keyed on the member rather than on the auth user because every listener
+   * resolves its path through the member's cohort. A re-hydrate for the same
+   * member leaves them alone; a different member, or nobody, drops them and
+   * what they delivered, so the next person in does not inherit an inbox.
+   */
+  watch(
+    () => state.value.member?.id ?? null,
+    (memberId) => {
+      unwatchInbox()
+      broadcasts.value = []
+      announcementFeed.value = []
+      addressed.value = []
+      if (memberId) void watchInbox(memberId)
+    },
+    { immediate: true },
+  )
+
+  onScopeDispose(unwatchInbox)
+
+  // --- Cohort --------------------------------------------------------------
+  //
+  // Loaded at boot with everything else, then followed. The admin turns the
+  // leaderboard on and off, and sets the live call, on a document members
+  // already have open — see `DataSource.watchCohort`. It writes straight into
+  // `state.cohort` rather than a ref of its own, because unlike the inbox a
+  // re-hydrate re-reads it and never leaves it empty.
+
+  let stopCohort: (() => void) | null = null
+  /** Bumped per subscription, so a slow one that resolves late cannot win. */
+  let cohortWatch = 0
+
+  const unwatchCohort = () => {
+    stopCohort?.()
+    stopCohort = null
+  }
+
+  watch(
+    () => state.value.member?.id ?? null,
+    async (memberId) => {
+      unwatchCohort()
+      const current = ++cohortWatch
+      if (!memberId) return
+      try {
+        const stop = await data.watchCohort(
+          (next) => {
+            if (current === cohortWatch) state.value.cohort = next
+          },
+          // The last cohort delivered stays. A stopped listener means changes
+          // arrive on the next load again, not that the board should vanish.
+          (error) => console.error('[cohort] the cohort listener stopped', error),
+        )
+        if (current === cohortWatch) stopCohort = stop
+        else stop()
+      } catch (cause) {
+        console.error('[cohort] could not watch the cohort', cause)
+      }
+    },
+    { immediate: true },
+  )
+
+  onScopeDispose(() => {
+    cohortWatch++
+    unwatchCohort()
+  })
+
   /**
    * The inbox, with read state and a relative label folded in.
    *
@@ -721,9 +872,24 @@ const buildStore = () => {
    * `notificationState`, and the label is rendered against the trusted clock on
    * every tick rather than stored, because "2h ago" written into a document is
    * wrong within the hour.
+   *
+   * Mentions and replies are never pinned, so they sit in date order among the
+   * coach's unpinned notifications. Each one links to its message.
+   *
+   * Announcements are not a source. Publishing one is not the same act as
+   * notifying the cohort about it, so the admin writes a notification alongside
+   * any announcement that should light the bell.
    */
-  const notifications = computed<NotificationView[]>(() =>
-    [...state.value.notifications]
+  const notifications = computed<NotificationView[]>(() => {
+    const viewerUid = state.value.member?.id ?? ''
+    const items: Array<Notification & { to: string | null }> = [
+      ...broadcasts.value.map((n) => ({ ...n, to: null })),
+      ...addressed.value.map((m) => ({
+        ...chatNotificationFor(m, viewerUid),
+        to: `/chat?message=${encodeURIComponent(m.id)}`,
+      })),
+    ]
+    return items
       .sort((a, b) => {
         if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
         return b.publishedAt.toMillis() - a.publishedAt.toMillis()
@@ -732,8 +898,8 @@ const buildStore = () => {
         ...n,
         read: state.value.notificationReads[n.id] !== undefined,
         timeLabel: relativeLabel(n.publishedAt, now.value),
-      })),
-  )
+      }))
+  })
 
   const unreadNotifications = computed(
     () => notifications.value.filter((n) => !n.read).length,
@@ -761,29 +927,46 @@ const buildStore = () => {
   /**
    * Any authored day by id, whether or not it is part of the weekly quota.
    *
-   * `days` only carries the quota, so an optional day — the core & cardio
-   * finisher — resolves from the full list with a neutral status: it holds no
-   * slot in the week, so it is never "today" and the calendar has nothing to
-   * open or close for it.
+   * This week's first, because ids repeat across weeks and this week's copy is
+   * the one with a status that means something today.
    *
-   * The one rule it is under is its own: once a day. It is the finisher, so it
-   * is meant to be stacked on top of a session rather than counted against one,
-   * but a day that could be logged twice over would be a way to farm the same
-   * session all afternoon.
+   * `days` only carries the quota, so an optional day — the core & cardio
+   * finisher — resolves from the rest of the week with a neutral status: it
+   * holds no slot, so it is never "today" and the calendar has nothing to open
+   * or close for it. The one rule it is under is its own: once a day. It is the
+   * finisher, so it is meant to be stacked on top of a session rather than
+   * counted against one, but a day that could be logged twice over would be a
+   * way to farm the same session all afternoon.
+   *
+   * A day that exists only in another week — a week whose ids were authored
+   * differently, or a session resumed across the rollover — resolves readable
+   * and shut: it is not this week's to start.
    */
   const getDay = (id: string): WorkoutDayView | undefined => {
     const inWeek = days.value.find((d) => d.id === id)
     if (inWeek) return inWeek
 
-    const optional = state.value.workoutDays.find((d) => d.id === id)
-    return optional
-      ? {
-          ...optional,
-          status: 'upcoming' as const,
-          canStart: !sessionsToday.value.some((s) => s.dayId === id),
-          opensInNights: null,
-        }
-      : undefined
+    const optional = currentWeek.value?.days.find((d) => d.id === id && d.optional)
+    if (optional) {
+      return {
+        ...optional,
+        status: 'upcoming' as const,
+        canStart: !sessionsToday.value.some((s) => s.dayId === id),
+        opensInNights: null,
+      }
+    }
+
+    const elsewhere = state.value.weeks.flatMap((w) => w.days).find((d) => d.id === id)
+    if (!elsewhere) return undefined
+    const opensInNights = isDateKey(elsewhere.date)
+      ? daysBetween(clock.value.today, elsewhere.date)
+      : null
+    return {
+      ...elsewhere,
+      status: opensInNights !== null && opensInNights < 0 ? ('missed' as const) : ('upcoming' as const),
+      canStart: false,
+      opensInNights,
+    }
   }
 
   /**
@@ -1009,8 +1192,8 @@ const buildStore = () => {
       )
 
     // `weekNumber`, `qualifies` and `rewardPoints` are deliberately not sent:
-    // the data source resolves them against the member's join date and their
-    // program's threshold. A client that could name its own reward points
+    // the data source resolves them against the program's dated weeks and its
+    // threshold. A client that could name its own reward points
     // could name any number, and the Firestore rules reject the attempt.
     const log = await data.saveSession({
       dayId: active.dayId,
@@ -1070,12 +1253,49 @@ const buildStore = () => {
     }
   }
 
+  /** Everything in the inbox that is still unread, in one write. */
   const markAllNotificationsRead = async () => {
-    await data.markAllNotificationsRead()
+    const ids = notifications.value.filter((n) => !n.read).map((n) => n.id)
+    if (!ids.length) return
+    await data.markNotificationsRead(ids)
     const now = trustedTimestamp()
     state.value.notificationReads = {
-      ...Object.fromEntries(state.value.notifications.map((n) => [n.id, now])),
+      ...Object.fromEntries(ids.map((id) => [id, now])),
       ...state.value.notificationReads,
+    }
+  }
+
+  /**
+   * The member has scrolled past these cohort chat messages.
+   *
+   * A mention read in the thread is a mention read, and the bell should not go
+   * on announcing it. Chat calls this as its read marker moves, with the
+   * messages aimed at the member that just came above the fold.
+   *
+   * Drawn before it is written, unlike the inbox's own receipts, because the
+   * caller is a scroll: a slow write would otherwise let the next scroll event
+   * send the same ids again. A failure puts them back to unread, and never
+   * throws — a read receipt that did not land is not the member's problem, and
+   * there is no screen to tell them on.
+   */
+  const markChatMessagesSeen = async (messageIds: string[]) => {
+    const reads = state.value.notificationReads
+    const ids = messageIds.map(chatNotificationId).filter((id) => reads[id] === undefined)
+    if (!ids.length) return
+
+    const now = trustedTimestamp()
+    state.value.notificationReads = {
+      ...reads,
+      ...Object.fromEntries(ids.map((id) => [id, now])),
+    }
+
+    try {
+      await data.markNotificationsRead(ids)
+    } catch (cause) {
+      const rolledBack = { ...state.value.notificationReads }
+      for (const id of ids) delete rolledBack[id]
+      state.value.notificationReads = rolledBack
+      console.error('[inbox] could not mark chat mentions read', cause)
     }
   }
 
@@ -1160,7 +1380,8 @@ const buildStore = () => {
     guides,
     guideCategories,
     announcements,
-    workoutDays: computed(() => state.value.workoutDays),
+    weeks: computed(() => state.value.weeks),
+    currentWeek,
     planDays,
     rewardValues,
     badgeDefs,
@@ -1195,9 +1416,9 @@ const buildStore = () => {
     currentCheckIn,
     checkInDue,
     firstPhotoDue,
-    /** Sessions the whole block asks for. Zero until the program has loaded. */
-    totalSessions: computed(
-      () => challengeShape.value.totalWeeks * challengeShape.value.sessionsPerWeek,
+    /** Sessions the whole block asks for: every quota day of every week. Zero until loaded. */
+    totalSessions: computed(() =>
+      state.value.weeks.reduce((n, week) => n + planDaysOf(week).length, 0),
     ),
     getDay,
     previousFor,
@@ -1229,6 +1450,7 @@ const buildStore = () => {
     deletePhoto,
     markNotificationRead,
     markAllNotificationsRead,
+    markChatMessagesSeen,
     savePreferences,
     refreshLeaderboard,
     consumePendingBadge,

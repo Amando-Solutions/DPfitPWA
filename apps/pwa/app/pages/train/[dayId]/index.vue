@@ -62,6 +62,9 @@ const opensLabel = computed(() => {
   // The finisher holds no slot in the week, so nothing schedules it and the one
   // thing that shuts it is having already been logged today.
   if (nights === null) return 'Logged today'
+  // A day from a week that has already ended, reached by id. This week has its
+  // own copy of the session; this one is not coming round again.
+  if (nights < 0) return 'Its week has ended'
   // Nothing reaches here with `nights` at zero: a day whose slot is today is
   // either open or already in the log, and both were answered above.
   return `Opens ${nightsLabel(nights, store.now.value)}`
@@ -82,6 +85,9 @@ const previewNote = computed(() => {
   }
   if (day.value.opensInNights === null) {
     return 'The finisher is once a day. It is here to read until tomorrow.'
+  }
+  if (day.value.opensInNights < 0) {
+    return 'Sessions close with their week. This one is here to read.'
   }
   return 'Days open as the week reaches them. This one is here to read until it does.'
 })

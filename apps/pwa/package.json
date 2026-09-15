@@ -12,6 +12,7 @@
     "typecheck": "nuxt prepare && vue-tsc -b --noEmit",
     "backfill:codes": "node scripts/backfill-access-codes.mjs",
     "seed:program": "bun run scripts/seed-program.ts",
+    "migrate:weeks": "node scripts/migrate-program-weeks.mjs",
     "live-call": "node scripts/set-live-call.mjs",
     "repair:members": "node scripts/repair-members.mjs",
     "backfill:roster": "node scripts/backfill-roster.mjs"

@@ -27,17 +27,19 @@ import type {
   BadgeTier,
   CoachRef,
   Cohort,
+  DateKey,
   Exercise,
   Guide,
   Notification,
   PrescribedSet,
   Program,
+  ProgramWeekDoc,
   Rank,
   RewardConfig,
   StoredImage,
   RewardValues,
   LeaderboardEntry,
-  WeekTheme,
+  TrainingWeek,
   WorkoutDay,
 } from './types'
 
@@ -132,8 +134,8 @@ export const challenge = {
   },
 }
 
-/** Non-empty by construction, so week 1 is always there to fall back on. */
-export const weekThemes: [WeekTheme, ...WeekTheme[]] = [
+/** What each week is called. `trainingWeeks` dates them into documents. */
+export const weekThemes: Pick<ProgramWeekDoc, 'weekNumber' | 'title' | 'subtitle'>[] = [
   { weekNumber: 1, title: 'Foundation', subtitle: 'Dial in form & baseline loads' },
   { weekNumber: 2, title: 'Build', subtitle: 'Add volume, own the tempo' },
   { weekNumber: 3, title: 'Overload', subtitle: 'Push intensity, prove the work' },
@@ -503,7 +505,7 @@ export const coreCardioExercises: Exercise[] = [
 ]
 
 /**
- * The training week, as `programs/{programId}/workoutDays` documents.
+ * The training week, written into every week as `programs/{programId}/weeks/{weekId}/days`.
  *
  * `status` is deliberately absent: it is a fact about one member's logs, not
  * about the plan, so it lives on `WorkoutDayView` and is resolved per render in
@@ -528,8 +530,17 @@ const seedHero = (dayId: string): StoredImage => ({
   bytes: 124699,
 })
 
+/**
+ * A training day before it is placed in a week.
+ *
+ * The same four sessions run every week of the block, so they are written once
+ * and `trainingWeeks` stamps each week's copy with its `weekNumber` and `date`.
+ * The id is kept on every copy: see `WorkoutDayDoc` for why it has to be.
+ */
+export type DayTemplate = Omit<WorkoutDay, 'weekNumber' | 'date'>
+
 /** Non-empty by construction: the plan always has a day one. */
-export const planDays: [WorkoutDay, ...WorkoutDay[]] = [
+export const planDays: [DayTemplate, ...DayTemplate[]] = [
   {
     id: 'day-1',
     dayNumber: 1,
@@ -585,7 +596,7 @@ export const planDays: [WorkoutDay, ...WorkoutDay[]] = [
 ]
 
 /** The finisher. `optional: true` keeps it out of the weekly quota. */
-export const coreCardioDay: WorkoutDay = {
+export const coreCardioDay: DayTemplate = {
   id: 'core-cardio',
   dayNumber: 5,
   label: 'Core & Cardio',
@@ -600,6 +611,41 @@ export const coreCardioDay: WorkoutDay = {
   exercises: coreCardioExercises,
   ...authored(),
 }
+
+// --- The schedule ------------ `programs/{programId}/weeks/{weekId}/days/…` --
+/** `start` plus `n` calendar days. Inline, so the seed script can import this file. */
+const addDays = (start: DateKey, n: number): DateKey => {
+  const [y, m, d] = start.split('-').map(Number)
+  return new Date(Date.UTC(y ?? 0, (m ?? 1) - 1, (d ?? 1) + n)).toISOString().slice(0, 10)
+}
+
+/**
+ * Every week of the block, dated from `start`, with its days beneath it.
+ *
+ * A function of the start date rather than a constant, because mock mode wants
+ * the block to start the day the member joined — a fixture pinned to August is
+ * a finished challenge by October — and the seed wants the cohort's real date.
+ *
+ * Each day lands on its `dayNumber`-th day of the week, which is the schedule
+ * the app ran before weeks were dated: day 1 on the week's first day, the
+ * finisher on its fifth, the last two days rest.
+ */
+export const trainingWeeks = (start: DateKey): TrainingWeek[] =>
+  weekThemes.map((theme) => {
+    const weekStart = addDays(start, (theme.weekNumber - 1) * 7)
+    return {
+      id: `week-${theme.weekNumber}`,
+      ...theme,
+      startDate: weekStart,
+      endDate: addDays(weekStart, 6),
+      ...authored(),
+      days: [...planDays, coreCardioDay].map((day) => ({
+        ...day,
+        weekNumber: theme.weekNumber,
+        date: addDays(weekStart, day.dayNumber - 1),
+      })),
+    }
+  })
 
 // --- The program document --------------------------------------------------
 /**
@@ -626,8 +672,6 @@ export const program: Program = {
   totalDays: challenge.totalDays,
   sessionsPerWeek: challenge.sessionsPerWeek,
   qualifyingSetPercent: 80,
-  workoutDayCount: planDays.length + 1,
-  weekThemes,
   rewards: rewardConfig,
   publishedAt: AUTHORED_AT,
   ...authored(),

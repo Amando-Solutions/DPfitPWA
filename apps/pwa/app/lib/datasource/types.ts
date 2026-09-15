@@ -28,8 +28,8 @@ import type {
   SessionLogDoc,
   StoredImage,
   ThreadId,
+  TrainingWeek,
   TypingPeer,
-  WorkoutDay,
 } from '~/data/types'
 import type { ProcessedImage } from '~/lib/image'
 
@@ -173,10 +173,10 @@ export interface DataSource {
   // it is member state, so none of it is derived here — it is read as authored
   // and the screens render it.
   //
-  // All five are read once per load, in `hydrate`, because they change on the
-  // coach's timescale rather than the member's. Nothing polls them; a member
-  // who reloads gets the current version, which is the same guarantee the
-  // program has always had.
+  // Most of it is read once per load, in `hydrate`, because it changes on the
+  // coach's timescale rather than the member's; a member who reloads gets the
+  // current version, which is the same guarantee the program has always had.
+  // The exceptions are watched, and each says why.
   // =========================================================================
 
   /**
@@ -190,14 +190,15 @@ export interface DataSource {
   getProgram(): Promise<Program>
 
   /**
-   * The training week, in `dayNumber` order.
+   * The schedule: every week in `weekNumber` order, each with its days in date
+   * order.
    *
    * Includes the optional core & cardio finisher, which is a day like any
    * other with `optional: true` — `days` in the store filters it out of the
    * weekly quota, and `getDay` can still resolve it by id for a member who
    * opens it deliberately.
    */
-  listWorkoutDays(): Promise<WorkoutDay[]>
+  listProgramWeeks(): Promise<TrainingWeek[]>
 
   /** The guide library. Unlocking is per member and stays in the store. */
   listGuides(): Promise<Guide[]>
@@ -212,8 +213,35 @@ export interface DataSource {
    */
   getCohort(): Promise<Cohort | null>
 
-  /** The announcement deck, newest first. Empty is a normal answer. */
-  listAnnouncements(): Promise<Announcement[]>
+  /**
+   * The cohort document, live. Delivers what `getCohort` would, then again on
+   * every change.
+   *
+   * Watched as well as read at boot, because the admin flips
+   * `leaderboardVisible` on a cohort that members already have open, and an
+   * installed PWA can go days between reloads. A board switched off would stay
+   * on screen until somebody happened to close the app. Same contract as
+   * `watchMessages`: callers must call the unsubscribe, and `onError` means the
+   * subscription has stopped.
+   */
+  watchCohort(
+    onCohort: (cohort: Cohort | null) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe>
+
+  /**
+   * The announcement deck, live, newest first. Empty is a normal answer.
+   *
+   * Watched rather than read at boot, because a new card is announced by a
+   * notification that lands live. A bell announcing a card the deck does not
+   * have until the next reload would send the member to a screen without it. Same contract
+   * as `watchMessages`: callers must call the unsubscribe, and `onError` means
+   * the subscription has stopped.
+   */
+  watchAnnouncements(
+    onAnnouncements: (announcements: Announcement[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe>
 
   // =========================================================================
   // Uploads — Cloud Storage
@@ -258,11 +286,48 @@ export interface DataSource {
   // Authored per cohort, read state per member, so marking one read never
   // writes to a document the whole cohort is watching.
   // =========================================================================
-  listNotifications(): Promise<Notification[]>
+  /**
+   * The cohort's announcements, live, newest first.
+   *
+   * Watched rather than read at boot, because an inbox that only learns about a
+   * coach's message on the next reload is not telling anybody anything.
+   * Delivered immediately and then on every change. Same contract as
+   * `watchMessages`: callers must call the unsubscribe, and `onError` means the
+   * subscription has stopped.
+   */
+  watchNotifications(
+    onNotifications: (notifications: Notification[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe>
+
+  /**
+   * Cohort chat messages aimed at this member, live, newest first.
+   *
+   * "Aimed at" is `MessageDoc.addressedUids`: named with an `@`, or answered
+   * with a reply. These are the inbox's mentions and replies. Derived from the
+   * thread rather than written to the member as a notification of its own, so
+   * nothing about them can drift from the message: an edit that drops the name
+   * drops the notification, and a deleted message takes its notification with it.
+   *
+   * Capped at the newest 50, like the announcements. Same contract as
+   * `watchMessages`.
+   */
+  watchAddressedMessages(
+    onMessages: (messages: Message[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe>
+
   /** Notification id → when this member read it. Absent means unread. */
   listNotificationReads(): Promise<Record<string, Timestamp>>
   markNotificationRead(id: string): Promise<void>
-  markAllNotificationsRead(): Promise<void>
+  /**
+   * Mark each of `ids` read, in one write.
+   *
+   * The ids rather than "everything", because the caller decides what "all"
+   * means. It is what the member can see, and that is two live lists the
+   * store holds, not something this layer can re-query and get the same answer.
+   */
+  markNotificationsRead(ids: string[]): Promise<void>
 
   // =========================================================================
   // Chat — `cohorts/{cohortId}/threads/{threadId}/messages`

@@ -38,8 +38,8 @@ import type {
   SessionLog,
   StoredImage,
   ThreadId,
+  TrainingWeek,
   TypingPeer,
-  WorkoutDay,
 } from '~/data/types'
 
 /** How often an open chat thread is re-read. See `watchMessages`. */
@@ -222,8 +222,8 @@ export class HttpDataSource implements DataSource {
     return this.get<Program>('/me/program')
   }
 
-  listWorkoutDays() {
-    return this.get<WorkoutDay[]>('/me/program/workout-days')
+  listProgramWeeks() {
+    return this.get<TrainingWeek[]>('/me/program/weeks')
   }
 
   listGuides() {
@@ -234,8 +234,24 @@ export class HttpDataSource implements DataSource {
     return this.get<Cohort | null>('/me/cohort')
   }
 
-  listAnnouncements() {
-    return this.get<Announcement[]>('/me/cohort/announcements')
+  /** Polled on the badge's timer. See `poll`. */
+  watchCohort(
+    onCohort: (cohort: Cohort | null) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
+    return this.poll(() => this.getCohort(), onCohort, onError)
+  }
+
+  /** Polled on the badge's timer. See `poll`. */
+  watchAnnouncements(
+    onAnnouncements: (announcements: Announcement[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
+    return this.poll(
+      () => this.get<Announcement[]>('/me/cohort/announcements'),
+      onAnnouncements,
+      onError,
+    )
   }
 
   // --- Uploads -------------------------------------------------------------
@@ -292,8 +308,59 @@ export class HttpDataSource implements DataSource {
   }
 
   // --- Notifications -------------------------------------------------------
-  listNotifications() {
-    return this.get<Notification[]>('/notifications')
+  /** Polled on the badge's timer. See `watchLatestMessage`. */
+  watchNotifications(
+    onNotifications: (notifications: Notification[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
+    return this.poll(() => this.get<Notification[]>('/notifications'), onNotifications, onError)
+  }
+
+  /** Polled on the badge's timer. The backend decides what "addressed" means. */
+  watchAddressedMessages(
+    onMessages: (messages: Message[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
+    return this.poll(
+      () => this.get<Message[]>('/me/addressed-messages'),
+      onMessages,
+      onError,
+    )
+  }
+
+  /**
+   * Read on `LATEST_POLL_MS`, for the listeners that sit behind every screen.
+   *
+   * Same failure handling as the chat polls: reported once, and the timer keeps
+   * running, because the usual cause is a phone between cells.
+   */
+  private async poll<T>(
+    read: () => Promise<T>,
+    onValue: (value: T) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
+    let stopped = false
+    let reportedError = false
+
+    const tick = async () => {
+      try {
+        const value = await read()
+        reportedError = false
+        if (!stopped) onValue(value)
+      } catch (error) {
+        if (stopped || reportedError) return
+        reportedError = true
+        onError?.(error)
+      }
+    }
+
+    await tick()
+    const timer = setInterval(tick, LATEST_POLL_MS)
+
+    return () => {
+      stopped = true
+      clearInterval(timer)
+    }
   }
 
   listNotificationReads() {
@@ -304,8 +371,9 @@ export class HttpDataSource implements DataSource {
     await this.send(`/notifications/${id}/read`, 'POST')
   }
 
-  async markAllNotificationsRead() {
-    await this.send('/notifications/read-all', 'POST')
+  async markNotificationsRead(ids: string[]) {
+    if (!ids.length) return
+    await this.send('/notifications/read', 'POST', { ids })
   }
 
   // --- Chat ----------------------------------------------------------------

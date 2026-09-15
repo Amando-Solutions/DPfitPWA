@@ -202,7 +202,7 @@ const rows = computed(() =>
       Reachable now that the plan is read rather than compiled in, and worth a
       sentence: an empty list under "Pick today's session" reads as the app
       having failed, when what has actually happened is that nobody has written
-      the days into `programs/{id}/workoutDays`.
+      the days into `programs/{id}/weeks/{weekId}/days`.
     -->
     <p
       v-if="!store.days.value.length"

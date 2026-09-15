@@ -170,7 +170,7 @@ const run = async () => {
   // exist, which was checked above, and a merge would create it half-formed if
   // the id were wrong. `updatedAt` moves with it so the console shows when.
   await ref.update({ liveCall: next, updatedAt: FieldValue.serverTimestamp() })
-  console.log('\nWritten. Members pick it up on their next load.')
+  console.log('\nWritten. Members with the app open see it straight away.')
 }
 
 run().catch((cause) => {

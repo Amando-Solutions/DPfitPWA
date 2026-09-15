@@ -1,146 +1,142 @@
-import { Timestamp } from 'firebase/firestore'
+import type { Timestamp } from 'firebase/firestore'
 
-import type { Program, WeekTheme } from '~/data/types'
+import type { DateKey, ProgramWeek, TrainingWeek, WorkoutDay } from '~/data/types'
+import { dateKey } from '~/lib/time'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
-/** Whole days elapsed since `from`, floored at 0. */
-export const daysSince = (from: Timestamp, now: Date = new Date()): number => {
-  const start = from.toDate()
-  // Compare calendar days, not elapsed hours, so the counter ticks at midnight.
-  const startDay = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())
-  const nowDay = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
-  return Math.max(0, Math.round((nowDay - startDay) / DAY_MS))
+const DATE_KEY = /^(\d{4})-(\d{2})-(\d{2})$/
+
+/** Whether a value is a real `YYYY-MM-DD` date, not merely shaped like one. */
+export const isDateKey = (value: unknown): value is DateKey => {
+  if (typeof value !== 'string') return false
+  const m = value.match(DATE_KEY)
+  if (!m) return false
+  const at = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])))
+  // `Date.UTC` rolls "2026-02-31" over into March rather than refusing it, so
+  // the round trip is the check.
+  return at.toISOString().slice(0, 10) === value
 }
 
 /**
- * The programme's shape, as far as the calendar is concerned.
+ * Whole calendar days from `from` to `to`, negative when `to` is earlier.
  *
- * Read off the program document rather than compiled in. It used to be a
- * constant here, which meant every cohort in every deploy was six weeks of
- * four sessions whatever their program said, and re-tuning a block was a
- * release rather than an edit.
+ * On the keys rather than on `Date`s, so it counts dates and not elapsed hours:
+ * a clock change between the two cannot turn one day into 0.96 of one.
  */
-export interface ChallengeShape {
-  totalDays: number
-  totalWeeks: number
-  sessionsPerWeek: number
-  weekThemes: WeekTheme[]
+export const daysBetween = (from: DateKey, to: DateKey): number => {
+  const utc = (key: DateKey) => {
+    const [y, m, d] = key.split('-').map(Number)
+    return Date.UTC(y ?? 0, (m ?? 1) - 1, d ?? 1)
+  }
+  return Math.round((utc(to) - utc(from)) / DAY_MS)
 }
 
 /**
- * What the clock reads before a program has been loaded, or when the read
- * failed.
+ * The week a date falls in.
  *
- * Deliberately zeros rather than a plausible six weeks. Every consumer below
- * treats a zero total as "no ceiling to clamp to", so the day and week counters
- * still run and nothing renders a length the coach never authored — a fallback
- * that guessed "6 weeks" would be a fixture by another name, and it would be
- * wrong silently.
+ * The latest week that has started, so a gap the coach left between two weeks
+ * still belongs to the one before it and the last week holds on after the
+ * block ends. Before the first week starts it is the first week: the challenge
+ * a member has joined is the one they are waiting on.
  */
-export const EMPTY_CHALLENGE: ChallengeShape = {
-  totalDays: 0,
-  totalWeeks: 0,
-  sessionsPerWeek: 0,
-  weekThemes: [],
+export const weekAt = <W extends ProgramWeek>(weeks: W[], day: DateKey): W | null => {
+  let current: W | null = null
+  for (const week of weeks) {
+    if (week.startDate <= day) current = week
+  }
+  return current ?? weeks[0] ?? null
 }
 
-export const challengeShapeOf = (program: Program | null): ChallengeShape =>
-  program
-    ? {
-        totalDays: program.totalDays,
-        totalWeeks: program.totalWeeks,
-        sessionsPerWeek: program.sessionsPerWeek,
-        weekThemes: program.weekThemes ?? [],
-      }
-    : EMPTY_CHALLENGE
+/**
+ * Which challenge week an instant falls into, 1-based.
+ *
+ * The one place a `weekNumber` is decided, for the clock and for every writer
+ * that stamps one on a session, check-in or photo — so "this week" on screen
+ * and the week a log is filed under cannot disagree. `1` when no weeks are
+ * authored, which is also where a program that has not been scheduled yet
+ * would put everybody.
+ */
+export const weekOf = (weeks: ProgramWeek[], at: Timestamp | Date): number =>
+  weekAt(weeks, dateKey(at))?.weekNumber ?? 1
 
-/** Clamp, unless there is no authored ceiling to clamp against. */
-const capped = (value: number, ceiling: number): number =>
-  ceiling > 0 ? Math.min(value, ceiling) : value
+/** The training days that count toward a week's quota, in date order. */
+export const planDaysOf = (week: TrainingWeek | null): WorkoutDay[] =>
+  week ? week.days.filter((day) => !day.optional && isDateKey(day.date)) : []
 
 export interface ChallengeClock {
-  /** 1-based day of the challenge, clamped to the programme length. */
+  /** Today, as the key every date in the schedule is compared against. */
+  today: DateKey
+  /** 1-based day of the challenge, clamped to the schedule. */
   dayInChallenge: number
   totalDays: number
-  /** 1-based week, clamped to the programme length. */
+  /** 1-based week, off the schedule. */
   week: number
   totalWeeks: number
-  /**
-   * Where today sits in the training week, 1-7.
-   *
-   * This is what decides which authored day is open for logging: a
-   * `WorkoutDay` numbers itself by its position in the week, so the day whose
-   * `dayNumber` matches this one is today's session and the rest are not yet
-   * theirs to start.
-   *
-   * Counted off the raw elapsed days rather than `dayInChallenge`, which is
-   * clamped to the programme length: past the final day the clamp would pin
-   * this to one weekday forever, and the week has to keep turning.
-   */
+  /** 1-based position of today inside the current week, clamped to its span. */
   dayInWeek: number
   title: string
   subtitle: string
   /**
-   * "Week 3 · Overload", or just "Week 3" when the program authored no theme
-   * for it. Composed here so no screen has to decide what a missing title does
-   * to the separator it was going to print beside it.
+   * "Week 3 · Overload", or just "Week 3" when the week has no title. Composed
+   * here so no screen has to decide what a missing title does to the separator
+   * it was going to print beside it.
    */
   label: string
-  /** True once the member has passed the final day. */
+  /** True once today is past the final week's last day. */
   complete: boolean
 }
 
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(Math.max(value, min), max)
+
 /**
- * Where the member is in the block, derived from when they joined and how long
- * their program runs. The single source of truth for "Week 3 · Overload".
+ * Where the challenge is today, read off the dated weeks.
+ *
+ * The cohort's calendar, not the member's: everybody on the program is in the
+ * same week on the same date, so a member who joins in week 3 starts in week 3.
+ * The single source of truth for "Week 3 · Overload".
+ *
+ * An empty schedule reads as week 1 of nothing — zero totals, no title — rather
+ * than a plausible six weeks, because a length the coach never authored would
+ * be wrong silently.
  */
-export const challengeClock = (
-  joinedAt: Timestamp,
-  now: Date = new Date(),
-  shape: ChallengeShape = EMPTY_CHALLENGE,
-): ChallengeClock => {
-  const elapsed = daysSince(joinedAt, now)
-  const dayInChallenge = capped(elapsed + 1, shape.totalDays)
-  const week = capped(Math.floor(elapsed / 7) + 1, shape.totalWeeks)
-  const dayInWeek = (elapsed % 7) + 1
-  // No fallback to the first theme: a program with none authored has nothing to
-  // fall back to, and inventing "Foundation" for it would be the fixture again.
-  const theme = shape.weekThemes.find((t) => t.weekNumber === week) ?? null
+export const challengeClock = (weeks: ProgramWeek[], now: Date = new Date()): ChallengeClock => {
+  const today = dateKey(now)
+  const current = weekAt(weeks, today)
+  const first = weeks[0]
+  const last = weeks[weeks.length - 1]
+
+  if (!current || !first || !last) {
+    return {
+      today,
+      dayInChallenge: 1,
+      totalDays: 0,
+      week: 1,
+      totalWeeks: 0,
+      dayInWeek: 1,
+      title: '',
+      subtitle: '',
+      label: 'Week 1',
+      complete: false,
+    }
+  }
+
+  const totalDays = daysBetween(first.startDate, last.endDate) + 1
+  const weekSpan = daysBetween(current.startDate, current.endDate) + 1
 
   return {
-    dayInChallenge,
-    totalDays: shape.totalDays,
-    week,
-    totalWeeks: shape.totalWeeks,
-    dayInWeek,
-    title: theme?.title ?? '',
-    subtitle: theme?.subtitle ?? '',
-    label: theme?.title ? `Week ${week} · ${theme.title}` : `Week ${week}`,
-    complete: shape.totalDays > 0 && elapsed + 1 > shape.totalDays,
+    today,
+    dayInChallenge: clamp(daysBetween(first.startDate, today) + 1, 1, Math.max(totalDays, 1)),
+    totalDays,
+    week: current.weekNumber,
+    totalWeeks: weeks.length,
+    dayInWeek: clamp(daysBetween(current.startDate, today) + 1, 1, Math.max(weekSpan, 1)),
+    title: current.title ?? '',
+    subtitle: current.subtitle ?? '',
+    label: current.title
+      ? `Week ${current.weekNumber} · ${current.title}`
+      : `Week ${current.weekNumber}`,
+    complete: today > last.endDate,
   }
 }
-
-/**
- * Which challenge week an instant falls into (1-based).
- *
- * `totalWeeks` is the program's, passed in by the caller that already holds it
- * — every writer of a `weekNumber` has read the program to resolve the reward
- * it is paying out, so nothing has to fetch it twice.
- */
-export const weekOf = (joinedAt: Timestamp, at: Timestamp, totalWeeks = 0): number =>
-  capped(Math.floor(daysSince(joinedAt, at.toDate()) / 7) + 1, totalWeeks)
-
-/**
- * Nights between today and the next time `dayNumber` comes round, 0 if it is
- * today's slot. `null` for a day the week has no room for.
- *
- * The training week is seven days long whatever the plan's session count, so
- * this wraps: on day 4 of the week, day 2 is not two days behind, it is five
- * days ahead, which is the date a member is actually waiting on.
- */
-export const nightsUntilDayNumber = (
-  dayNumber: number,
-  dayInWeek: number,
-): number | null =>
-  dayNumber >= 1 && dayNumber <= 7 ? (dayNumber - dayInWeek + 7) % 7 : null

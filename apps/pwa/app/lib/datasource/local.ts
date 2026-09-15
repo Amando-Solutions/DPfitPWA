@@ -1,8 +1,8 @@
 import { Timestamp } from 'firebase/firestore'
 
-import { EDIT_WINDOW_MS } from '~/lib/chat'
+import { EDIT_WINDOW_MS, addressedUidsOf } from '~/lib/chat'
 import { storage } from '~/lib/storage'
-import { trustedNow, trustedTimestamp } from '~/lib/time'
+import { dateKey, trustedNow, trustedTimestamp } from '~/lib/time'
 import {
   DataSourceError,
   type ActiveSessionInput,
@@ -21,13 +21,12 @@ import {
   badgeTierPoints,
   badges,
   cohort,
-  coreCardioDay,
   guides,
   leaderboardSeed,
   notificationSeed,
-  planDays,
   program,
   rewardValues,
+  trainingWeeks,
 } from '~/data/program'
 import { coachSeed, cohortSeed } from '~/data/community'
 import { qualifyingSessions, sessionQualifies } from '~/lib/domain/rewards'
@@ -62,8 +61,8 @@ import type {
   SessionLog,
   StoredImage,
   ThreadId,
+  TrainingWeek,
   TypingPeer,
-  WorkoutDay,
 } from '~/data/types'
 
 // Storage keys, one per collection, mirroring the Firestore paths.
@@ -193,6 +192,7 @@ const withViewer = (message: Message, viewerUid: string, mine: string[]): ChatMe
     replyTo: message.replyTo ?? null,
     editedAt: message.editedAt ?? null,
     mentions: message.mentions ?? [],
+    addressedUids: message.addressedUids ?? [],
     isSelf: message.authorUid === viewerUid,
     reactions,
   }
@@ -406,10 +406,21 @@ export class LocalDataSource implements DataSource {
     return program
   }
 
-  async listWorkoutDays(): Promise<WorkoutDay[]> {
-    // The finisher is authored alongside the week and marked `optional`, which
-    // is what keeps it out of the weekly quota. Same collection, same order.
-    return [...planDays, coreCardioDay].sort((a, b) => a.dayNumber - b.dayNumber)
+  async listProgramWeeks(): Promise<TrainingWeek[]> {
+    return this.weeks()
+  }
+
+  /**
+   * The fixture's block, starting the day this member joined.
+   *
+   * Not the cohort's start date, which is a fixed day in August: mock mode would
+   * be a finished challenge within weeks of it. Starting from `joinedAt` gives
+   * every fresh sign-up week 1, day 1 today, which is the screen worth
+   * developing against.
+   */
+  private async weeks(): Promise<TrainingWeek[]> {
+    const member = await this.getMember()
+    return trainingWeeks(dateKey(member?.joinedAt ?? trustedTimestamp()))
   }
 
   async listGuides(): Promise<Guide[]> {
@@ -420,8 +431,20 @@ export class LocalDataSource implements DataSource {
     return cohort
   }
 
-  async listAnnouncements(): Promise<Announcement[]> {
-    return [...announcements].sort((a, b) => b.publishedAt.toMillis() - a.publishedAt.toMillis())
+  /** A constant in the bundle: delivered once, and there is no admin to change it. */
+  async watchCohort(onCohort: (cohort: Cohort | null) => void): Promise<Unsubscribe> {
+    onCohort(cohort)
+    return () => {}
+  }
+
+  /** A constant in the bundle, like the inbox seed: delivered once and never changes. */
+  async watchAnnouncements(
+    onAnnouncements: (announcements: Announcement[]) => void,
+  ): Promise<Unsubscribe> {
+    onAnnouncements(
+      [...announcements].sort((a, b) => b.publishedAt.toMillis() - a.publishedAt.toMillis()),
+    )
+    return () => {}
   }
 
   // =========================================================================
@@ -477,7 +500,7 @@ export class LocalDataSource implements DataSource {
     const record: SessionLog = {
       ...log,
       id: uid('session'),
-      weekNumber: weekOf(member.joinedAt, log.completedAt, program.totalWeeks),
+      weekNumber: weekOf(await this.weeks(), log.completedAt),
       qualifies,
       // A session below the threshold saves in full and still reaches the
       // coach. It just earns nothing.
@@ -516,10 +539,10 @@ export class LocalDataSource implements DataSource {
   }
 
   async saveCheckIn(input: CheckInInput): Promise<CheckIn> {
-    const member = await this.requireMember()
+    await this.requireMember()
     const all = await this.listCheckIns()
     const submittedAt = trustedTimestamp()
-    const weekNumber = weekOf(member.joinedAt, submittedAt, program.totalWeeks)
+    const weekNumber = weekOf(await this.weeks(), submittedAt)
 
     const record: CheckIn = {
       ...input,
@@ -543,14 +566,14 @@ export class LocalDataSource implements DataSource {
   }
 
   async savePhoto(input: PhotoInput): Promise<ProgressPhoto> {
-    const member = await this.requireMember()
+    await this.requireMember()
     const all = await this.listPhotos()
     const takenAt = trustedTimestamp()
 
     const record: ProgressPhoto = {
       id: uid('photo'),
       pose: input.pose,
-      weekNumber: weekOf(member.joinedAt, takenAt, program.totalWeeks),
+      weekNumber: weekOf(await this.weeks(), takenAt),
       image: await this.uploadImage(input.image, 'progress'),
       takenAt,
     }
@@ -569,8 +592,34 @@ export class LocalDataSource implements DataSource {
   // =========================================================================
   // Notifications
   // =========================================================================
-  async listNotifications(): Promise<Notification[]> {
-    return notificationSeed
+  /** The seed is a constant in the bundle, so it is delivered once and never changes. */
+  async watchNotifications(
+    onNotifications: (notifications: Notification[]) => void,
+  ): Promise<Unsubscribe> {
+    onNotifications(notificationSeed)
+    return () => {}
+  }
+
+  /**
+   * The cohort thread, filtered, over the same registry `watchMessages` uses.
+   *
+   * Filtered with `addressedUidsOf` rather than the stored field, because the
+   * seeded thread predates the field and the point of the mock is to show the
+   * screens working. Nobody else writes here, so in practice this is whatever
+   * the seed says to this member.
+   */
+  async watchAddressedMessages(
+    onMessages: (messages: Message[]) => void,
+  ): Promise<Unsubscribe> {
+    const viewer = (await this.getAuthUser())?.uid ?? 'me'
+    return this.watchMessages('cohort', (messages) => {
+      onMessages(
+        messages
+          .filter((m) => addressedUidsOf(m).includes(viewer))
+          .reverse()
+          .slice(0, 50),
+      )
+    })
   }
 
   async listNotificationReads(): Promise<Record<string, Timestamp>> {
@@ -583,11 +632,12 @@ export class LocalDataSource implements DataSource {
     storage.write(KEY.notificationReads, { ...reads, [id]: trustedTimestamp() })
   }
 
-  async markAllNotificationsRead(): Promise<void> {
+  async markNotificationsRead(ids: string[]): Promise<void> {
+    if (!ids.length) return
     const now = trustedTimestamp()
     const reads = await this.listNotificationReads()
     storage.write(KEY.notificationReads, {
-      ...Object.fromEntries(notificationSeed.map((n) => [n.id, now])),
+      ...Object.fromEntries(ids.map((id) => [id, now])),
       ...reads,
     })
   }
@@ -671,6 +721,7 @@ export class LocalDataSource implements DataSource {
       attachments,
       replyTo,
       mentions,
+      addressedUids: addressedUidsOf({ authorUid: user?.uid ?? 'me', mentions, replyTo }),
       reactionCounts: {},
     }
     const mine = storage.read<Record<string, Message[]>>(KEY.messages, {})
@@ -749,6 +800,7 @@ export class LocalDataSource implements DataSource {
       ...target,
       text: trimmed,
       mentions,
+      addressedUids: addressedUidsOf({ ...target, mentions }),
       editedAt: trustedTimestamp(),
     }
     storage.write(KEY.messages, {

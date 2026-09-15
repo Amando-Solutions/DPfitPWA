@@ -64,7 +64,9 @@ const back = () => router.push('/train')
         Saved for your coach, but under<template v-if="store.qualifyingSetPercent.value">
           {{ store.qualifyingSetPercent.value }}% of</template
         ><template v-else> enough of</template> the sets — so it earns no RP and doesn’t
-        count toward badges, your streak or the leaderboard.
+        count toward badges<template v-if="store.leaderboardVisible.value"
+          >, your streak or the leaderboard</template
+        ><template v-else> or your streak</template>.
       </p>
 
       <div class="saved__stats grid grid-cols-[repeat(3,_1fr)] gap-2.5 w-full max-w-[340px] mt-2.5 mx-0 mb-1">

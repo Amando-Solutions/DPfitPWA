@@ -14,6 +14,7 @@ import type {
   ChatReaction,
   ChatReplyRef,
   Message,
+  Notification,
   TypingPeer,
 } from '~/data/types'
 
@@ -251,6 +252,73 @@ export const mentionsInText = (
   // The same person picked twice is one mention. `uid` rather than name,
   // because two members may share a display name and both were really named.
   return kept.filter((m, i) => kept.findIndex((other) => other.uid === m.uid) === i)
+}
+
+// --- Notifications -----------------------------------------------------------
+
+/**
+ * Who `message` is aimed at: everyone it names, and whoever it answers.
+ *
+ * The one definition of "this is for you", written onto the message as
+ * `addressedUids` so the inbox can query for it. The sender is never in it —
+ * naming yourself or answering your own message tells you nothing — and each
+ * person appears once, however many ways the message reaches them.
+ */
+export const addressedUidsOf = (
+  message: Pick<Message, 'authorUid' | 'mentions' | 'replyTo'>,
+): string[] => {
+  const uids = new Set<string>()
+  for (const mention of message.mentions ?? []) {
+    if (mention?.uid) uids.add(mention.uid)
+  }
+  if (message.replyTo?.authorUid) uids.add(message.replyTo.authorUid)
+  uids.delete(message.authorUid)
+  return [...uids]
+}
+
+/**
+ * The inbox id for a message aimed at the member.
+ *
+ * Prefixed so it can never collide with a coach announcement's id, since both
+ * keep their read state in the same `notificationState` collection.
+ */
+export const chatNotificationId = (messageId: string): string => `chat-${messageId}`
+
+/** How much of the message the inbox line carries. */
+const NOTIFICATION_EXCERPT_CHARS = 120
+
+/**
+ * A message aimed at `viewerUid`, in the inbox's own shape.
+ *
+ * A reply wins over a mention when a message is both: "replied to you" is the
+ * stronger claim, and one line per message is the rule — see
+ * `chatNotificationId`, which is keyed on the message and not on the reason.
+ */
+export const chatNotificationFor = (message: Message, viewerUid: string): Notification => {
+  const replied = message.replyTo?.authorUid === viewerUid
+  const name = message.authorName || 'Someone'
+  const text = message.text.trim()
+  const [first] = message.attachments ?? []
+  const body = text
+    ? text.length > NOTIFICATION_EXCERPT_CHARS
+      ? `${text.slice(0, NOTIFICATION_EXCERPT_CHARS).trimEnd()}…`
+      : text
+    : first?.kind === 'image'
+      ? 'Photo'
+      : 'Attachment'
+
+  return {
+    id: chatNotificationId(message.id),
+    type: message.isCoach ? 'coach' : 'community',
+    title: replied ? `${name} replied to you` : `${name} mentioned you`,
+    body,
+    publishedAt: message.sentAt,
+    icon: replied ? 'reply' : 'chat',
+    pinned: false,
+    createdAt: message.sentAt,
+    createdByUid: message.authorUid,
+    createdByEmail: '',
+  }
 }
 
 // --- Editing -----------------------------------------------------------------

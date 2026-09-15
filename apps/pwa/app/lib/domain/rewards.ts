@@ -10,7 +10,7 @@ import type {
   Rank,
   RewardConfig,
   SessionLog,
-  WorkoutDay,
+  TrainingWeek,
 } from '~/data/types'
 
 // =============================================================================
@@ -36,7 +36,11 @@ import type {
  */
 export interface RewardsContext {
   config: RewardConfig
-  /** Ids of the days that make up the training week. Excludes optional days. */
+  /**
+   * Ids of the training days, across every week, each once. Excludes optional
+   * days. Weeks reuse their day ids, so this is the week's worth of sessions
+   * rather than every dated occurrence of them.
+   */
   planDayIds: string[]
   totalWeeks: number
   /** The share of prescribed sets a session has to log to count for anything. */
@@ -77,15 +81,21 @@ export const UNRANKED: Rank = { id: 'unranked', name: 'Unranked', emoji: '·', m
 
 export const rewardsContextOf = (
   program: Program | null,
-  workoutDays: WorkoutDay[],
+  weeks: TrainingWeek[],
 ): RewardsContext =>
   program
     ? {
         config: program.rewards,
         // The finisher is not part of the weekly quota, so "every training day,
         // three times each" must not silently require it.
-        planDayIds: workoutDays.filter((day) => !day.optional).map((day) => day.id),
-        totalWeeks: program.totalWeeks,
+        planDayIds: [
+          ...new Set(
+            weeks.flatMap((week) => week.days.filter((day) => !day.optional).map((day) => day.id)),
+          ),
+        ],
+        // The schedule's length, so "a session in every week" asks about the
+        // weeks that were actually authored.
+        totalWeeks: weeks.length,
         qualifyingSetPercent: program.qualifyingSetPercent,
       }
     : EMPTY_REWARDS_CONTEXT

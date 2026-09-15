@@ -294,6 +294,9 @@ export interface CohortDoc extends Audited {
    * Per cohort rather than per program: it is a decision about *these* members
    * and when they are ready for it, and a coach has to be able to move it
    * without re-versioning the plan everyone is training against.
+   *
+   * Set by the admin app — see FIREBASE.md. This app watches the document, so
+   * flipping it reaches members with it open.
    */
   leaderboardVisible: boolean
   /** The week it is meant to appear in, used only for the reveal notice. */
@@ -310,13 +313,16 @@ export type Cohort = WithId<CohortDoc>
 // prescribed.
 // =============================================================================
 
-export interface WeekTheme {
-  weekNumber: number
-  /** "Overload" */
-  title: string
-  /** "Push intensity, prove the work" */
-  subtitle: string
-}
+/**
+ * A calendar date, `YYYY-MM-DD`, with no time and no zone.
+ *
+ * Not a `Timestamp`, because a training day is a date and not an instant.
+ * Midnight in Lagos is 23:00 the evening before in UTC, so a timestamp typed
+ * into the console reads back a day early anywhere that renders it in UTC, and
+ * a day late for a member abroad. A string is the same day for everyone and
+ * compares directly against `dateKey(now)`.
+ */
+export type DateKey = string
 
 /** What each action pays out, in reward points. */
 export interface RewardValues {
@@ -387,16 +393,41 @@ export interface ProgramDoc extends Audited {
    * session to earn anything. The gate the whole reward system hangs off.
    */
   qualifyingSetPercent: number
-  /** How many documents are in the `workoutDays` subcollection. */
-  workoutDayCount: number
-  weekThemes: WeekTheme[]
   rewards: RewardConfig
   publishedAt: Timestamp | null
 }
 
 export type Program = WithId<ProgramDoc>
 
-// --- Workout days -------------- `programs/{programId}/workoutDays/{dayId}` --
+// --- Weeks -------------------------- `programs/{programId}/weeks/{weekId}` --
+//
+// The schedule. Each week is a document with its dates on it, and its training
+// days are documents beneath it, so "which week is the challenge in" and "what
+// is on today" are both a date comparison rather than arithmetic off whenever
+// a member happened to join. Ids are `week-1`, `week-2`, … by convention;
+// nothing reads the id, `weekNumber` is what orders them.
+
+export interface ProgramWeekDoc extends Audited {
+  /** 1-based. The number sessions, check-ins and photos are stamped with. */
+  weekNumber: number
+  /** "Overload". Empty renders "Week 3" on its own. */
+  title: string
+  /** "Push intensity, prove the work" */
+  subtitle: string
+  /** The week's first calendar day. */
+  startDate: DateKey
+  /** Its last, inclusive. Rest days count: a week is its span, not its sessions. */
+  endDate: DateKey
+}
+
+export type ProgramWeek = WithId<ProgramWeekDoc>
+
+/** A week with its days read in beneath it, ordered by date. */
+export interface TrainingWeek extends ProgramWeek {
+  days: WorkoutDay[]
+}
+
+// --- Workout days ------- `programs/{programId}/weeks/{weekId}/days/{dayId}` --
 
 /** One prescribed set. No `done` flag: completion is member state, not plan. */
 export interface PrescribedSet {
@@ -418,8 +449,20 @@ export interface Exercise {
   sets: PrescribedSet[]
 }
 
+/**
+ * One training day in one week.
+ *
+ * **Reuse the id across weeks.** Week 1's quad day and week 4's quad day are
+ * both `day-1`, which is what lets a session logged against one count toward
+ * "every training day three times each" — that badge counts by id — and lets a
+ * session resumed across a week boundary still find its day.
+ */
 export interface WorkoutDayDoc extends Audited {
-  /** Position in the training week, 1-based. */
+  /** The week it belongs to. Matches the parent `weeks` document. */
+  weekNumber: number
+  /** The date it is scheduled for. It is open from this date to the week's end. */
+  date: DateKey
+  /** Its position in the week's sessions, 1-based: the "Day 2" on the card. */
   dayNumber: number
   /** "Upper (Push Focus)" */
   label: string
@@ -664,11 +707,11 @@ export interface StoredImage {
 }
 
 export interface SessionLogDoc {
-  /** The `workoutDays` document this session was logged against. */
+  /** The `days` document this session was logged against. Shared across weeks. */
   dayId: string
   dayNumber: number
   label: string
-  /** 1-based challenge week, resolved at write time against `joinedAt`. */
+  /** 1-based challenge week, resolved at write time against the program's dated weeks. */
   weekNumber: number
   completedAt: Timestamp
   durationSeconds: number
@@ -893,6 +936,22 @@ export interface MessageDoc {
    */
   mentions: ChatMention[]
   /**
+   * Everyone this message is aimed at, as uids: the people it names, and the
+   * author of the message it answers. Never the sender.
+   *
+   * A derived copy of `mentions` and `replyTo`, and only there to be queried.
+   * The inbox asks "which messages are for me", and Firestore cannot answer
+   * that off a list of `{ uid, name }` maps — `array-contains` matches a whole
+   * element, and the name half is a snapshot that stops matching the moment
+   * somebody renames themselves. A flat list of uids is one indexed query.
+   *
+   * Written by `addressedUidsOf` on send and again on every edit, so a name
+   * added or removed in an edit moves the notification with it. Absent on every
+   * message sent before it existed, which is also what keeps those out of the
+   * inbox: a reply from three weeks ago arriving as new would be noise.
+   */
+  addressedUids: string[]
+  /**
    * Everyone's reactions, as emoji → count.
    *
    * A map rather than an array so a reaction is an atomic
@@ -1021,9 +1080,9 @@ export interface WorkoutDayView extends WorkoutDay {
    *   `upcoming`   still ahead of them this week.
    *   `missed`     its date has passed and nothing was logged against it.
    *
-   * The schedule comes off `joinedAt`, so day 3 arrives on the third day of the
-   * member's week. `missed` is a statement about the date, not a verdict: a day
-   * behind them is still open to log — see `canStart`.
+   * The schedule is the day's own `date`, the same for the whole cohort.
+   * `missed` is a statement about the date, not a verdict: a day behind them
+   * in the current week is still open to log — see `canStart`.
    */
   status: 'completed' | 'today' | 'upcoming' | 'missed'
   /**
@@ -1039,11 +1098,13 @@ export interface WorkoutDayView extends WorkoutDay {
    */
   canStart: boolean
   /**
-   * Nights until this day next comes round, `0` when that is today.
+   * Nights until this day's date: `0` when it is today, negative once it has
+   * passed.
    *
    * Carried on the view because the screens all want to say *when* rather than
-   * just "locked", and the wrap to next week is calendar arithmetic no template
-   * should be doing. `null` when the plan numbers it outside a seven-day week.
+   * just "locked", and date arithmetic is not something a template should be
+   * doing. `null` for a day with no slot on the calendar — the optional
+   * finisher, resolved through `getDay`.
    */
   opensInNights: number | null
 }
@@ -1056,6 +1117,13 @@ export interface NotificationView extends Notification {
   read: boolean
   /** "2h ago", rendered against the trusted clock. */
   timeLabel: string
+  /**
+   * Where tapping it goes, or `null` for one that is only there to be read.
+   *
+   * Coach announcements have nowhere to go. A mention or a reply does: the
+   * message itself, which is the only place it can be answered.
+   */
+  to: string | null
 }
 
 /** One emoji on one message, with how many people picked it. */

@@ -28,9 +28,11 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
+  where,
   writeBatch,
   type CollectionReference,
   type DocumentData,
+  type DocumentSnapshot,
   type QueryDocumentSnapshot,
 } from 'firebase/firestore'
 import {
@@ -47,8 +49,14 @@ import {
   firebaseDb,
   firebaseStorage,
 } from '~/lib/firebase/app'
-import { EDIT_WINDOW_MS, TYPING_REFRESH_MS, TYPING_TTL_MS, typingIsFresh } from '~/lib/chat'
-import { weekOf } from '~/lib/domain/challenge'
+import {
+  EDIT_WINDOW_MS,
+  TYPING_REFRESH_MS,
+  TYPING_TTL_MS,
+  addressedUidsOf,
+  typingIsFresh,
+} from '~/lib/chat'
+import { daysBetween, isDateKey, weekOf } from '~/lib/domain/challenge'
 import { prescribedSets } from '~/lib/domain/sets'
 import { storage as webStorage } from '~/lib/storage'
 import { trustedNow } from '~/lib/time'
@@ -90,11 +98,13 @@ import type {
   Notification,
   Program,
   ProgramDoc,
+  ProgramWeek,
   ProgressPhoto,
   RewardConfig,
   SessionLog,
   StoredImage,
   ThreadId,
+  TrainingWeek,
   TypingDoc,
   TypingPeer,
   WorkoutDay,
@@ -147,6 +157,30 @@ const normaliseLiveCall = (value: LiveCall | null | undefined): LiveCall | null 
 }
 
 /**
+ * The cohort document, with the three member-facing fields defaulted.
+ *
+ * They were added after cohorts were already being created, so a document
+ * written before them has no `liveCall` key at all — and `undefined` reaching
+ * a template is a card rendered with a dead button rather than no card. The
+ * defaults here are the "not set" reading of each: no call, no board.
+ *
+ * Shared by `getCohort` and `watchCohort`, so the boot read and the listener
+ * cannot disagree about whether the board is on.
+ */
+const cohortFrom = (snap: DocumentSnapshot<DocumentData>): Cohort | null => {
+  if (!snap.exists()) return null
+  const data = snap.data() as Partial<CohortDoc>
+  return {
+    ...(data as CohortDoc),
+    id: snap.id,
+    liveCall: normaliseLiveCall(data.liveCall),
+    leaderboardVisible: data.leaderboardVisible === true,
+    leaderboardRevealWeek:
+      typeof data.leaderboardRevealWeek === 'number' ? data.leaderboardRevealWeek : 1,
+  }
+}
+
+/**
  * A reward economy with nothing in it.
  *
  * `rewards` is a required field on `ProgramDoc`, and a program document written
@@ -191,8 +225,63 @@ const normaliseProgram = (id: string, data: Partial<ProgramDoc>): Program => {
     ...(data as ProgramDoc),
     id,
     rewards: data.rewards ?? emptyRewards(),
-    weekThemes: data.weekThemes ?? [],
   }
+}
+
+/**
+ * A week as the schedule can use it, or `null` with the reason logged.
+ *
+ * These documents are typed into the console by hand, and a week whose dates
+ * are not dates cannot be placed on the calendar at all — `weekAt` compares
+ * them as strings, so "16/09/2026" would sort somewhere nonsensical and quietly
+ * move the whole cohort into the wrong week. Dropping it and naming it in the
+ * console is the failure somebody can find.
+ */
+const normaliseWeek = (
+  programId: string,
+  snap: QueryDocumentSnapshot<DocumentData>,
+): ProgramWeek | null => {
+  const week = withId<ProgramWeek>(snap)
+  const path = `programs/${programId}/weeks/${snap.id}`
+  if (!Number.isInteger(week.weekNumber) || week.weekNumber < 1) {
+    console.warn(`[datasource] ${path} has no usable \`weekNumber\`; leaving it off the schedule.`)
+    return null
+  }
+  if (!isDateKey(week.startDate) || !isDateKey(week.endDate) || week.endDate < week.startDate) {
+    console.warn(
+      `[datasource] ${path} needs \`startDate\` and \`endDate\` as YYYY-MM-DD strings, ` +
+        'the end on or after the start; leaving it off the schedule.',
+    )
+    return null
+  }
+  return { ...week, title: week.title ?? '', subtitle: week.subtitle ?? '' }
+}
+
+/**
+ * A day, with a date that does not fall inside its week reported.
+ *
+ * Kept either way — the day is still readable and its id may be in somebody's
+ * log — but a day dated outside its week never becomes "today" in it, so the
+ * console says so rather than leaving a session that silently never opens.
+ */
+const normaliseDay = (
+  programId: string,
+  week: ProgramWeek,
+  snap: QueryDocumentSnapshot<DocumentData>,
+): WorkoutDay => {
+  const day = withId<WorkoutDay>(snap)
+  const inWeek =
+    isDateKey(day.date) &&
+    daysBetween(week.startDate, day.date) >= 0 &&
+    daysBetween(day.date, week.endDate) >= 0
+  if (!inWeek && !day.optional) {
+    console.warn(
+      `[datasource] programs/${programId}/weeks/${week.id}/days/${snap.id} has \`date\` ` +
+        `"${String(day.date)}", which is not a YYYY-MM-DD inside ${week.startDate}…${week.endDate}. ` +
+        'It will not open.',
+    )
+  }
+  return { ...day, weekNumber: week.weekNumber }
 }
 
 /**
@@ -281,8 +370,8 @@ const emptyStats = (): MemberStats => ({
  * Three things are true of every method here and worth stating once.
  *
  * **Server-resolved fields are resolved here.** `weekNumber`, `qualifies` and
- * `rewardPoints` are computed against the member's own join date and their
- * program's threshold, never taken from the caller — see `SessionInput`, which
+ * `rewardPoints` are computed against the program's dated weeks and its
+ * threshold, never taken from the caller — see `SessionInput`, which
  * omits them.
  *
  * **Counters are incremented, not recounted.** `MemberStats` exists so the
@@ -302,6 +391,7 @@ const emptyStats = (): MemberStats => ({
 export class FirestoreDataSource implements DataSource {
   private memberCache: Member | null = null
   private programCache: Program | null = null
+  private weeksCache: TrainingWeek[] | null = null
 
   /**
    * Which emoji this member put on a given message, keyed by its document path.
@@ -521,6 +611,7 @@ export class FirestoreDataSource implements DataSource {
     await firebaseSignOut(firebaseAuth())
     this.memberCache = null
     this.programCache = null
+    this.weeksCache = null
     this.myReactions.clear()
     this.typingWrittenAt.clear()
     webStorage.clear()
@@ -817,15 +908,8 @@ export class FirestoreDataSource implements DataSource {
     return this.program()
   }
 
-  async listWorkoutDays(): Promise<WorkoutDay[]> {
-    const program = await this.program()
-    const snap = await getDocs(
-      query(
-        collection(firebaseDb(), 'programs', program.id, 'workoutDays'),
-        orderBy('dayNumber'),
-      ),
-    )
-    return snap.docs.map((d) => withId<WorkoutDay>(d))
+  async listProgramWeeks(): Promise<TrainingWeek[]> {
+    return this.weeks()
   }
 
   /**
@@ -845,39 +929,64 @@ export class FirestoreDataSource implements DataSource {
       .sort((a, b) => a.unlockWeek - b.unlockWeek || a.title.localeCompare(b.title))
   }
 
-  /**
-   * The cohort document, with the three member-facing fields defaulted.
-   *
-   * They were added after cohorts were already being created, so a document
-   * written before them has no `liveCall` key at all — and `undefined` reaching
-   * a template is a card rendered with a dead button rather than no card. The
-   * defaults here are the "not set" reading of each: no call, no board.
-   */
+  /** The cohort document, defaulted. See `cohortFrom`. */
   async getCohort(): Promise<Cohort | null> {
     const member = await this.requireMember()
-    const snap = await getDoc(doc(firebaseDb(), 'cohorts', member.cohortId))
-    if (!snap.exists()) return null
-    const data = snap.data() as Partial<CohortDoc>
-    return {
-      ...(data as CohortDoc),
-      id: snap.id,
-      liveCall: normaliseLiveCall(data.liveCall),
-      leaderboardVisible: data.leaderboardVisible === true,
-      leaderboardRevealWeek:
-        typeof data.leaderboardRevealWeek === 'number' ? data.leaderboardRevealWeek : 1,
+    return cohortFrom(await getDoc(doc(firebaseDb(), 'cohorts', member.cohortId)))
+  }
+
+  /** One `onSnapshot` on the document `getCohort` reads, normalised the same way. */
+  async watchCohort(
+    onCohort: (cohort: Cohort | null) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
+    const member = await this.requireMember()
+
+    let stopped = false
+
+    const stop = onSnapshot(
+      doc(firebaseDb(), 'cohorts', member.cohortId),
+      (snap) => {
+        if (!stopped) onCohort(cohortFrom(snap))
+      },
+      (error) => {
+        if (!stopped) onError?.(error)
+      },
+    )
+
+    return () => {
+      stopped = true
+      stop()
     }
   }
 
-  async listAnnouncements(): Promise<Announcement[]> {
+  async watchAnnouncements(
+    onAnnouncements: (announcements: Announcement[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
     const member = await this.requireMember()
-    const snap = await getDocs(
+
+    let stopped = false
+
+    const stop = onSnapshot(
       query(
         collection(firebaseDb(), 'cohorts', member.cohortId, 'announcements'),
         orderBy('publishedAt', 'desc'),
         limit(20),
       ),
+      (snap) => {
+        if (stopped) return
+        onAnnouncements(snap.docs.map((d) => withId<Announcement>(d)))
+      },
+      (error) => {
+        if (!stopped) onError?.(error)
+      },
     )
-    return snap.docs.map((d) => withId<Announcement>(d))
+
+    return () => {
+      stopped = true
+      stop()
+    }
   }
 
   // =========================================================================
@@ -963,7 +1072,7 @@ export class FirestoreDataSource implements DataSource {
     const rewardPoints = qualifies ? program.rewards.values.workout : 0
     const record: Omit<SessionLog, 'id'> = {
       ...log,
-      weekNumber: weekOf(member.joinedAt, log.completedAt, program.totalWeeks),
+      weekNumber: weekOf(await this.weeks(), log.completedAt),
       qualifies,
       rewardPoints,
       // The program that actually decided the two fields above, not whatever
@@ -1065,7 +1174,7 @@ export class FirestoreDataSource implements DataSource {
     const member = await this.requireMember()
     const program = await this.program()
     const submittedAt = Timestamp.now()
-    const weekNumber = weekOf(member.joinedAt, submittedAt, program.totalWeeks)
+    const weekNumber = weekOf(await this.weeks(), submittedAt)
 
     const record = {
       ...input,
@@ -1120,7 +1229,7 @@ export class FirestoreDataSource implements DataSource {
 
     const record = {
       pose: input.pose,
-      weekNumber: weekOf(member.joinedAt, takenAt, program.totalWeeks),
+      weekNumber: weekOf(await this.weeks(), takenAt),
       image,
       takenAt,
     }
@@ -1172,17 +1281,77 @@ export class FirestoreDataSource implements DataSource {
   // =========================================================================
   // Notifications
   // =========================================================================
-  async listNotifications(): Promise<Notification[]> {
+  async watchNotifications(
+    onNotifications: (notifications: Notification[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
     const member = await this.requireMember()
-    const snap = await getDocs(
+
+    let stopped = false
+
+    const stop = onSnapshot(
       query(
         collection(firebaseDb(), 'cohorts', member.cohortId, 'notifications'),
         orderBy('pinned', 'desc'),
         orderBy('publishedAt', 'desc'),
         limit(50),
       ),
+      (snap) => {
+        if (stopped) return
+        onNotifications(snap.docs.map((d) => withId<Notification>(d)))
+      },
+      (error) => {
+        if (!stopped) onError?.(error)
+      },
     )
-    return snap.docs.map((d) => withId<Notification>(d))
+
+    return () => {
+      stopped = true
+      stop()
+    }
+  }
+
+  /**
+   * One query over the cohort thread: `addressedUids` contains this member.
+   *
+   * Needs the composite index in `firestore.indexes.json` (`addressedUids`
+   * array-contains, `sentAt` descending). Until that has built, the listener
+   * fails with `failed-precondition` and the inbox simply has no mentions in it.
+   * The rules need nothing new: a member can already read every message in the
+   * cohort thread, and this reads a subset of them.
+   *
+   * Only the cohort thread. The coach DM is between two people, so every message
+   * in it is aimed at the member, and the chat tab's dot already says so.
+   */
+  async watchAddressedMessages(
+    onMessages: (messages: Message[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
+    const member = await this.requireMember()
+    const ref = await this.messagesRef('cohort')
+
+    let stopped = false
+
+    const stop = onSnapshot(
+      query(
+        ref,
+        where('addressedUids', 'array-contains', member.id),
+        orderBy('sentAt', 'desc'),
+        limit(50),
+      ),
+      (snap) => {
+        if (stopped) return
+        onMessages(snap.docs.map((d) => withId<Message>(d)))
+      },
+      (error) => {
+        if (!stopped) onError?.(error)
+      },
+    )
+
+    return () => {
+      stopped = true
+      stop()
+    }
   }
 
   async listNotificationReads(): Promise<Record<string, Timestamp>> {
@@ -1204,14 +1373,15 @@ export class FirestoreDataSource implements DataSource {
     )
   }
 
-  async markAllNotificationsRead(): Promise<void> {
+  async markNotificationsRead(ids: string[]): Promise<void> {
+    if (!ids.length) return
     const member = await this.requireMember()
-    const notifications = await this.listNotifications()
     const db = firebaseDb()
     const batch = writeBatch(db)
-    for (const n of notifications) {
+    // A batch takes 500 writes, and the inbox is two lists of at most 50.
+    for (const id of ids) {
       batch.set(
-        doc(db, 'members', member.id, 'notificationState', n.id),
+        doc(db, 'members', member.id, 'notificationState', id),
         { readAt: serverTimestamp() },
         { merge: true },
       )
@@ -1452,6 +1622,7 @@ export class FirestoreDataSource implements DataSource {
       attachments,
       replyTo,
       mentions,
+      addressedUids: addressedUidsOf({ authorUid: member.id, mentions, replyTo }),
       reactionCounts: {},
     }
 
@@ -1614,9 +1785,13 @@ export class FirestoreDataSource implements DataSource {
     // `mentions` moves with the text. An edit that adds or removes a name has
     // changed who the message refers to, and leaving the old list behind would
     // highlight a name that is no longer written and miss one that now is.
+    // `addressedUids` moves with `mentions` for the same reason, and is what
+    // takes the notification out of, or puts it into, that person's inbox.
+    const addressedUids = addressedUidsOf({ ...stored, mentions })
     await updateDoc(messageRef, {
       text: trimmed,
       mentions,
+      addressedUids,
       editedAt: serverTimestamp(),
     })
 
@@ -1625,7 +1800,7 @@ export class FirestoreDataSource implements DataSource {
     // `watchMessages` replays the pending write immediately and then confirms
     // it — and nothing renders the value, only whether there is one.
     return this.viewOf(
-      { ...stored, text: trimmed, mentions, editedAt: Timestamp.now() },
+      { ...stored, text: trimmed, mentions, addressedUids, editedAt: Timestamp.now() },
       member.id,
       this.myReactions.get(messageRef.path) ?? [],
     )
@@ -1901,6 +2076,7 @@ export class FirestoreDataSource implements DataSource {
       // has no such field, and an absent key is not a message that was edited.
       editedAt: message.editedAt ?? null,
       mentions: message.mentions ?? [],
+      addressedUids: message.addressedUids ?? [],
       isSelf: message.authorUid === viewerUid,
       reactions,
     }
@@ -1971,6 +2147,46 @@ export class FirestoreDataSource implements DataSource {
     }
     this.programCache = normaliseProgram(snap.id, snap.data() as Partial<ProgramDoc>)
     return this.programCache
+  }
+
+  /**
+   * The program's weeks with their days, read once per session.
+   *
+   * One query for the weeks and one per week for its days, in parallel — a
+   * six-week block is seven reads. A collection-group query over `days` would
+   * be one, but it would match every program's days and need a rule and an
+   * index of its own to narrow back down to this one.
+   *
+   * Sorted here rather than with `orderBy`, because `orderBy` silently drops
+   * any document missing the field: a day typed into the console without a
+   * `date` would vanish from the plan instead of being reported.
+   */
+  private async weeks(): Promise<TrainingWeek[]> {
+    if (this.weeksCache) return this.weeksCache
+    const program = await this.program()
+    const db = firebaseDb()
+
+    const weekSnap = await getDocs(collection(db, 'programs', program.id, 'weeks'))
+    const weeks = weekSnap.docs
+      .map((snap) => normaliseWeek(program.id, snap))
+      .filter((week): week is ProgramWeek => week !== null)
+      .sort((a, b) => a.weekNumber - b.weekNumber)
+
+    this.weeksCache = await Promise.all(
+      weeks.map(async (week) => {
+        const daySnap = await getDocs(
+          collection(db, 'programs', program.id, 'weeks', week.id, 'days'),
+        )
+        const days = daySnap.docs
+          .map((snap) => normaliseDay(program.id, week, snap))
+          .sort(
+            (a, b) =>
+              String(a.date).localeCompare(String(b.date)) || a.dayNumber - b.dayNumber,
+          )
+        return { ...week, days }
+      }),
+    )
+    return this.weeksCache
   }
 
   private touch(member: Member) {

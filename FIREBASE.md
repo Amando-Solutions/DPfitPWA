@@ -18,8 +18,9 @@ one. Read them before changing anything in `app/lib/datasource/firestore.ts`.
 | `cohorts/{id}/leaderboard/{uid}` | Name, avatar, qualifying-session count. A projection — see below. |
 | `cohorts/{id}/threads/{threadId}/messages/{id}` | `cohort` is the group thread; every other `threadId` is a member uid, meaning that member's private thread with the coach. |
 | `…/messages/{id}/reactions/{uid}` | Who reacted, one document per reactor. |
-| `programs/{programId}` | Authored plan, versioned. Carries `qualifyingSetPercent`, `weekThemes` and the whole reward economy — the badge ladder, the rank ladder and every point value. |
-| `programs/{id}/workoutDays/{dayId}` | The training week. |
+| `programs/{programId}` | Authored plan, versioned. Carries `qualifyingSetPercent` and the whole reward economy — the badge ladder, the rank ladder and every point value. |
+| `programs/{id}/weeks/{weekId}` | One week of the block: its number, title and dates. `week-1`, `week-2`, … — see **The schedule**. |
+| `programs/{id}/weeks/{weekId}/days/{dayId}` | One training day in that week, with the date it falls on. |
 | `programs/{id}/guides/{guideId}` | The guide library. |
 | `members/{uid}` | The member. Keyed by the Firebase Auth uid, so rules are `request.auth.uid == uid` with no lookup. |
 | `members/{uid}/sessions/{id}` | Workout logs. |
@@ -43,9 +44,9 @@ neither is content the app serves: what *mock mode* answers with
 (`lib/datasource/local.ts` is the only module allowed to import it), and the
 input to the seed script.
 
-The cost is that the documents have to exist. A program with no `workoutDays`
-renders a Home screen with no session on it, which is the honest answer and not
-a bug — see **Seeding**.
+The cost is that the documents have to exist. A program with no `weeks` renders
+a Home screen with no session on it, which is the honest answer and not a bug —
+see **Seeding**.
 
 **The leaderboard reads a projection, not `members`.** A member document holds
 an email address, body weight, injuries and allergies. The board renders a name,
@@ -91,6 +92,10 @@ lives here.
 - **`notifications` composite (`pinned` desc, `publishedAt` desc)** — pinned
   announcements sort above everything regardless of date. Two order-bys on one
   collection require a composite index; Firestore refuses the query without it.
+- **`messages` composite (`addressedUids` array-contains, `sentAt` desc)** — the
+  inbox's mentions and replies: cohort chat messages aimed at the member, newest
+  first. Until it has built, that listener fails with `failed-precondition` and
+  the inbox shows the coach's notifications only.
 - **`sessions.exercises` unindexed** — a session log embeds every set of every
   exercise. Nothing queries inside that array, and indexing it costs an index
   write per element on every save.
@@ -319,14 +324,107 @@ document copies them out of the code at redemption, and `programs/''` is not a
 document path, so a code without them redeems fine and then throws on the first
 workout save. `backfill-access-codes.mjs` warns about exactly this.
 
+## The schedule
+
+A program's plan is weeks, and each week's training days are documents beneath
+it with the date they fall on:
+
+```
+programs/recomp-six-week-v1/
+  weeks/week-1              { weekNumber: 1, title: "Foundation", startDate: "2026-08-26", endDate: "2026-09-01" }
+    days/day-1              { weekNumber: 1, dayNumber: 1, date: "2026-08-26", label, focus, exercises, … }
+    days/day-2              { weekNumber: 1, dayNumber: 2, date: "2026-08-27", … }
+    days/core-cardio        { …, optional: true }
+  weeks/week-2              { weekNumber: 2, … startDate: "2026-09-02" }
+    days/day-1              …
+```
+
+**The week the challenge is in is a date comparison.** Today falls in the
+latest week whose `startDate` has arrived — before week 1 starts that is week 1,
+after the last week ends it stays the last. A day is today's session on its
+`date`, open to catch up on until its week ends, and shut before its date. This
+is the cohort's calendar, not the member's: a member who joins in week 3 starts
+in week 3. `weekNumber` on every session, check-in and photo is resolved against
+the same weeks, so "this week" on screen and the week a log is filed under
+cannot disagree.
+
+What an admin has to get right, because a rule cannot check any of it:
+
+| field | on | type | notes |
+|---|---|---|---|
+| `weekNumber` | week, day | number | 1-based. Orders the weeks; the id does not. A day's must match its week's. |
+| `title`, `subtitle` | week | string | `""` renders "Week 3" with no title. |
+| `startDate`, `endDate` | week | string | **`YYYY-MM-DD`, not a timestamp.** Inclusive; a week is its span, rest days and all. |
+| `date` | day | string | `YYYY-MM-DD`, inside its week's span. |
+| `dayNumber` | day | number | The "Day 2" on the card. |
+| `optional` | day | boolean | `true` keeps it out of the weekly quota — the finisher. |
+
+Dates are strings on purpose. A training day is a date, not an instant: midnight
+in Lagos is 23:00 the previous evening in UTC, so a timestamp typed into the
+console reads back a day early anywhere it is rendered in UTC. A week whose
+dates are not real `YYYY-MM-DD` strings is left off the schedule and named in
+the browser console, and so is a day dated outside its week.
+
+**Reuse day ids across weeks.** Week 1's quad day and week 4's are both `day-1`.
+The "every training day N times" badge counts sessions by `dayId`, and a session
+left running over a week boundary finds its day again by id; a fresh id per week
+breaks both.
+
+**Dates make a program one run of a plan.** A second cohort on the same six
+weeks starting a month later needs its own dates, so it needs its own program
+id (`recomp-six-week-v2`, or one per cohort) with `programId` on the cohort and
+its access codes pointing at it.
+
+Reading it costs one query for the weeks and one per week for its days, once
+per load — seven reads for six weeks. No index is needed: both are sorted in
+the client, because `orderBy` silently drops a document missing the field and a
+day typed in without a `date` should be reported, not vanish.
+
+### Migrating from `workoutDays`
+
+Programs written before this held one flat `workoutDays` collection plus a
+`weekThemes` array, dated from each member's join date.
+`scripts/migrate-program-weeks.mjs` turns that into the shape above: week 1 on
+the cohort's `startDate` in its timezone, each week seven days, each day on its
+`dayNumber`-th day of the week — the schedule the app already ran, made
+concrete. Every step is a dry run without `--apply`.
+
+```bash
+cd apps/pwa
+# 1. Write the weeks. Additive; the old workoutDays stay, so the old build keeps working.
+node scripts/migrate-program-weeks.mjs --database=staging --program-id=recomp-six-week-v1
+node scripts/migrate-program-weeks.mjs --database=staging --program-id=recomp-six-week-v1 --apply
+
+# 2. Deploy the app build that reads weeks.
+
+# 3. Re-file members' sessions, photos and check-ins under the cohort's weeks.
+node scripts/migrate-program-weeks.mjs --database=staging --program-id=recomp-six-week-v1 --restamp --apply
+
+# 4. Once installed apps have picked up the new build, delete the old shape.
+node scripts/migrate-program-weeks.mjs --database=staging --program-id=recomp-six-week-v1 --prune --apply
+```
+
+- The start date comes from the one cohort whose `programId` matches; name it
+  with `--cohort-id` when there are several, or pass `--start-date=YYYY-MM-DD`.
+- Weeks and days that already exist are left alone unless `--force`, so a re-run
+  never undoes dates corrected in the console since.
+- `--restamp` is safe to repeat, and worth repeating after the deploy, to catch
+  anything the old build stamped in between. A check-in's id is its week, so a
+  changed week moves the document; two check-ins landing in the same week are
+  reported and left for a person to resolve.
+- `--prune` refuses if any old day is missing from the weeks. It deletes
+  Firestore documents only — hero images in Cloud Storage stay where they are,
+  and the copied days still point at them.
+
 ## Seeding
 
 `app/data/program.ts` is the fixture that mock mode serves, typed against the
 same document contracts as the real thing — which is what lets it double as the
 seed. `scripts/seed-program.ts` writes it: `programs/{PROGRAM_ID}` from
-`program`, `workoutDays` from `planDays` and `coreCardioDay`, `guides` from
+`program`, the `weeks` and their `days` from `trainingWeeks`, `guides` from
 `guides`, the cohort from `cohort`, and the announcement and notification decks
-from `announcements` and `notificationSeed`.
+from `announcements` and `notificationSeed`. Week 1 starts on the cohort's
+`startDate` in its timezone; `--start-date=YYYY-MM-DD` overrides it.
 
 ```bash
 cd apps/pwa
@@ -404,11 +502,31 @@ bun run live-call -- --database=staging --cohort=cohort-01 --clear --apply
 ```
 
 Dry run without `--apply`, and it refuses half a call rather than writing one
-the app will ignore. Members pick up the change on their next load.
+the app will ignore. The app watches the cohort document, so members with it
+open see the change without reloading.
 
-Two more cohort fields the app reads and the console sets:
-`leaderboardVisible` (the board is hidden for the opening weeks on purpose) and
-`leaderboardRevealWeek` (used only for the notice shown the week it appears).
+## The leaderboard switch
+
+`cohorts/{cohortId}.leaderboardVisible` decides whether members see the board.
+Off — and missing counts as off — Rewards has no leaderboard tab at all, not a
+locked one; on, the tab appears. It is hidden for the opening weeks on purpose.
+The projection under `cohorts/{id}/leaderboard` is written the whole time either
+way, because it doubles as the chat roster, so turning the board on shows real
+history rather than a row of zeros.
+
+`leaderboardRevealWeek` changes nothing about visibility. It is the last week
+the "the leaderboard's live now" card shows above the board, and the week is the
+cohort's — every member is in the same week on the same date (see **The
+schedule**).
+
+Only an admin (the `coach` claim) can write either field. The admin app — a
+separate app, not in this repo — is what turns the board on and off; until it
+exists, flip the boolean in the console. The PWA watches the cohort document,
+so the change reaches members with the app already open.
+
+This is a visibility switch, not access control. Switched off, the session
+counts are still readable by the cohort, because chat's `@` roster reads the
+same collection.
 
 ## Repairing `members/{uid}.programId`
 

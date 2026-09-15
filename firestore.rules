@@ -240,7 +240,18 @@ service cloud.firestore {
             && request.resource.data.isCoach == false
             // A new message starts with no reactions. Counts are only ever
             // moved by the increment below.
-            && request.resource.data.reactionCounts.size() == 0;
+            && request.resource.data.reactionCounts.size() == 0
+            // Who it is aimed at, which is what puts it in their inbox. A list
+            // when present; absent is still accepted, because a phone on a
+            // build from before the field existed is still sending messages.
+            //
+            // Nothing here can check it against `mentions` and `replyTo` —
+            // rules have no way to map over a list — so a member could reach
+            // somebody without writing their name. That is no more than an
+            // `@` already lets them do, and it reaches only their own cohort:
+            // nobody else's inbox queries this thread.
+            && (!('addressedUids' in request.resource.data)
+                || request.resource.data.addressedUids is list);
 
           // Two writes may touch a sent message, and nothing else may.
           //
@@ -250,13 +261,13 @@ service cloud.firestore {
           // The second is the author correcting their own words, for fifteen
           // minutes and then never again — the window in `EDIT_WINDOW_MS`,
           // enforced here because a limit the client alone applies is a limit
-          // anyone with the SDK can ignore. `hasOnly` on the three fields an
-          // edit owns — the words, when they changed, and who they name — is
-          // what keeps an "edit" from being something else wearing its name: an
-          // update free to move `sentAt` could re-date a message back into a
-          // window it has left, one free to move `authorUid` could hand it to
-          // somebody else, and one free to move `reactionCounts` could invent
-          // applause. `editedAt` must be `request.time` rather than a value the
+          // anyone with the SDK can ignore. `hasOnly` on the four fields an
+          // edit owns — the words, when they changed, who they name and so who
+          // they reach — is what keeps an "edit" from being something else
+          // wearing its name: an update free to move `sentAt` could re-date a
+          // message back into a window it has left, one free to move
+          // `authorUid` could hand it to somebody else, and one free to move
+          // `reactionCounts` could invent applause. `editedAt` must be `request.time` rather than a value the
           // caller chose, because "Edited" is a claim about *when*, and the
           // caller is the only party with a reason to misstate it.
           //
@@ -267,12 +278,14 @@ service cloud.firestore {
             && (
               changed().hasOnly(['reactionCounts'])
               || (
-                changed().hasOnly(['text', 'editedAt', 'mentions'])
+                changed().hasOnly(['text', 'editedAt', 'mentions', 'addressedUids'])
                 && resource.data.authorUid == request.auth.uid
                 && request.resource.data.editedAt == request.time
                 && request.resource.data.text is string
                 && request.resource.data.text.size() > 0
                 && request.resource.data.mentions is list
+                && (!('addressedUids' in request.resource.data)
+                    || request.resource.data.addressedUids is list)
                 && request.time < resource.data.sentAt + duration.value(15, 'm')
               )
             )
