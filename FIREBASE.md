@@ -135,8 +135,9 @@ loosened by accident:
 | `(default)` | `firestore.rules` |
 | `staging` | `firestore.staging.rules` |
 
-They are byte-for-byte identical today. `npm run rules:diff` says whether that
-is still true — no output means they match, and any output is the divergence.
+They differ today by one change: staging checks each exercise's `videoUrl`
+(see **The schedule**) and production does not yet. `npm run rules:diff` shows
+the divergence — no output means they match, and any output is the divergence.
 When you change something that should apply to both, change it in both; the
 diff is there to catch the half that gets forgotten.
 
@@ -358,6 +359,21 @@ What an admin has to get right, because a rule cannot check any of it:
 | `date` | day | string | `YYYY-MM-DD`, inside its week's span. |
 | `dayNumber` | day | number | The "Day 2" on the card. |
 | `optional` | day | boolean | `true` keeps it out of the weekly quota — the finisher. |
+
+Each entry in a day's `exercises` array can carry a demo video, which the
+exercise's How to tab plays:
+
+| field | on | type | notes |
+|---|---|---|---|
+| `videoUrl` | exercise | string or null | An `https://` link to a playable file (MP4), not a YouTube page. Absent or `null` shows "Video coming soon". |
+| `videoThumbUrl` | exercise | string or null | Optional poster frame shown before the video plays. |
+
+This one a rule *does* check, on the `staging` database only for now: writes to
+a day are refused if any exercise's `videoUrl` is not `null`, a string of at
+most 2048 characters starting `https://`, or absent. Checking every exercise
+means capping a day at 20, since rules cannot loop. `firestore.rules`
+(production) does not have the check yet, so `npm run rules:diff` reports the
+two as diverged until it is copied across.
 
 Dates are strings on purpose. A training day is a date, not an instant: midnight
 in Lagos is 23:00 the previous evening in UTC, so a timestamp typed into the

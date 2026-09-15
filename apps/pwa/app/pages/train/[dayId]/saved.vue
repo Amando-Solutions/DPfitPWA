@@ -86,7 +86,22 @@ const back = () => router.push('/train')
         </div>
       </div>
 
-      <div class="saved__actions w-full max-w-[340px] flex flex-col gap-1 mt-2">
+      <!-- The block's last session. The final photo is what is left, so it takes
+           the main action; Back to workouts steps down rather than going away,
+           because a catch-up may still be open behind it. -->
+      <template v-if="store.finalPhotoDue.value">
+        <p class="saved__final m-0 max-w-[320px] py-2.5 px-3.5 rounded-md bg-rose-soft text-[12.5px] leading-[1.45] text-ink">
+          That was the last session of the block. One thing left: upload your final
+          progress photo<template v-if="store.finalPhotoBadge.value?.points">
+            for +{{ store.finalPhotoBadge.value.points }} RP</template
+          >.
+        </p>
+        <div class="saved__actions w-full max-w-[340px] flex flex-col gap-1 mt-2">
+          <AppButton to="/progress">Upload final photo</AppButton>
+          <AppButton variant="ghost" @click="back">Back to workouts</AppButton>
+        </div>
+      </template>
+      <div v-else class="saved__actions w-full max-w-[340px] flex flex-col gap-1 mt-2">
         <AppButton @click="back">Back to workouts</AppButton>
         <AppButton variant="ghost" to="/rewards">See your rewards</AppButton>
       </div>

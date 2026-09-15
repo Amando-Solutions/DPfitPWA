@@ -53,7 +53,7 @@ onMounted(() => {
           <span>Nutrition</span><span class="data">{{ record.nutritionPct }}%</span>
         </div>
         <div class="done__row flex items-center justify-between py-2.25 px-0 text-[13px] text-muted [&_+_.done__row]:border-t [&_+_.done__row]:border-hairline [&_.data]:font-bold [&_.data]:text-ink">
-          <span>Energy</span><span class="data">{{ record.energy }}/10</span>
+          <span>Energy</span><span class="data">{{ record.energy }}/5</span>
         </div>
         <div class="done__row flex items-center justify-between py-2.25 px-0 text-[13px] text-muted [&_+_.done__row]:border-t [&_+_.done__row]:border-hairline [&_.data]:font-bold [&_.data]:text-ink">
           <span>Training felt</span><span class="data">{{ feelLabel }}</span>

@@ -31,7 +31,7 @@ import {
 import { coachSeed, cohortSeed } from '~/data/community'
 import { qualifyingSessions, sessionQualifies } from '~/lib/domain/rewards'
 import { prescribedSets } from '~/lib/domain/sets'
-import { weekOf } from '~/lib/domain/challenge'
+import { resolvePlanWeek, weekOf } from '~/lib/domain/challenge'
 import type { ProcessedImage } from '~/lib/image'
 import type {
   ActiveSessionDoc,
@@ -497,10 +497,12 @@ export class LocalDataSource implements DataSource {
       program.qualifyingSetPercent,
     )
 
+    const weekNumber = weekOf(await this.weeks(), log.completedAt)
     const record: SessionLog = {
       ...log,
       id: uid('session'),
-      weekNumber: weekOf(await this.weeks(), log.completedAt),
+      weekNumber,
+      planWeek: resolvePlanWeek(log.planWeek, weekNumber),
       qualifies,
       // A session below the threshold saves in full and still reaches the
       // coach. It just earns nothing.

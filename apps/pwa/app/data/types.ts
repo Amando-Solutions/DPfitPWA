@@ -343,6 +343,7 @@ export type BadgeRuleId =
   | 'foundation-complete'
   | 'peak-performer'
   | 'no-days-off'
+  | 'final-photo'
 
 export interface BadgeDef {
   id: BadgeRuleId
@@ -445,6 +446,15 @@ export interface Exercise {
   targetReps: string
   restSeconds: number
   videoThumbUrl: string | null
+  /**
+   * The demo clip the How to tab plays. An https URL to a file a `<video>`
+   * element can play (MP4 is the safe choice), not a YouTube or Vimeo page.
+   *
+   * Optional because every exercise authored before it existed has none, and
+   * `firestore.staging.rules` accepts it absent for the same reason. Missing or
+   * null shows the "Video coming soon" placeholder.
+   */
+  videoUrl?: string | null
   cues: string[]
   sets: PrescribedSet[]
 }
@@ -713,6 +723,20 @@ export interface SessionLogDoc {
   label: string
   /** 1-based challenge week, resolved at write time against the program's dated weeks. */
   weekNumber: number
+  /**
+   * The week whose copy of `dayId` this session was for.
+   *
+   * Not always `weekNumber`: a day missed in week 1 stays open, and when it is
+   * caught up in week 3 the session is *filed* under week 3 — that is when the
+   * member trained, and what streaks count — but it is week 1's day that is now
+   * logged. Day ids repeat across weeks, so without this the catch-up would
+   * mark week 3's day of the same id as done instead.
+   *
+   * Absent on sessions written before catch-ups could cross a week, and for
+   * those `weekNumber` is the right answer: a day could only be logged in its
+   * own week. Read it through `planWeekOf`.
+   */
+  planWeek?: number
   completedAt: Timestamp
   durationSeconds: number
   volumeKg: number
@@ -751,6 +775,11 @@ export type SessionLog = WithId<SessionLogDoc>
 
 export interface ActiveSessionDoc {
   dayId: string
+  /**
+   * The week whose copy of `dayId` is in progress. See `SessionLogDoc.planWeek`.
+   * Absent on a session opened before it existed, which was the current week's.
+   */
+  planWeek?: number
   startedAt: Timestamp | null
   elapsedSeconds: number
   running: boolean
@@ -1075,24 +1104,24 @@ export interface WorkoutDayView extends WorkoutDay {
   /**
    * Where this day sits on the member's calendar, not whether they may train.
    *
-   *   `completed`  logged in this challenge week.
+   *   `completed`  this week's copy of the day is logged.
    *   `today`      the day the plan schedules for today.
-   *   `upcoming`   still ahead of them this week.
+   *   `upcoming`   still ahead of them.
    *   `missed`     its date has passed and nothing was logged against it.
    *
    * The schedule is the day's own `date`, the same for the whole cohort.
-   * `missed` is a statement about the date, not a verdict: a day behind them
-   * in the current week is still open to log — see `canStart`.
+   * `missed` is a statement about the date, not a verdict: a day behind them,
+   * in this week or an earlier one, is still open to log — see `canStart`.
    */
   status: 'completed' | 'today' | 'upcoming' | 'missed'
   /**
    * Whether logging can begin on this day right now.
    *
    * The one thing the screens gate the Start button on. True on today's day and
-   * on every day behind it the member never logged, so falling a day down is
-   * something they can train their way out of. False only on days the calendar
-   * has not reached and on days already in this week's log — which together are
-   * what keep the week from being run off in one evening.
+   * on every day behind it the member never logged, whichever week it is in, so
+   * falling behind is something they can train their way out of. False only on
+   * days the calendar has not reached and on days already logged — the first
+   * of which is what keeps the block from being run off in one evening.
    *
    * Opening a day to read it is never gated; only starting one is.
    */

@@ -8,11 +8,18 @@ import {
   daysBetween,
   isDateKey,
   planDaysOf,
+  planWeekOf,
   weekAt,
 } from '~/lib/domain/challenge'
 import { chatNotificationFor, chatNotificationId } from '~/lib/chat'
 import { nutritionTargetsFor } from '~/lib/domain/nutrition'
-import { rankLeaderboard, rewardsContextOf, rewardsSnapshot } from '~/lib/domain/rewards'
+import {
+  finalPhotoOf,
+  finalSessionOf,
+  rankLeaderboard,
+  rewardsContextOf,
+  rewardsSnapshot,
+} from '~/lib/domain/rewards'
 
 import {
   dateKey,
@@ -35,6 +42,7 @@ import type {
   EarnedBadge,
   Guide,
   LeaderboardEntry,
+  LoggedExercise,
   Member,
   MemberGate,
   MemberPreferences,
@@ -544,20 +552,41 @@ const buildStore = () => {
    * a week whose days have not been written yet has none, and the screens have
    * to be able to say so rather than index into nothing.
    */
-  const days = computed<WorkoutDayView[]>(() => {
-    const loggedIds = new Set(sessionsThisWeek.value.map((s) => s.dayId))
+  const days = computed<WorkoutDayView[]>(() => resolveWeek(currentWeek.value))
+
+  /**
+   * Any week's plan, resolved against the sessions logged for that week's days.
+   *
+   * What Train's week switcher reads. The current week is `days` itself, so
+   * the list on Train and the dots on Home cannot drift apart.
+   */
+  const weekDays = (weekNumber: number): WorkoutDayView[] =>
+    weekNumber === clock.value.week
+      ? days.value
+      : resolveWeek(state.value.weeks.find((w) => w.weekNumber === weekNumber) ?? null)
+
+  function resolveWeek(week: TrainingWeek | null): WorkoutDayView[] {
+    if (!week) return []
+    // By the week the session was *for*, not by id alone and not by the week it
+    // was logged in: ids repeat across weeks, and week 1's `day-1` caught up in
+    // week 3 must not mark week 3's `day-1` done.
+    const loggedIds = new Set(
+      state.value.sessions
+        .filter((s) => planWeekOf(s) === week.weekNumber)
+        .map((s) => s.dayId),
+    )
     const today = clock.value.today
 
-    return planDays.value.map((day) => {
+    return planDaysOf(week).map((day) => {
       const opensInNights = daysBetween(today, day.date)
 
       if (loggedIds.has(day.id)) {
         return { ...day, status: 'completed' as const, canStart: false, opensInNights }
       }
-      // Everything the week has reached is open: today's session, and every day
-      // behind it that was never logged, so a member who fell behind on Tuesday
-      // can still do Tuesday on Thursday. Only this week's, though — `days` is
-      // the current week, and last week's debts closed with it.
+      // Everything the calendar has reached is open: today's session, and every
+      // day behind it that was never logged, in this week or any before it. A
+      // missed session does not close with its week; a member who fell behind
+      // in week 1 can still do week 1's sessions in week 3.
       if (opensInNights <= 0) {
         const status = opensInNights === 0 ? ('today' as const) : ('missed' as const)
         return { ...day, status, canStart: true, opensInNights }
@@ -566,7 +595,7 @@ const buildStore = () => {
       // reason the block cannot be finished in an afternoon.
       return { ...day, status: 'upcoming' as const, canStart: false, opensInNights }
     })
-  })
+  }
 
   /**
    * Nothing in the plan can be started right now.
@@ -925,6 +954,29 @@ const buildStore = () => {
   const firstPhotoDue = computed(() => state.value.photos.length === 0)
 
   /**
+   * The block's last session is logged and no photo has been taken since.
+   *
+   * The bookend to `firstPhotoDue`, and the last thing the block asks for. Home
+   * leads with it and Saved turns its main action over to it. It locks nothing:
+   * all that is left to start by then is a catch-up or the finisher, and
+   * holding those back would cost the member sessions the block still counts.
+   *
+   * Deleting that photo brings it back. The badge stays, as every badge does,
+   * but the coach is still owed the picture.
+   */
+  const finalPhotoDue = computed(
+    () =>
+      finalSessionOf(state.value.sessions, rewardsContext.value) !== null &&
+      finalPhotoOf(state.value, rewardsContext.value) === null,
+  )
+
+  /** Final Photo Proof as the program authors it, for the RP its card quotes. */
+  const finalPhotoBadge = computed(() => {
+    const def = badgeDefs.value.find((b) => b.id === 'final-photo')
+    return def ? { ...def, points: badgeTierPoints.value?.[def.tier] ?? 0 } : null
+  })
+
+  /**
    * Any authored day by id, whether or not it is part of the weekly quota.
    *
    * This week's first, because ids repeat across weeks and this week's copy is
@@ -941,8 +993,17 @@ const buildStore = () => {
    * A day that exists only in another week — a week whose ids were authored
    * differently, or a session resumed across the rollover — resolves readable
    * and shut: it is not this week's to start.
+   *
+   * `weekNumber` asks for a particular week's copy, which is how a day picked
+   * off Train's week switcher opens as itself rather than as this week's day
+   * of the same id. Omitted, or naming the current week, it changes nothing.
    */
-  const getDay = (id: string): WorkoutDayView | undefined => {
+  const getDay = (id: string, weekNumber?: number): WorkoutDayView | undefined => {
+    if (weekNumber !== undefined && weekNumber !== clock.value.week) {
+      const picked = weekDays(weekNumber).find((d) => d.id === id)
+      if (picked) return picked
+    }
+
     const inWeek = days.value.find((d) => d.id === id)
     if (inWeek) return inWeek
 
@@ -970,6 +1031,26 @@ const buildStore = () => {
   }
 
   /**
+   * The week whose day the session in progress is for. `null` with none open.
+   *
+   * The current week for a session opened before `planWeek` was written, which
+   * is the only week it could have been opened in.
+   */
+  const activeSessionWeek = computed(() => {
+    const active = state.value.activeSession
+    return active ? (active.planWeek ?? clock.value.week) : null
+  })
+
+  /**
+   * Whether the session in progress is this day, in this week.
+   *
+   * Both halves, because ids repeat across weeks: with week 3's `day-3` half
+   * logged, opening week 1's `day-3` is a different session, not a resume.
+   */
+  const isActiveDay = (dayId: string, weekNumber: number = clock.value.week) =>
+    state.value.activeSession?.dayId === dayId && activeSessionWeek.value === weekNumber
+
+  /**
    * What they hit last time on this exercise, shown in the "previous" column.
    * Sessions are stored newest-first, so the first match is the latest.
    *
@@ -988,6 +1069,24 @@ const buildStore = () => {
     }
     return undefined
   }
+
+  /**
+   * Every logged session that did this exercise, newest first, with only the
+   * sets that were ticked done.
+   *
+   * Matched by exercise id across days and weeks, the same way `previousFor`
+   * matches, so the history follows the lift rather than the day it sat on. A
+   * session where the exercise was on the plan but no set of it was done is
+   * left out: it is not history of doing the exercise.
+   */
+  const historyFor = (
+    exerciseId: string,
+  ): { log: SessionLog; exercise: LoggedExercise }[] =>
+    state.value.sessions.flatMap((log) => {
+      const logged = log.exercises?.find((e) => e.id === exerciseId)
+      const sets = logged?.sets?.filter((s) => s.done) ?? []
+      return logged && sets.length ? [{ log, exercise: { ...logged, sets } }] : []
+    })
 
   // --- Actions: auth -------------------------------------------------------
   /**
@@ -1095,11 +1194,12 @@ const buildStore = () => {
    * same reason.
    */
   const startSession = async (day: WorkoutDayView) => {
-    if (state.value.activeSession?.dayId === day.id) return state.value.activeSession
+    if (isActiveDay(day.id, day.weekNumber)) return state.value.activeSession
     if (!day.canStart) return null
 
     const session: ActiveSessionInput = {
       dayId: day.id,
+      planWeek: day.weekNumber,
       startedAt: null,
       elapsedSeconds: 0,
       running: false,
@@ -1171,7 +1271,8 @@ const buildStore = () => {
   const finishSession = async () => {
     const active = state.value.activeSession
     if (!active) return null
-    const day = getDay(active.dayId)
+    const planWeek = activeSessionWeek.value ?? clock.value.week
+    const day = getDay(active.dayId, planWeek)
 
     const setsTotal = active.exercises.reduce((n, e) => n + e.sets.length, 0)
     const setsDone = active.exercises.reduce(
@@ -1195,8 +1296,11 @@ const buildStore = () => {
     // the data source resolves them against the program's dated weeks and its
     // threshold. A client that could name its own reward points
     // could name any number, and the Firestore rules reject the attempt.
+    // `planWeek` is sent, unlike those three. It earns nothing, and the data
+    // source still refuses a week the calendar has not reached.
     const log = await data.saveSession({
       dayId: active.dayId,
+      planWeek,
       dayNumber: day?.dayNumber ?? 0,
       label: day?.label ?? 'Workout',
       completedAt: trustedTimestamp(),
@@ -1416,12 +1520,18 @@ const buildStore = () => {
     currentCheckIn,
     checkInDue,
     firstPhotoDue,
+    finalPhotoDue,
+    finalPhotoBadge,
     /** Sessions the whole block asks for: every quota day of every week. Zero until loaded. */
     totalSessions: computed(() =>
       state.value.weeks.reduce((n, week) => n + planDaysOf(week).length, 0),
     ),
     getDay,
+    weekDays,
+    activeSessionWeek,
+    isActiveDay,
     previousFor,
+    historyFor,
 
     // actions
     hydrate,

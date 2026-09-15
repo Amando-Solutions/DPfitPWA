@@ -107,6 +107,47 @@ const STAT_VALUE =
          sequence. -->
     <div class="home__col home__col--main contents lg:flex lg:flex-col lg:gap-4.5 lg:self-start lg:[grid-area:main]">
       <!--
+        Final progress photo, once the block's last session is logged. The same
+        place and shape as the before photo below, because it is the other end
+        of the same pair, and it takes that card's slot when both would show:
+        any photo lifts the first one too, so asking twice is asking for one.
+
+        Stays until a photo taken after that session is on file.
+      -->
+      <section
+        v-if="store.finalPhotoDue.value"
+        class="home__section home__section--photo order-1 mt-3.25 lg:mt-0"
+      >
+        <div :class="CARD">
+          <div class="flex gap-3">
+            <span class="grid size-9 shrink-0 place-items-center rounded-pill bg-rose-soft text-rose">
+              <AppIcon name="image" :size="17" />
+            </span>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <h2 class="m-0 font-display text-[16px] font-black tracking-[-0.24px] text-ink">
+                  Take your final photo
+                </h2>
+                <span
+                  v-if="store.finalPhotoBadge.value?.points"
+                  class="shrink-0 rounded-pill bg-rose-soft px-2 py-0.75 text-[11px] text-rose tabular-nums"
+                >
+                  +{{ store.finalPhotoBadge.value.points }} RP
+                </span>
+              </div>
+              <p class="mt-1 mb-0 text-[13px] leading-[1.45] text-muted">
+                That was your last session. Upload a final progress photo to
+                close out the block<template v-if="store.finalPhotoBadge.value">
+                  and unlock {{ store.finalPhotoBadge.value.name }}</template
+                >.
+              </p>
+            </div>
+          </div>
+          <AppButton to="/progress" class="mt-3.25">Upload final photo</AppButton>
+        </div>
+      </section>
+
+      <!--
         First progress photo. Ahead of the hero, on both layouts, because Start
         workout refuses until it is done: leading with a session they cannot
         start yet would be sending them to a dialog rather than to the thing
@@ -117,7 +158,7 @@ const STAT_VALUE =
         no next week for it to come back in.
       -->
       <section
-        v-if="store.firstPhotoDue.value"
+        v-else-if="store.firstPhotoDue.value"
         class="home__section home__section--photo order-1 mt-3.25 lg:mt-0"
       >
         <div :class="CARD">
@@ -160,15 +201,32 @@ const STAT_VALUE =
         />
       </section>
 
-      <!-- This week at a glance -->
+      <!--
+        This week at a glance. The whole card opens Train, on this week.
+
+        A stretched link rather than a card wrapped in <NuxtLink>: every dot
+        is already a link to its own day, and a link inside a link is invalid
+        markup that browsers untangle by splitting the outer one apart. So the
+        title is the link, its `::after` covers the card, and the dots sit
+        above it (`relative`) and keep going to the day they show.
+      -->
       <section
         v-if="store.days.value.length"
         class="home__section home__section--glance mt-3.25 lg:mt-0 order-3"
       >
-        <div :class="CARD" class="p-4.5">
+        <div
+          :class="CARD"
+          class="relative p-4.5 lg:transition-[translate,box-shadow] lg:duration-150 lg:ease-[ease] lg:hover:-translate-y-0.5 lg:hover:shadow-card"
+        >
           <!-- The "0/4" that used to sit in this corner is gone: the sentence
                immediately below it is the same two numbers, spelled out. -->
-          <span class="block text-[13px] text-muted">This week at a glance</span>
+          <NuxtLink
+            to="/train"
+            class="flex items-center justify-between gap-2 text-[13px] text-muted outline-none after:absolute after:inset-0 after:rounded-card focus-visible:after:ring-2 focus-visible:after:ring-rose-ring"
+          >
+            This week at a glance
+            <AppIcon name="chevronRight" :size="16" class="shrink-0" />
+          </NuxtLink>
           <p class="glance__line flex items-baseline gap-1.5 mt-2.5 mx-0 mb-0 text-[13.5px] text-ink">
             <span class="glance__n font-display font-black text-[24px] tracking-[-0.6px] tabular-nums">{{ doneThisWeek }}</span>
             <span>of {{ store.days.value.length }} sessions logged</span>
@@ -180,7 +238,7 @@ const STAT_VALUE =
             flame
             class="glance__bar mt-3 mx-0 mb-4"
           />
-          <DayDots :days="store.days.value" />
+          <DayDots :days="store.days.value" class="relative" />
         </div>
       </section>
 

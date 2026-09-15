@@ -14,7 +14,10 @@ const existing = computed(() => store.currentCheckIn.value)
 // already know: the sessions they've actually logged.
 const workoutsDone = ref(existing.value?.workoutsDone ?? store.sessionsThisWeek.value.length)
 const nutritionPct = ref(existing.value?.nutritionPct ?? 80)
-const energy = ref<number | null>(existing.value?.energy ?? null)
+// A rating saved on the old 1–10 scale has no cell to light up on this one, so
+// anything above 5 is asked again rather than resubmitted as-is.
+const prevEnergy = existing.value?.energy ?? null
+const energy = ref<number | null>(prevEnergy !== null && prevEnergy <= 5 ? prevEnergy : null)
 const trainingFeel = ref<TrainingFeel | null>(existing.value?.trainingFeel ?? null)
 const showFeel = ref(false)
 const feelLabel = computed(

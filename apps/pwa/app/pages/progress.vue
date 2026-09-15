@@ -4,7 +4,7 @@ definePageMeta({ layout: 'app' })
 
 import { processImage } from '~/lib/image'
 import { formatDate } from '~/lib/time'
-import type { PhotoPose, ProgressPhoto } from '~/data/types'
+import type { BadgeDef, PhotoPose, ProgressPhoto } from '~/data/types'
 
 const store = useAppStore()
 
@@ -36,6 +36,14 @@ const byWeek = computed(() => {
 
 const add = () => fileInput.value?.click()
 
+/**
+ * A badge the upload just unlocked. Celebrated here, where it was earned:
+ * Final Photo Proof comes after the last session, so there is no later Saved
+ * screen for it to wait for.
+ */
+const celebrated = ref<BadgeDef | null>(null)
+const showCelebration = ref(false)
+
 const onFile = async (event: Event) => {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
@@ -46,6 +54,11 @@ const onFile = async (event: Event) => {
     // Decode and downscale here; the store hands the result to the data
     // source, which is what decides where the bytes actually live.
     await store.addPhoto({ pose: pose.value, image: await processImage(file) })
+    const badge = store.consumePendingBadge()
+    if (badge) {
+      celebrated.value = badge
+      showCelebration.value = true
+    }
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Could not add that photo.'
   } finally {
@@ -227,5 +240,14 @@ const takenLabel = formatDate
         </p>
       </DialogContent>
     </Dialog>
+
+    <BottomSheet v-model="showCelebration" title="Badge unlocked">
+      <div v-if="celebrated" class="celebrate flex flex-col items-center text-center gap-2.5">
+        <span class="celebrate__emoji text-[56px] leading-none">{{ celebrated.emoji }}</span>
+        <h2 class="celebrate__name m-0 font-display font-black text-[22px] text-ink">{{ celebrated.name }}</h2>
+        <p class="celebrate__desc mt-0 mx-0 mb-2 text-[14px] text-muted">{{ celebrated.description }}</p>
+        <AppButton @click="showCelebration = false">Nice</AppButton>
+      </div>
+    </BottomSheet>
   </div>
 </template>

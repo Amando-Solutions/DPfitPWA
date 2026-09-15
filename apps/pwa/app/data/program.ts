@@ -42,6 +42,7 @@ import type {
   TrainingWeek,
   WorkoutDay,
 } from './types'
+import { finalPhotoBadge } from './badges'
 
 // --- Fixture plumbing ------------------------------------------------------
 const at = (iso: string) => Timestamp.fromDate(new Date(iso))
@@ -213,9 +214,12 @@ export const ranks: [Rank, ...Rank[]] = [
 /**
  * The badge ladder.
  *
- * The two starter badges are meant to be earned in the first week. Everything
- * past them asks for sustained volume, which is the part that should feel
- * earned. The conditions themselves live in `lib/domain/rewards`.
+ * The first two starter badges are meant to be earned in the first week.
+ * Everything past them asks for sustained volume, which is the part that should
+ * feel earned. Final Photo Proof closes the block: it is starter-tier because a
+ * photo is the same small act at either end, and it is last because it can only
+ * be earned after the last session. The conditions themselves live in
+ * `lib/domain/rewards`.
  */
 export const badges: BadgeDef[] = [
   {
@@ -267,6 +271,7 @@ export const badges: BadgeDef[] = [
     description: `A qualifying session in all ${challenge.totalWeeks} weeks, none missed.`,
     tier: 'elite',
   },
+  finalPhotoBadge,
 ]
 
 // --- Training plan ---------------------------------------------------------

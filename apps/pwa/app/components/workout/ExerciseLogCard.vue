@@ -24,10 +24,13 @@ const props = withDefaults(
      *
      * The badge and the tick are the two controls on a row that write to the
      * log, so both stay inert until the clock is running: a set ticked off
-     * before the session has begun is work the timer never sees. The read-only
-     * render has no clock behind it at all, hence the default.
+     * before the session has begun is work the timer never sees. The rest timer
+     * waits too, and longer: see `canRest`. The read-only render has no clock
+     * behind it at all, hence the default.
      */
     started?: boolean
+    /** Where the exercise name leads: its history and how-to. Plain text without one. */
+    to?: string
   }>(),
   { unit: 'kg', started: true },
 )
@@ -47,6 +50,9 @@ const restLabel = computed(() => {
   const s = props.restSeconds % 60
   return m ? `${m}min ${s}s` : `${s}s`
 })
+
+/** Rest follows a set, so the button waits for Start and a first tick here. */
+const canRest = computed(() => props.started && props.sets.some((set) => set.done))
 
 const menuOpen = ref(false)
 const noteFocused = ref(false)
@@ -234,7 +240,14 @@ const NO_SPINNER =
         reps column.
       -->
       <h3 class="m-0 min-w-0 flex-1 truncate text-[15px] font-bold text-rose">
-        {{ name }}
+        <NuxtLink
+          v-if="to"
+          :to="to"
+          class="rounded-field transition-opacity duration-100 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-ring active:opacity-70"
+        >
+          {{ name }}
+        </NuxtLink>
+        <template v-else>{{ name }}</template>
       </h3>
 
       <button
@@ -263,7 +276,8 @@ const NO_SPINNER =
 
     <button
       v-if="!readonly"
-      class="mt-0.5 flex min-h-7 items-center py-1 text-[12.5px] text-rose"
+      class="mt-0.5 flex min-h-7 items-center py-1 text-[12.5px] text-rose disabled:cursor-default disabled:opacity-60"
+      :disabled="!canRest"
       @click="emit('rest', restSeconds)"
     >
       <span>Rest timer: {{ restLabel }}</span>

@@ -56,7 +56,8 @@ import {
   addressedUidsOf,
   typingIsFresh,
 } from '~/lib/chat'
-import { daysBetween, isDateKey, weekOf } from '~/lib/domain/challenge'
+import { withShippedBadges } from '~/data/badges'
+import { daysBetween, isDateKey, resolvePlanWeek, weekOf } from '~/lib/domain/challenge'
 import { prescribedSets } from '~/lib/domain/sets'
 import { storage as webStorage } from '~/lib/storage'
 import { trustedNow } from '~/lib/time'
@@ -210,7 +211,15 @@ const emptyRewards = (): RewardConfig => ({
   badges: [],
 })
 
-/** Fill in the fields a program document written to an older shape lacks. */
+/**
+ * Fill in the fields a program document written to an older shape lacks.
+ *
+ * That includes the badges the app ships (see `data/badges`), so Final Photo
+ * Proof shows on every cohort's ladder, locked until earned, and `awardBadge`
+ * can find it to pay out. Only onto an authored economy: the empty one pays
+ * nothing, and a "+0" tile would be a plausible-looking badge against rewards
+ * that were never written.
+ */
 const normaliseProgram = (id: string, data: Partial<ProgramDoc>): Program => {
   if (!data.rewards) {
     console.warn(
@@ -224,7 +233,9 @@ const normaliseProgram = (id: string, data: Partial<ProgramDoc>): Program => {
   return {
     ...(data as ProgramDoc),
     id,
-    rewards: data.rewards ?? emptyRewards(),
+    rewards: data.rewards
+      ? { ...data.rewards, badges: withShippedBadges(data.rewards.badges ?? []) }
+      : emptyRewards(),
   }
 }
 
@@ -1070,9 +1081,11 @@ export class FirestoreDataSource implements DataSource {
       denominator > 0 && (log.setsDone / denominator) * 100 >= program.qualifyingSetPercent
 
     const rewardPoints = qualifies ? program.rewards.values.workout : 0
+    const weekNumber = weekOf(await this.weeks(), log.completedAt)
     const record: Omit<SessionLog, 'id'> = {
       ...log,
-      weekNumber: weekOf(await this.weeks(), log.completedAt),
+      weekNumber,
+      planWeek: resolvePlanWeek(log.planWeek, weekNumber),
       qualifies,
       rewardPoints,
       // The program that actually decided the two fields above, not whatever
@@ -1221,7 +1234,10 @@ export class FirestoreDataSource implements DataSource {
   async savePhoto(input: PhotoInput): Promise<ProgressPhoto> {
     const member = await this.requireMember()
     const program = await this.program()
-    const takenAt = Timestamp.now()
+    // The trusted clock, the one a session's `completedAt` is stamped on: Final
+    // Photo Proof asks whether this came after the block's last session, and
+    // two clocks would let a phone set a few hours slow answer that wrongly.
+    const takenAt = Timestamp.fromDate(trustedNow())
 
     // Upload first: a document pointing at a file that failed to upload renders
     // as a broken tile, whereas an orphaned upload is only wasted bytes.

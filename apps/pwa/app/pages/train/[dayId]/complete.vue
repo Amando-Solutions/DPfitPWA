@@ -15,7 +15,11 @@ const store = useAppStore()
 const units = computed(() => store.prefs.value.units)
 
 const dayId = computed(() => String(route.params.dayId))
-const day = computed(() => store.getDay(dayId.value))
+// The session's own week: a catch-up from week 1 finishes here too, and day ids
+// repeat across weeks.
+const day = computed(() =>
+  store.getDay(dayId.value, store.activeSessionWeek.value ?? undefined),
+)
 const session = computed(() => store.activeSession.value)
 
 // Nothing to complete without a session in flight.

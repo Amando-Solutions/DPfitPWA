@@ -3,14 +3,39 @@
 definePageMeta({ layout: false })
 
 import type { SetType } from '~/data/types'
-import { nightsLabel, trustedTimestamp } from '~/lib/time'
+import { nightsLabel, scheduleDateLabel, trustedTimestamp } from '~/lib/time'
 
 const route = useRoute()
 const router = useRouter()
 const store = useAppStore()
 
 const dayId = computed(() => String(route.params.dayId))
-const day = computed(() => store.getDay(dayId.value))
+/**
+ * The week the day was picked from, when Train's switcher was on another one.
+ * Day ids repeat across weeks, so without it week 4's day 1 would open as
+ * this week's.
+ */
+const weekParam = computed(() => {
+  const n = Number(route.query.week)
+  return Number.isInteger(n) && n > 0 ? n : undefined
+})
+const day = computed(() => store.getDay(dayId.value, weekParam.value))
+
+/** A day from a week other than the one the calendar is in. Always read-only. */
+const otherWeek = computed(
+  () => !!day.value && day.value.weekNumber !== store.clock.value.week,
+)
+
+/** Back to the list, on the week it was opened from. */
+const trainHref = computed(() =>
+  weekParam.value && weekParam.value !== store.clock.value.week
+    ? `/train?week=${weekParam.value}`
+    : '/train',
+)
+
+/** An exercise's history and how-to, carrying the week so it resolves the same day. */
+const exerciseHref = (exerciseId: string) =>
+  `/train/${dayId.value}/exercise/${exerciseId}${weekParam.value ? `?week=${weekParam.value}` : ''}`
 
 const session = computed(() => store.activeSession.value)
 
@@ -36,7 +61,7 @@ const open = async () => {
     router.replace('/train')
     return
   }
-  if (store.activeSession.value?.dayId !== dayId.value && day.value.canStart) {
+  if (!store.isActiveDay(dayId.value, day.value.weekNumber) && day.value.canStart) {
     await store.startSession(day.value)
   }
   opening.value = false
@@ -57,17 +82,22 @@ const preview = computed(() => !opening.value && !!day.value && !session.value)
 /** "Opens Thursday", or the reason there is nothing to open at all. */
 const opensLabel = computed(() => {
   if (!day.value) return ''
-  if (day.value.status === 'completed') return 'Logged this week'
+  if (day.value.status === 'completed') {
+    return otherWeek.value ? `Logged in Week ${day.value.weekNumber}` : 'Logged this week'
+  }
   const nights = day.value.opensInNights
   // The finisher holds no slot in the week, so nothing schedules it and the one
   // thing that shuts it is having already been logged today.
   if (nights === null) return 'Logged today'
-  // A day from a week that has already ended, reached by id. This week has its
-  // own copy of the session; this one is not coming round again.
-  if (nights < 0) return 'Its week has ended'
+  // A day behind the calendar that still cannot start: one reached by id alone
+  // from a week that does not have it in its quota. Its own week can open it.
+  if (nights < 0) return 'Open it from its week'
   // Nothing reaches here with `nights` at zero: a day whose slot is today is
   // either open or already in the log, and both were answered above.
-  return `Opens ${nightsLabel(nights, store.now.value)}`
+  // A later week's day gets its date: weeks out, a weekday name is a riddle.
+  return otherWeek.value && day.value.date
+    ? `Opens ${scheduleDateLabel(day.value.date)}`
+    : `Opens ${nightsLabel(nights, store.now.value)}`
 })
 
 /**
@@ -81,13 +111,15 @@ const opensLabel = computed(() => {
 const previewNote = computed(() => {
   if (!day.value) return ''
   if (day.value.status === 'completed') {
-    return 'This one is logged for the week. It comes round again when the week does.'
+    return otherWeek.value
+      ? 'Already in the log for its week. Nothing left to do on this one.'
+      : 'This one is logged for the week. It comes round again when the week does.'
   }
   if (day.value.opensInNights === null) {
     return 'The finisher is once a day. It is here to read until tomorrow.'
   }
   if (day.value.opensInNights < 0) {
-    return 'Sessions close with their week. This one is here to read.'
+    return 'Pick this session from its week on Train to log it.'
   }
   return 'Days open as the week reaches them. This one is here to read until it does.'
 })
@@ -199,7 +231,6 @@ const photoGateOpen = ref(false)
 const startWorkout = async () => {
   const active = store.activeSession.value
   if (!active) return
-  // Here rather than on the button: the rest timer starts the clock too.
   if (!active.running && store.firstPhotoDue.value) {
     photoGateOpen.value = true
     return
@@ -212,13 +243,52 @@ const startWorkout = async () => {
 
 watch(() => store.activeSession.value?.running, syncClock)
 
+/**
+ * The clock and rest timer as they stood when the member stepped out to an
+ * exercise's history or how-to.
+ *
+ * The clock lives on this screen, so leaving it stops the count. For most exits
+ * that is the existing behaviour and is left alone, but reading how to do the
+ * next lift is part of the workout: without this, every trip to it quietly took
+ * those minutes off the duration and threw away the rest countdown. Held in
+ * `useState` because this component is gone by the time the member comes back.
+ */
+const detour = useState<{ dayId: string; at: number; rest: number } | null>(
+  'session-exercise-detour',
+  () => null,
+)
+
 onMounted(() => {
   document.addEventListener('visibilitychange', onVisibility)
+  const back = detour.value
+  detour.value = null
+  if (back?.dayId === dayId.value && store.activeSession.value?.running) {
+    // Rest first: `advance` counts it down along with the clock.
+    if (back.rest > 0) {
+      restRemaining.value = back.rest
+      restActive.value = true
+    }
+    advance((Date.now() - back.at) / 1000)
+  }
   syncClock()
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', onVisibility)
+  // By the time the page unmounts the router is already on its destination.
+  const leavingForExercise = router.currentRoute.value.path.startsWith(
+    `/train/${dayId.value}/exercise/`,
+  )
+  if (leavingForExercise && clock && store.activeSession.value?.running) {
+    // Settle the part of a second since the last tick, so the gap measured on
+    // the way back starts exactly where the count stopped.
+    advance((Date.now() - lastTickAt) / 1000)
+    detour.value = {
+      dayId: dayId.value,
+      at: Date.now(),
+      rest: restActive.value ? restRemaining.value : 0,
+    }
+  }
   stopClock()
   // Leaving the screen shouldn't lose the last few reps.
   store.persistActiveSession()
@@ -249,13 +319,25 @@ const allDone = computed(() => totals.value.setsTotal > 0 && totals.value.setsDo
 const restActive = ref(false)
 const restRemaining = ref(0)
 
-const openRest = async (seconds: number) => {
-  if (!session.value?.running) await startWorkout()
-  // Start can be refused (see `photoGateOpen`), and a rest timer counting down
-  // over a workout that never began is the old half-started session again.
+const openRest = (seconds: number) => {
+  // This used to press Start on the member's behalf, so tapping the rest timer
+  // on a card began the workout. Start workout is the only way in; a rest
+  // before it has nothing to be a rest from.
   if (!session.value?.running) return
   restActive.value = true
   restRemaining.value = seconds
+}
+
+/**
+ * The card's own Rest timer button.
+ *
+ * Only once a set of that exercise is ticked off: rest follows a set. The card
+ * disables the button until then, and this is the guard behind it.
+ */
+const restFor = (exerciseIndex: number) => {
+  const exercise = session.value?.exercises[exerciseIndex]
+  if (!exercise?.sets.some((s) => s.done)) return
+  openRest(exercise.restSeconds)
 }
 
 // --- Set logging -----------------------------------------------------------
@@ -272,7 +354,7 @@ const toggleSet = async (exerciseIndex: number, setIndex: number) => {
   if (!set) return
   set.done = !set.done
   // Completing a set is the natural moment to start resting.
-  if (set.done) await openRest(exercise.restSeconds)
+  if (set.done) openRest(exercise.restSeconds)
   await store.persistActiveSession()
 }
 
@@ -414,13 +496,14 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
           :sets="exercise.sets"
           :unit="units"
           :started="session.running"
+          :to="exerciseHref(exercise.id)"
           @toggle-set="(setIndex) => toggleSet(i, setIndex)"
           @update-set="(payload) => updateSet(i, payload)"
           @update-set-type="(payload) => setSetType(i, payload)"
           @add-set="() => addSet(i)"
           @remove-set="(setIndex) => removeSet(i, setIndex)"
           @update-note="(value) => updateNote(i, value)"
-          @rest="openRest"
+          @rest="() => restFor(i)"
         />
       </div>
     </div>
@@ -459,7 +542,7 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
               {{ day.dayNumber ? `Day ${day.dayNumber}: ${day.label}` : day.label }}
             </h1>
             <NuxtLink
-              to="/train"
+              :to="trainHref"
               class="shrink-0 rounded-pill bg-on-photo/14 px-4 py-2 text-[13px] font-bold text-on-photo transition-opacity duration-100 active:opacity-70"
             >
               Close
@@ -506,7 +589,12 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
         >
           <div class="flex items-baseline justify-between gap-3">
             <h2 class="m-0 min-w-0 font-display text-[15.5px] font-black tracking-[-0.2325px] text-ink">
-              {{ exercise.name }}
+              <NuxtLink
+                :to="exerciseHref(exercise.id)"
+                class="rounded-field transition-opacity duration-100 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-ring active:opacity-70"
+              >
+                {{ exercise.name }}
+              </NuxtLink>
             </h2>
             <span class="shrink-0 text-[12.5px] text-muted tabular-nums">
               {{ exercise.restSeconds }}s rest

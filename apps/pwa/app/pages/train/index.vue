@@ -2,14 +2,63 @@
 // 12 · Train · Day Picker
 definePageMeta({ layout: 'app' })
 
-import { nightsLabel } from '~/lib/time'
+import { nightsLabel, scheduleDateLabel } from '~/lib/time'
 
+const route = useRoute()
+const router = useRouter()
 const store = useAppStore()
+
+/**
+ * The week the list is showing: the one the calendar is in, unless `?week=`
+ * names another the schedule has.
+ *
+ * In the URL rather than a ref so that closing a day picked from week 4 comes
+ * back to week 4, not to whatever week today is. A number the schedule does
+ * not have — a stale link, a week the coach took down — falls back to this
+ * week rather than to an empty list.
+ */
+const shownWeek = computed(() => {
+  const n = Number(route.query.week)
+  return store.weeks.value.some((w) => w.weekNumber === n) ? n : store.clock.value.week
+})
+
+const onCurrentWeek = computed(() => shownWeek.value === store.clock.value.week)
+
+// `replace`, so flicking through the weeks does not become a trail of history
+// entries the back button has to walk through before it leaves the screen.
+const showWeek = (n: number) =>
+  router.replace({ query: n === store.clock.value.week ? {} : { week: String(n) } })
+
+const shownDays = computed(() => store.weekDays(shownWeek.value))
+
+/** Where a row goes: this week's days by id alone, any other week's by id and week. */
+const dayHref = (id: string) =>
+  onCurrentWeek.value ? `/train/${id}` : `/train/${id}?week=${shownWeek.value}`
+
+/** One line under the switcher on a week that is not this one, saying where it stands. */
+const otherWeekNote = computed(() => {
+  if (onCurrentWeek.value) return ''
+  const week = store.weeks.value.find((w) => w.weekNumber === shownWeek.value)
+  if (!week) return ''
+  return shownWeek.value < store.clock.value.week
+    ? `Week ${week.weekNumber} is behind you. Anything you didn’t log is still open.`
+    : `Week ${week.weekNumber} starts ${scheduleDateLabel(week.startDate)}. Read ahead; nothing logs until then.`
+})
 
 const setsFor = (exercises: { targetSets: number }[]) =>
   exercises.reduce((n, e) => n + e.targetSets, 0)
 
 const resumable = computed(() => store.activeSession.value)
+
+/** The half-logged session's own week, so resuming a catch-up opens that week's copy. */
+const resumeHref = computed(() => {
+  const active = resumable.value
+  const week = store.activeSessionWeek.value
+  if (!active) return '/train'
+  return week !== null && week !== store.clock.value.week
+    ? `/train/${active.dayId}?week=${week}`
+    : `/train/${active.dayId}`
+})
 
 /** The plan day the calendar opens today, logged or not. `null` on a rest day. */
 const scheduledToday = computed(
@@ -59,7 +108,11 @@ const subtitle = computed(() => {
     return 'Days open as the week reaches them. Nothing is waiting on you today.'
   }
   if (owed.value.length) {
-    return 'A day you missed stays open until you log it. Take them in any order.'
+    // Said outright, because a list of nothing but "Catch up" otherwise leaves
+    // them hunting for which of those days is today.
+    return restDay.value
+      ? 'No session is scheduled today. A day you missed stays open until you log it; take them in any order.'
+      : 'A day you missed stays open until you log it. Take them in any order.'
   }
   return 'Your day is open. The ones ahead are there to read, not to log.'
 })
@@ -102,7 +155,7 @@ const CHIP_QUIET = 'bg-fill-subtle text-muted'
  * branch is read once per day per render instead of once per binding.
  */
 const rows = computed(() =>
-  store.days.value.map((day) => {
+  shownDays.value.map((day) => {
     if (day.status === 'completed') {
       return { day, chip: { text: 'Logged', cls: CHIP_ACCENT } }
     }
@@ -111,18 +164,53 @@ const rows = computed(() =>
     if (day.canStart) {
       return {
         day,
-        chip: { text: day.status === 'today' ? 'Open now' : 'Catch up', cls: CHIP_ACCENT },
+        chip: { text: day.status === 'today' ? 'Today' : 'Catch up', cls: CHIP_ACCENT },
       }
     }
     return {
       day,
       chip: {
-        text: `Opens ${nightsLabel(day.opensInNights ?? 1, store.now.value)}`,
+        // A later week's days by date: a list mixing "Monday" with "next
+        // Tuesday" for days side by side reads as a mistake.
+        text: onCurrentWeek.value
+          ? `Opens ${nightsLabel(day.opensInNights ?? 1, store.now.value)}`
+          : `Opens ${scheduleDateLabel(day.date)}`,
         cls: CHIP_QUIET,
       },
     }
   }),
 )
+
+/**
+ * Where today falls in the list, on a day the plan schedules nothing for.
+ *
+ * A training day carries its own "Today" chip. A rest day has no row to put
+ * one on, so without this a week of four "Catch up" rows gives no sign of where
+ * in the week they actually are. A marker between the days behind and the days
+ * ahead does, in the one place a member reads the schedule from.
+ *
+ * `null` on any other week, on a day that has its own row, and outside this
+ * week's span — before week 1 starts there is no "today" inside it to mark.
+ */
+const todayMarkerAt = computed(() => {
+  const week = store.currentWeek.value
+  const today = store.clock.value.today
+  if (!onCurrentWeek.value || !week || !rows.value.length) return null
+  if (today < week.startDate || today > week.endDate) return null
+  if (rows.value.some(({ day }) => day.opensInNights === 0)) return null
+  const ahead = rows.value.findIndex(({ day }) => (day.opensInNights ?? 0) > 0)
+  return ahead === -1 ? rows.value.length : ahead
+})
+
+const todayLabel = computed(() => scheduleDateLabel(store.clock.value.today))
+
+/** The rows with the marker spliced in, so the template walks one list in date order. */
+const items = computed(() => {
+  const list: ({ kind: 'day' } & (typeof rows.value)[number] | { kind: 'today' })[] =
+    rows.value.map((row) => ({ kind: 'day' as const, ...row }))
+  if (todayMarkerAt.value !== null) list.splice(todayMarkerAt.value, 0, { kind: 'today' })
+  return list
+})
 </script>
 
 <template>
@@ -144,16 +232,62 @@ const rows = computed(() =>
     </div>
 
     <!-- A workout left half-logged is the first thing they should see. -->
-    <NuxtLink v-if="resumable" :to="`/train/${resumable.dayId}`" class="picker__resume flex items-center gap-3 mt-5 py-3.5 px-4.5 rounded-card bg-inverse text-on-inverse shadow-hero lg:mt-6 lg:transition-[translate,box-shadow] lg:duration-150 lg:ease-[ease] lg:hover:-translate-y-0.5 lg:hover:shadow-raised">
+    <NuxtLink v-if="resumable" :to="resumeHref" class="picker__resume flex items-center gap-3 mt-5 py-3.5 px-4.5 rounded-card bg-inverse text-on-inverse shadow-hero lg:mt-6 lg:transition-[translate,box-shadow] lg:duration-150 lg:ease-[ease] lg:hover:-translate-y-0.5 lg:hover:shadow-raised">
       <span class="picker__resume-icon w-9.5 h-9.5 rounded-[14px] bg-rose-fill grid place-items-center shrink-0"><AppIcon name="train" :size="18" /></span>
       <span class="picker__resume-text flex-1 min-w-0 flex flex-col gap-0.5 [&_strong]:font-display [&_strong]:font-black [&_strong]:text-[15px] [&_small]:text-[12.5px] [&_small]:text-on-inverse-soft">
         <strong>Pick up where you left off</strong>
-        <small>{{ store.getDay(resumable.dayId)?.label ?? 'Session in progress' }}</small>
+        <small>
+          {{ store.getDay(resumable.dayId, store.activeSessionWeek.value ?? undefined)?.label ?? 'Session in progress' }}<template
+            v-if="store.activeSessionWeek.value !== store.clock.value.week"
+          > · Week {{ store.activeSessionWeek.value }}</template>
+        </small>
       </span>
       <AppIcon name="chevronRight" :size="16" />
     </NuxtLink>
 
-    <div class="picker__list flex flex-col gap-2.75 pt-7 lg:grid lg:grid-cols-2 lg:gap-4 lg:pt-6">
+    <!--
+      Every week of the block, opening on this one.
+
+      Only drawn when there is more than one week to choose between; a block of
+      one would be a switch with nothing on the other side. Chips that scroll
+      rather than a segmented pill, because the number of weeks is the coach's
+      to author and eight segments do not fit across a phone.
+    -->
+    <nav
+      v-if="store.weeks.value.length > 1"
+      aria-label="Training weeks"
+      class="picker__weeks -mx-5 mt-6 flex gap-2 overflow-x-auto px-5 pb-1 scrollbar-none lg:mx-0 lg:px-0 [&::-webkit-scrollbar]:hidden"
+    >
+      <button
+        v-for="week in store.weeks.value"
+        :key="week.id"
+        type="button"
+        class="relative shrink-0 rounded-pill bg-raised px-3.5 py-2 text-[12.5px] whitespace-nowrap text-muted tabular-nums aria-pressed:bg-inverse aria-pressed:font-semibold aria-pressed:text-on-inverse"
+        :aria-pressed="week.weekNumber === shownWeek"
+        @click="showWeek(week.weekNumber)"
+      >
+        Week {{ week.weekNumber }}
+        <!-- Marks the calendar's week, so it can be found again from any other. -->
+        <span
+          v-if="week.weekNumber === store.clock.value.week"
+          class="absolute top-1 right-1.5 size-1.5 rounded-pill bg-rose"
+          aria-hidden="true"
+        />
+        <span v-if="week.weekNumber === store.clock.value.week" class="sr-only">(this week)</span>
+      </button>
+    </nav>
+
+    <p
+      v-if="otherWeekNote"
+      class="picker__week-note mt-3 mb-0 text-[12.5px] leading-[1.45] text-muted"
+    >
+      {{ otherWeekNote }}
+    </p>
+
+    <div
+      class="picker__list flex flex-col gap-2.75 lg:grid lg:grid-cols-2 lg:gap-4"
+      :class="store.weeks.value.length > 1 ? 'pt-4' : 'pt-7 lg:pt-6'"
+    >
       <!--
         Every row is a link, the closed ones included.
 
@@ -161,39 +295,51 @@ const rows = computed(() =>
         Thursday, and a member who wants to read what is coming should be able
         to. What a day still ahead withholds is the Start button on the other
         side, not the door — `canStart` is the only thing the session screen
-        gates on, and it is only ever false on a day the week has not reached.
+        gates on, and it is only ever false on a day the calendar has not reached.
       -->
-      <NuxtLink
-        v-for="{ day, chip } in rows"
-        :key="day.id"
-        :to="`/train/${day.id}`"
-        class="day flex items-center gap-3 p-4.5 rounded-card bg-raised border border-hairline filter-(--drop-md) text-ink [&.day--done]:border-rose-ring [&.day--shut]:opacity-70 [&.day--shut_.day__badge]:bg-fill-subtle [&.day--shut_.day__badge]:text-muted lg:transition-[translate,box-shadow] lg:duration-150 lg:ease-[ease] lg:hover:-translate-y-0.5 lg:hover:shadow-raised"
-        :class="{
-          'day--done': day.status === 'completed',
-          'day--shut': !day.canStart && day.status !== 'completed',
-        }"
-      >
-        <span class="day__badge w-10.5 h-10.5 rounded-[14px] bg-rose-soft text-rose grid place-items-center shrink-0 text-[13px] font-bold tabular-nums">
-          <AppIcon v-if="day.status === 'completed'" name="check" :size="16" />
-          <AppIcon v-else-if="!day.canStart" name="lock" :size="16" />
-          <span v-else>D{{ day.dayNumber }}</span>
-        </span>
+      <template v-for="item in items" :key="item.kind === 'day' ? item.day.id : 'today'">
+        <!-- Today, on a rest day: see `todayMarkerAt`. Spans both desktop columns
+             so it reads as a line across the schedule rather than a short card. -->
+        <div
+          v-if="item.kind === 'today'"
+          class="picker__today flex items-center gap-2.5 py-1 text-[12.5px] lg:col-span-2"
+        >
+          <span class="size-2 shrink-0 rounded-pill bg-rose" aria-hidden="true" />
+          <strong class="font-semibold text-rose">Today</strong>
+          <span class="truncate text-muted">{{ todayLabel }} · no session scheduled</span>
+          <span class="h-px min-w-4 flex-1 bg-hairline" aria-hidden="true" />
+        </div>
+        <NuxtLink
+          v-else
+          :to="dayHref(item.day.id)"
+          class="day flex items-center gap-3 p-4.5 rounded-card bg-raised border border-hairline filter-(--drop-md) text-ink [&.day--done]:border-rose-ring [&.day--shut]:opacity-70 [&.day--shut_.day__badge]:bg-fill-subtle [&.day--shut_.day__badge]:text-muted lg:transition-[translate,box-shadow] lg:duration-150 lg:ease-[ease] lg:hover:-translate-y-0.5 lg:hover:shadow-raised"
+          :class="{
+            'day--done': item.day.status === 'completed',
+            'day--shut': !item.day.canStart && item.day.status !== 'completed',
+          }"
+        >
+          <span class="day__badge w-10.5 h-10.5 rounded-[14px] bg-rose-soft text-rose grid place-items-center shrink-0 text-[13px] font-bold tabular-nums">
+            <AppIcon v-if="item.day.status === 'completed'" name="check" :size="16" />
+            <AppIcon v-else-if="!item.day.canStart" name="lock" :size="16" />
+            <span v-else>D{{ item.day.dayNumber }}</span>
+          </span>
 
-        <span class="day__text flex-1 min-w-0 flex flex-col gap-0.5">
-          <span class="day__title font-display font-black text-[15.5px] tracking-[-0.2325px] text-ink">Day {{ day.dayNumber }}: {{ day.label }}</span>
-          <span class="day__meta flex items-center gap-2 pt-0.75 text-[12.5px] text-soft">
-            <span class="truncate">{{ day.exercises.length }} exercises · {{ setsFor(day.exercises) }} sets</span>
-            <span
-              class="day__chip shrink-0 py-0.5 px-1.75 rounded-pill text-[11px]"
-              :class="chip.cls"
-            >
-              {{ chip.text }}
+          <span class="day__text flex-1 min-w-0 flex flex-col gap-0.5">
+            <span class="day__title font-display font-black text-[15.5px] tracking-[-0.2325px] text-ink">Day {{ item.day.dayNumber }}: {{ item.day.label }}</span>
+            <span class="day__meta flex items-center gap-2 pt-0.75 text-[12.5px] text-soft">
+              <span class="truncate">{{ item.day.exercises.length }} exercises · {{ setsFor(item.day.exercises) }} sets</span>
+              <span
+                class="day__chip shrink-0 py-0.5 px-1.75 rounded-pill text-[11px]"
+                :class="item.chip.cls"
+              >
+                {{ item.chip.text }}
+              </span>
             </span>
           </span>
-        </span>
 
-        <AppIcon name="chevronRight" :size="16" class="day__chev text-muted shrink-0" />
-      </NuxtLink>
+          <AppIcon name="chevronRight" :size="16" class="day__chev text-muted shrink-0" />
+        </NuxtLink>
+      </template>
     </div>
 
     <!--
@@ -205,11 +351,12 @@ const rows = computed(() =>
       the days into `programs/{id}/weeks/{weekId}/days`.
     -->
     <p
-      v-if="!store.days.value.length"
+      v-if="!shownDays.length"
       class="picker__empty mt-6 mb-0 rounded-card bg-raised p-4.5 text-[13.5px] leading-[1.5] text-muted"
     >
-      Your coach hasn’t published this week’s sessions yet. They’ll show up here
-      as soon as they do.
+      Your coach hasn’t published
+      {{ onCurrentWeek ? 'this week’s' : `Week ${shownWeek}’s` }} sessions yet.
+      They’ll show up here as soon as they do.
     </p>
   </div>
 </template>

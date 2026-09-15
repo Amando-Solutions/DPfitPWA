@@ -60,9 +60,46 @@ export const weekAt = <W extends ProgramWeek>(weeks: W[], day: DateKey): W | nul
 export const weekOf = (weeks: ProgramWeek[], at: Timestamp | Date): number =>
   weekAt(weeks, dateKey(at))?.weekNumber ?? 1
 
+/**
+ * The week whose day a session was for. `weekNumber` on a session written
+ * before `planWeek` existed, when a day could only be logged in its own week.
+ */
+export const planWeekOf = (session: { planWeek?: number; weekNumber: number }): number =>
+  session.planWeek ?? session.weekNumber
+
+/**
+ * The `planWeek` to file a session under: the one asked for, if it is a week
+ * the calendar has reached, else the week it was logged in.
+ *
+ * Resolved in the data source rather than trusted from the caller. Nothing
+ * pays out on it, but a session stamped for a week that has not started would
+ * mark a future day done and quietly take it off the plan.
+ */
+export const resolvePlanWeek = (asked: number | undefined, loggedIn: number): number =>
+  Number.isInteger(asked) && asked! >= 1 && asked! <= loggedIn ? asked! : loggedIn
+
 /** The training days that count toward a week's quota, in date order. */
 export const planDaysOf = (week: TrainingWeek | null): WorkoutDay[] =>
   week ? week.days.filter((day) => !day.optional && isDateKey(day.date)) : []
+
+/** A training day pinned to its week, since day ids repeat from week to week. */
+export interface PlanDayRef {
+  weekNumber: number
+  dayId: string
+}
+
+/**
+ * The block's last training day: the final quota day of the final week.
+ *
+ * The last week is the last one in the schedule, as `challengeClock` reads it.
+ * `null` while that week has no dated days, because a block whose ending has
+ * not been written yet has no last session to wait on.
+ */
+export const finalDayOf = (weeks: TrainingWeek[]): PlanDayRef | null => {
+  const last = weeks[weeks.length - 1]
+  const day = planDaysOf(last ?? null).at(-1)
+  return last && day ? { weekNumber: last.weekNumber, dayId: day.id } : null
+}
 
 export interface ChallengeClock {
   /** Today, as the key every date in the schedule is compared against. */

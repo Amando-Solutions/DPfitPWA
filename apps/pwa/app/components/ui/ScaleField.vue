@@ -1,10 +1,6 @@
 <script setup lang="ts">
-// The rating row used by the weekly check-in.
-//
-// Ten steps by default, not five. A five-point scale collapses "fine" and
-// "good" into the same tap, and the middle option collects everyone who hasn't
-// thought about it; ten leaves room to answer honestly and gives a coach
-// reading a run of check-ins something that actually moves week to week.
+// The rating row used by the weekly check-in. Five steps, so the whole scale
+// sits in one row on a phone.
 withDefaults(
   defineProps<{
     modelValue: number | null
@@ -13,7 +9,7 @@ withDefaults(
     lowLabel?: string
     highLabel?: string
   }>(),
-  { steps: 10 },
+  { steps: 5 },
 )
 
 defineEmits<{ (e: 'update:modelValue', value: number): void }>()
@@ -24,13 +20,12 @@ defineEmits<{ (e: 'update:modelValue', value: number): void }>()
     <span class="pb-2 text-[13px] text-soft">{{ label }}</span>
 
     <!-- A rating is a single choice from the set, so it is a radio group: arrow
-         keys walk the scale, and the whole row is one tab stop. Ten cells will
-         not sit in one row on a phone, so they wrap to two. -->
+         keys walk the scale, and the whole row is one tab stop. -->
     <RadioGroup
       :model-value="modelValue ?? undefined"
       orientation="horizontal"
       :aria-label="label"
-      class="grid grid-cols-5 gap-1.75 sm:grid-cols-10"
+      class="grid grid-cols-5 gap-1.75"
       @update:model-value="$emit('update:modelValue', Number($event))"
     >
       <RadioGroupItem
