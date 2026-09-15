@@ -45,7 +45,7 @@ const next = async () => {
 <template>
   <SetupStepShell
     :step="1"
-    :total="4"
+    :total="3"
     eyebrow="About you"
     title="What should we call you?"
     subtitle="This name shows up in Cohort Chat and nowhere else."

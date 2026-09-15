@@ -36,7 +36,6 @@ const SETUP_ROUTES = [
   FIRST_SETUP_STEP,
   '/setup/body-metrics',
   '/setup/activity-goal',
-  '/setup/safety-call',
 ]
 
 export default defineNuxtRouteMiddleware((to) => {

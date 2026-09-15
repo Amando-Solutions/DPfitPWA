@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 08 · Setup · Activity & Goal
+// 08 · Setup · Activity & Goal: the last step, which opens the app.
 definePageMeta({ layout: 'default' })
 
 import { activityOptions, goalOptions } from '~/data/onboarding'
@@ -18,10 +18,17 @@ const showActivity = ref(false)
 
 const canContinue = computed(() => !!activity.value && !!goal.value)
 
-// Frozen for the write, released only if it fails — see `about-you`.
+/*
+  Two writes, and the screen stays frozen across both.
+
+  `completeSetup` is what flips the member to `active`, so the gap between it
+  and `saveProfile` is the one moment where an edit to either answer would be
+  saved to a profile that is about to be declared finished. Released only if
+  something throws; the success path leaves for /home instead.
+*/
 const busy = ref(false)
 const error = ref('')
-const next = async () => {
+const finish = async () => {
   if (busy.value) return
   busy.value = true
   error.value = ''
@@ -30,7 +37,8 @@ const next = async () => {
       activity: activity.value as ActivityLevel,
       goal: goal.value as Goal,
     })
-    await router.push('/setup/safety-call')
+    await store.completeSetup()
+    await router.push('/home')
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Could not save that. Check your connection and try again.'
     busy.value = false
@@ -41,14 +49,15 @@ const next = async () => {
 <template>
   <SetupStepShell
     :step="3"
-    :total="4"
+    :total="3"
     eyebrow="Your rhythm"
     title="What's your main focus this round?"
     subtitle="This just fine-tunes your daily numbers — everyone's doing the same challenge either way."
+    cta="Save & enter app"
     :can-continue="canContinue"
     :busy="busy"
     :error="error"
-    @continue="next"
+    @continue="finish"
   >
     <AppCard variant="raised" class="form-card flex flex-col gap-5.5">
       <div>

@@ -130,7 +130,6 @@ export const emptyProfile = (): MemberProfile => ({
   // mode has no code document to carry one, and inventing a phone number that
   // looks real is worse than a blank field.
   whatsapp: '',
-  healthConditions: '',
   injuries: '',
   avatarUrl: '',
 })

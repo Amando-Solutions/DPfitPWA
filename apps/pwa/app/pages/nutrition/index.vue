@@ -2,12 +2,12 @@
 // 18 · Fuel · Daily Targets, computed from the member's own numbers.
 definePageMeta({ layout: 'app' })
 
+import { fuelTips } from '~/data/nutrition'
 import { targetsBreakdown } from '~/lib/domain/nutrition'
 
 const store = useAppStore()
 const targets = computed(() => store.targets.value)
 const breakdown = computed(() => targetsBreakdown(targets.value))
-const healthConditions = computed(() => store.profile.value?.healthConditions?.trim() ?? '')
 
 /*
   Three faces did the work of two on this screen.
@@ -33,7 +33,7 @@ const NOTE_CARD =
 </script>
 
 <template>
-  <div class="fuel pt-(--screen-pad-top) px-5 pb-0 lg:grid lg:grid-cols-2 lg:[grid-template-areas:'header_header'_'macros_numbers'_'macros_plate'_'macros_allergy'] lg:content-start lg:items-start lg:gap-x-6 lg:gap-y-3.5 lg:pt-0 lg:px-0 lg:pb-2">
+  <div class="fuel pt-(--screen-pad-top) px-5 pb-0 lg:grid lg:grid-cols-2 lg:[grid-template-areas:'header_header'_'macros_numbers'_'macros_tips'] lg:content-start lg:items-start lg:gap-x-6 lg:gap-y-3.5 lg:pt-0 lg:px-0 lg:pb-2">
     <ScreenIntro
       eyebrow="Your targets"
       title="Daily fuel"
@@ -93,24 +93,15 @@ const NOTE_CARD =
       </div>
     </section>
 
-    <!-- Plate structure -->
-    <section :class="NOTE_CARD" class="mt-3 lg:mt-0 lg:[grid-area:plate]">
-      <h2 :class="SECTION_HEADING">Suggested plate structure</h2>
-      <p class="mt-1.75 mb-0 text-[13.5px] leading-[1.55] text-soft">
-        {{ targets.plateStructure }}
-      </p>
-    </section>
-
-    <!-- Health conditions -->
-    <section :class="NOTE_CARD" class="mt-3 lg:mt-0 lg:[grid-area:allergy]">
-      <h2 :class="SECTION_HEADING">Health conditions note</h2>
-      <p class="mt-1.75 mb-0 text-[13.5px] leading-[1.55] text-soft">
-        {{
-          healthConditions
-            ? `You told us: ${healthConditions}. Swaps that work around it show up here.`
-            : 'Nothing is on file. Tell us in Profile & Settings and swaps show up here.'
-        }}
-      </p>
+    <!-- Tools and tips -->
+    <section :class="NOTE_CARD" class="mt-3 lg:mt-0 lg:[grid-area:tips]">
+      <h2 :class="SECTION_HEADING">Tools and tips</h2>
+      <ul class="m-0 mt-1.75 flex list-none flex-col divide-y divide-hairline p-0">
+        <li v-for="tip in fuelTips" :key="tip.title" class="py-3 first:pt-1.5 last:pb-0">
+          <p class="m-0 text-[13.5px] font-semibold text-ink">{{ tip.title }}</p>
+          <p class="mt-0.5 mb-0 text-[13.5px] leading-[1.55] text-soft">{{ tip.body }}</p>
+        </li>
+      </ul>
     </section>
   </div>
 </template>

@@ -24,7 +24,9 @@ const router = useRouter()
       feeding one equation
     · the goal dropdown is gone — it moved off this screen with the rest of the
       plan choices, which the coach owns
-    · allergies became health conditions
+    · health conditions are gone, along with the Fuel note that read them
+    · injuries are no longer asked at setup, so this is the only place they
+      are entered
     · the preferred-call radio is gone; the live call is one time for everyone
     · both unit toggles are here, on the fields they govern
 
@@ -52,7 +54,6 @@ const displayName = ref(profile.value?.displayName ?? '')
 const weightKg = ref<number | null>(profile.value?.weightKg ?? null)
 const heightCm = ref<number | null>(profile.value?.heightCm ?? null)
 const activity = ref<ActivityLevel | ''>(profile.value?.activity ?? '')
-const healthConditions = ref(profile.value?.healthConditions ?? '')
 const injuries = ref(profile.value?.injuries ?? '')
 const whatsapp = ref(profile.value?.whatsapp ?? '')
 
@@ -122,7 +123,6 @@ const persist = async (ev?: FocusEvent) => {
       weightKg: weightKg.value,
       heightCm: heightCm.value,
       activity: (activity.value || undefined) as ActivityLevel,
-      healthConditions: healthConditions.value.trim(),
       injuries: injuries.value.trim(),
       // Held back while it is malformed, rather than blocking the whole save.
       // Every other field on this screen blur-saves through here, and losing an
@@ -438,19 +438,6 @@ const SNAPSHOT_VALUE = 'text-[17px] font-bold text-on-inverse tabular-nums'
           :inert="savingProfile"
           :aria-busy="savingProfile || undefined"
         >
-          <div>
-            <label class="mb-2.5 block text-[13px] text-soft" for="health">
-              Health conditions
-            </label>
-            <textarea
-              id="health"
-              v-model="healthConditions"
-              :class="AREA"
-              rows="2"
-              placeholder="e.g. asthma, lactose intolerance"
-              @blur="persist"
-            />
-          </div>
           <div>
             <label class="mb-2.5 block text-[13px] text-soft" for="injuries">
               Injuries or limitations

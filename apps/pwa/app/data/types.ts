@@ -509,12 +509,6 @@ export interface MemberProfile {
   activity: ActivityLevel | ''
   goal: Goal | ''
   trainingDaysPerWeek: number
-  /**
-   * Anything medical the coach should train around: conditions, medication,
-   * dietary restrictions. Replaced the narrower `allergies` field, which only
-   * ever collected a subset of what members actually needed to tell us.
-   */
-  healthConditions: string
   injuries: string
   avatarUrl: string
 }
@@ -1151,5 +1145,4 @@ export interface NutritionTargets {
   fatG: number
   carbsG: number
   approach: string
-  plateStructure: string
 }

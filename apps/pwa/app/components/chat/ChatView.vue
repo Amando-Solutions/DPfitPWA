@@ -380,6 +380,47 @@ const onEscape = () => {
 const draftMentions = ref<ChatMention[]>([])
 
 /**
+ * The draft in runs, for the tinted copy of it drawn behind the field.
+ *
+ * An `<input>` paints its value in one colour and nothing can change that for
+ * part of it, so a picked name is coloured by drawing the text twice: this copy
+ * underneath with the names in the accent, and the field on top with its own
+ * text made transparent, so only its caret and selection show.
+ *
+ * `null` whenever nothing in the draft is a picked name, and that is doing real
+ * work. The field only hides its text while this is set, so a draft with no
+ * mention in it — which is almost every draft — is drawn by the input exactly
+ * as it always was, placeholder and selection and all, and the copy only has
+ * to line up while there is something in it to colour.
+ */
+const draftRuns = computed(() => {
+  if (!draftMentions.value.length) return null
+  const runs = mentionSegments(draft.value, draftMentions.value)
+  return runs.some((run) => run.mention) ? runs : null
+})
+
+/**
+ * How far the field has scrolled its own text sideways, in pixels.
+ *
+ * A single-line input that is fuller than it is wide scrolls its contents to
+ * keep the caret in view, and the copy behind it has no idea. Without following
+ * this, the coloured name stays where it was typed while the real text slides
+ * left over it, and the two stop agreeing on where anything is.
+ */
+const fieldScroll = ref(0)
+
+const syncFieldScroll = () => {
+  fieldScroll.value = composer.value?.scrollLeft ?? 0
+}
+
+// Anything that rewrites the draft from code — a mention chosen, an edit
+// started, a send clearing the field — moves the text without an event from
+// the field to say so.
+watch(draft, () => {
+  nextTick(syncFieldScroll)
+})
+
+/**
  * Where the caret is, tracked because `v-model` does not report it.
  *
  * An `@` only opens the picker for the token the caret is *in*, so this has to
@@ -411,6 +452,9 @@ watch(mentionMatches, () => {
 
 const trackCaret = (event: Event) => {
   caret.value = (event.target as HTMLInputElement).selectionStart ?? draft.value.length
+  // The same events that move the caret are the ones that scroll the field to
+  // keep it in view, and not every engine reports that as a `scroll` of its own.
+  syncFieldScroll()
 }
 
 /**
@@ -452,6 +496,7 @@ const chooseMention = (person: MentionCandidate) => {
     field.focus()
     field.setSelectionRange(next.caret, next.caret)
     caret.value = next.caret
+    syncFieldScroll()
   })
 }
 
@@ -2163,20 +2208,65 @@ const TOOL =
         <div
           class="flex h-12 min-w-0 flex-1 items-center gap-0.5 rounded-pill bg-raised pr-1.5 pl-4.5 shadow-[inset_0_0_0_1.5px_var(--hairline)]"
         >
-          <input
-            ref="composer"
-            v-model="draft"
-            class="h-full min-w-0 flex-1 border-none bg-transparent text-sm text-ink outline-none"
-            :placeholder="
-              editing ? 'Edit your message…' : replyingTo ? 'Write your reply…' : placeholder
-            "
-            @input="onComposerInput"
-            @keydown="onComposerKeydown"
-            @keyup="trackCaret"
-            @click="trackCaret"
-            @keyup.enter="onComposerEnter"
-            @keyup.esc="onEscape"
-          />
+          <!--
+            The field, with a tinted copy of its text underneath. See
+            `draftRuns` for why it takes two layers.
+
+            The two have to set their text identically or the colour lands
+            beside the name instead of on it: the same size, no padding on
+            either, and nothing in the copy that changes a glyph's width —
+            which is why a picked name is coloured here and not also bold, the
+            way it is once it has been sent.
+
+            And `leading-[normal]` on both, which is the one that is not
+            obvious. Chromium positions a field's text by the font's own
+            `normal` line height and ignores the `line-height` it is given,
+            while the copy honours the 20px `text-sm` asks for — and the
+            half-leading that adds is rounded differently on each side, so the
+            copy sat a full pixel above the text it was colouring. Every line
+            jumped up by that pixel the instant a name was picked, since that is
+            the moment the field stops drawing its own text. With no leading on
+            either there is nothing to round: measured in headless Chromium the
+            two layers match to within anti-aliasing. `normal` on the field too,
+            rather than on the copy alone, because engines that *do* honour a
+            field's line height then land in the same place instead of a
+            different one.
+
+            The copy's spans sit on one line on purpose. It keeps its
+            whitespace, as the field does, so a line break between them would
+            be a space the member never typed, pushing everything after it out
+            of line with the caret.
+          -->
+          <div class="relative h-full min-w-0 flex-1">
+            <div
+              v-if="draftRuns"
+              class="pointer-events-none absolute inset-0 flex items-center overflow-hidden text-sm leading-[normal] whitespace-pre text-ink"
+              aria-hidden="true"
+            ><span
+                class="shrink-0"
+                :style="{ transform: `translateX(${-fieldScroll}px)` }"
+              ><span
+                  v-for="(run, i) in draftRuns"
+                  :key="i"
+                  :class="run.mention && 'text-rose'"
+                >{{ run.text }}</span></span></div>
+            <input
+              ref="composer"
+              v-model="draft"
+              class="relative h-full w-full min-w-0 border-none bg-transparent text-sm leading-[normal] outline-none"
+              :class="draftRuns ? 'text-transparent caret-ink' : 'text-ink'"
+              :placeholder="
+                editing ? 'Edit your message…' : replyingTo ? 'Write your reply…' : placeholder
+              "
+              @input="onComposerInput"
+              @keydown="onComposerKeydown"
+              @keyup="trackCaret"
+              @click="trackCaret"
+              @scroll="syncFieldScroll"
+              @keyup.enter="onComposerEnter"
+              @keyup.esc="onEscape"
+            />
+          </div>
           <!--
             Both are off while a message is being edited: an edit rewrites the
             words of a message that has already been sent, and the photos on it

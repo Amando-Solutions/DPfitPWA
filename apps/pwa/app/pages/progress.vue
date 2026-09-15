@@ -10,7 +10,7 @@ const store = useAppStore()
 
 const poses: PhotoPose[] = ['front', 'side', 'back']
 const pose = ref<PhotoPose>('front')
-const poseTabs = poses.map((id) => ({ id, label: id }))
+const poseTabs = poses.map((id) => ({ id, label: id[0]!.toUpperCase() + id.slice(1) }))
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const error = ref('')

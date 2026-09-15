@@ -234,7 +234,6 @@ const emptyProfile = (): MemberProfile => ({
   goal: '',
   trainingDaysPerWeek: 4,
   whatsapp: '',
-  healthConditions: '',
   injuries: '',
   avatarUrl: '',
 })
