@@ -54,13 +54,13 @@ export interface AccessCodeTemplate {
 
 // --- Palette ---------------------------------------------------------------
 // Named for the token each one copies, so the two can be compared.
-const PAPER = '#fbf8f5' //  --page      the warm page the site sits on
+const PAPER = '#fcfbff' //  --page      the lavender-white page the site sits on
 const NIGHT = '#0f0a14' //  --night     the hero and closing panels
 const INK = '#241b2e' //    --text      body copy
-const INK_SOFT = '#6a5f72' // --ink-mute  asides and captions
-const ROSE = '#c81e5c' //   --rose-fill the accent, as a solid
-const ROSE_SOFT = '#fdf0f4' // --rose-softer, flattened: no alpha in Outlook
-const RULE = '#e6dfd9' //   --rule, flattened against PAPER for the same reason
+const INK_SOFT = '#5c4f66' // --ink-mute  asides and captions
+const PRIMARY = '#9333ea' // --primary-fill the accent, as a solid (and as type: 5.4:1 on white)
+const PRIMARY_SOFT = '#faf5fe' // --primary-softer, flattened: no alpha in Outlook
+const RULE = '#e5e2eb' //   --rule, flattened against PAPER for the same reason
 
 // Chivo and Space Mono are the brand faces; the rest of each stack is what
 // actually renders in an inbox.
@@ -215,12 +215,15 @@ export const html = (data: AccessCodeTemplate) => {
      inverting. The paper becomes the night panel the site already uses, so
      this reads as the same brand rather than as a washed-out light email. */
   @media (prefers-color-scheme: dark) {
-    .bg-outer { background: #07040a !important; }
-    .bg-card { background: #16101c !important; }
-    .bg-code { background: #201525 !important; border-color: #3d2436 !important; }
+    .bg-outer { background: #0b0810 !important; }
+    .bg-card { background: #1e1826 !important; }
+    .bg-code { background: #272031 !important; border-color: #3b3148 !important; }
     .t-ink { color: ${PAPER} !important; }
-    .t-soft { color: #b3a8bc !important; }
-    .rule { border-color: #2e2436 !important; }
+    .t-soft { color: #a79db2 !important; }
+    .rule { border-color: #30283c !important; }
+    /* The accent as type swaps to the dark-mode Primary text value: the fill
+       measures 3.5:1 on the dark card, and only the lighter one is for type. */
+    .t-accent { color: #a657ee !important; }
     /* The footer lockup, swapped for the colourway the night panel can carry.
        Both are hidden and shown inline as well, so a client that drops this
        block shows the light one on its own rather than both. */
@@ -266,7 +269,7 @@ export const html = (data: AccessCodeTemplate) => {
         ${
           assets
             ? `<img src="${assets}/brand/logo-white.png" width="96" height="75" alt="DP FITNESS" style="display:block;width:96px;height:75px;border:0;outline:none;text-decoration:none;font-family:${DISPLAY};font-size:16px;font-weight:900;letter-spacing:-0.02em;color:${PAPER};">`
-            : `<span style="font-family:${DISPLAY};font-size:19px;font-weight:900;letter-spacing:-0.02em;color:${PAPER};">DP<span style="color:${ROSE};">.</span>FITNESS</span>`
+            : `<span style="font-family:${DISPLAY};font-size:19px;font-weight:900;letter-spacing:-0.02em;color:${PAPER};">DP<span style="color:${PRIMARY};">.</span>FITNESS</span>`
         }
       </td>
     </tr>
@@ -288,8 +291,8 @@ export const html = (data: AccessCodeTemplate) => {
              an image, so it can be copied and read aloud. -->
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="unstyle-auto">
           <tr>
-            <td class="bg-code" align="center" style="background:${ROSE_SOFT};border:1px solid ${RULE};border-radius:12px;padding:24px 16px;">
-              <div style="font-family:${MONO};font-size:11px;line-height:1;letter-spacing:1.6px;text-transform:uppercase;color:${INK_SOFT};">
+            <td class="bg-code" align="center" style="background:${PRIMARY_SOFT};border:1px solid ${RULE};border-radius:12px;padding:24px 16px;">
+              <div class="t-soft" style="font-family:${MONO};font-size:11px;line-height:1;letter-spacing:1.6px;text-transform:uppercase;color:${INK_SOFT};">
                 Your access code
               </div>
               <div class="code t-ink" style="margin-top:12px;font-family:${MONO};font-size:30px;line-height:1.1;font-weight:700;letter-spacing:4px;color:${INK};">
@@ -305,13 +308,13 @@ export const html = (data: AccessCodeTemplate) => {
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
           <tr><td align="center" style="padding:28px 0 6px;">
             <!--[if mso]>
-            <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${appUrl}" style="height:48px;v-text-anchor:middle;width:230px;" arcsize="52%" stroke="f" fillcolor="${ROSE}">
+            <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${appUrl}" style="height:48px;v-text-anchor:middle;width:230px;" arcsize="52%" stroke="f" fillcolor="${PRIMARY}">
               <w:anchorlock/>
               <center style="color:#ffffff;font-family:${BODY};font-size:16px;font-weight:600;">Open the app</center>
             </v:roundrect>
             <![endif]-->
             <!--[if !mso]><!-- -->
-            <a href="${appUrl}" style="display:inline-block;background:${ROSE};color:#ffffff;font-family:${BODY};font-size:16px;font-weight:600;line-height:1;text-decoration:none;padding:16px 34px;border-radius:999px;">Open the app</a>
+            <a href="${appUrl}" style="display:inline-block;background:${PRIMARY};color:#ffffff;font-family:${BODY};font-size:16px;font-weight:600;line-height:1;text-decoration:none;padding:16px 34px;border-radius:999px;">Open the app</a>
             <!--<![endif]-->
           </td></tr>
         </table>
@@ -321,7 +324,7 @@ export const html = (data: AccessCodeTemplate) => {
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:30px;">
           <tr>
             <td class="rule" style="border-top:1px solid ${RULE};padding-top:24px;">
-              <div style="font-family:${MONO};font-size:11px;line-height:1;letter-spacing:1.6px;text-transform:uppercase;color:${INK_SOFT};padding-bottom:14px;">
+              <div class="t-soft" style="font-family:${MONO};font-size:11px;line-height:1;letter-spacing:1.6px;text-transform:uppercase;color:${INK_SOFT};padding-bottom:14px;">
                 What to do next
               </div>
               ${[
@@ -331,7 +334,7 @@ export const html = (data: AccessCodeTemplate) => {
               ]
                 .map(
                   (step, i) => `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-                <td width="26" valign="top" style="font-family:${MONO};font-size:13px;line-height:1.6;font-weight:700;color:${ROSE};padding-bottom:${i === 2 ? '0' : '8px'};">${i + 1}.</td>
+                <td class="t-accent" width="26" valign="top" style="font-family:${MONO};font-size:13px;line-height:1.6;font-weight:700;color:${PRIMARY};padding-bottom:${i === 2 ? '0' : '8px'};">${i + 1}.</td>
                 <td class="t-ink" valign="top" style="font-family:${BODY};font-size:15px;line-height:1.6;color:${INK};padding-bottom:${i === 2 ? '0' : '8px'};">${step}</td>
               </tr></table>`,
                 )
@@ -362,8 +365,8 @@ export const html = (data: AccessCodeTemplate) => {
         ${
           assets
             ? `<img class="logo-light" src="${assets}/brand/logo-color.png" width="64" height="50" alt="DP FITNESS" style="display:inline-block;width:64px;height:50px;border:0;outline:none;text-decoration:none;font-family:${DISPLAY};font-size:11px;font-weight:900;letter-spacing:-0.02em;color:${INK_SOFT};">
-        <img class="logo-dark" src="${assets}/brand/logo-white.png" width="64" height="50" alt="DP FITNESS" style="display:none;width:64px;height:50px;border:0;outline:none;text-decoration:none;font-family:${DISPLAY};font-size:11px;font-weight:900;letter-spacing:-0.02em;color:#b3a8bc;">`
-            : `<div style="font-family:${DISPLAY};font-size:14px;font-weight:900;letter-spacing:-0.02em;color:${INK_SOFT};">DP<span style="color:${ROSE};">.</span>FITNESS</div>`
+        <img class="logo-dark" src="${assets}/brand/logo-white.png" width="64" height="50" alt="DP FITNESS" style="display:none;width:64px;height:50px;border:0;outline:none;text-decoration:none;font-family:${DISPLAY};font-size:11px;font-weight:900;letter-spacing:-0.02em;color:#a79db2;">`
+            : `<div style="font-family:${DISPLAY};font-size:14px;font-weight:900;letter-spacing:-0.02em;color:${INK_SOFT};">DP<span style="color:${PRIMARY};">.</span>FITNESS</div>`
         }
         <div class="t-soft" style="margin-top:8px;font-family:${BODY};font-size:12.5px;line-height:1.6;color:${INK_SOFT};">
           The Recomp Challenge · 6-week group program

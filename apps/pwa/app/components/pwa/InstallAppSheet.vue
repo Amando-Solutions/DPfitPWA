@@ -30,7 +30,7 @@ const steps = computed(() =>
 
     <ol class="install-guide__steps [list-style:none] [margin:0_0_16px] [padding:0] [display:flex] [flex-direction:column] [gap:12px]">
       <li v-for="(step, i) in steps" :key="i" class="install-guide__step [display:flex] [align-items:center] [gap:12px]">
-        <span class="install-guide__icon [width:32px] [height:32px] [border-radius:var(--radius-pill)] [background:var(--rose-soft)] [color:var(--rose)] [display:grid] [place-items:center] [flex-shrink:0]">
+        <span class="install-guide__icon [width:32px] [height:32px] [border-radius:var(--radius-pill)] [background:var(--primary-soft)] [color:var(--primary)] [display:grid] [place-items:center] [flex-shrink:0]">
           <AppIcon :name="step.icon" :size="16" />
         </span>
         <span class="install-guide__text [flex:1] [min-width:0] [font-size:13.5px] [line-height:1.45] [color:var(--ink)]">{{ step.text }}</span>

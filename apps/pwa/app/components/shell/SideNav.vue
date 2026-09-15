@@ -61,7 +61,7 @@ const ctaLabel = computed(() => {
         v-for="item in primary"
         :key="item.key"
         :to="item.to"
-        class="sidenav__item lg:relative lg:flex lg:items-center lg:gap-3 lg:py-2.75 lg:px-3 lg:rounded-md lg:text-muted lg:text-[14px] lg:font-semibold lg:transition-[background,color] lg:duration-150 lg:ease-[ease] lg:hover:bg-fill-subtle lg:hover:text-ink lg:[&.sidenav\_\_item--active]:bg-inverse lg:[&.sidenav\_\_item--active]:text-on-inverse lg:[&.sidenav\_\_item--active:hover]:bg-inverse lg:[&.sidenav\_\_item--active:hover]:text-on-inverse lg:[&.sidenav\_\_item--active_.sidenav\_\_icon]:text-rose"
+        class="sidenav__item lg:relative lg:flex lg:items-center lg:gap-3 lg:py-2.75 lg:px-3 lg:rounded-md lg:text-muted lg:text-[14px] lg:font-semibold lg:transition-[background,color] lg:duration-150 lg:ease-[ease] lg:hover:bg-fill-subtle lg:hover:text-ink lg:[&.sidenav\_\_item--active]:bg-primary-fill lg:[&.sidenav\_\_item--active]:text-on-primary lg:[&.sidenav\_\_item--active:hover]:bg-primary-fill lg:[&.sidenav\_\_item--active:hover]:text-on-primary lg:[&.sidenav\_\_item--active_.sidenav\_\_badge]:bg-on-primary"
         :class="{ 'sidenav__item--active': isActive(item.to) }"
       >
         <span class="sidenav__icon lg:grid lg:place-items-center lg:shrink-0">
@@ -73,7 +73,7 @@ const ctaLabel = computed(() => {
              finds out the cohort has been talking. -->
         <span
           v-if="item.key === 'chat' && chat.hasUnread.value"
-          class="sidenav__badge lg:w-1.75 lg:h-1.75 lg:rounded-full lg:bg-rose-fill lg:ml-auto"
+          class="sidenav__badge lg:w-1.75 lg:h-1.75 lg:rounded-full lg:bg-primary-fill lg:ml-auto"
         />
       </NuxtLink>
     </nav>
@@ -85,7 +85,7 @@ const ctaLabel = computed(() => {
         v-for="item in secondary"
         :key="item.key"
         :to="item.to"
-        class="sidenav__item sidenav__item--secondary lg:relative lg:flex lg:items-center lg:gap-3 lg:py-2.75 lg:px-3 lg:rounded-md lg:text-muted lg:text-[14px] lg:font-semibold lg:transition-[background,color] lg:duration-150 lg:ease-[ease] lg:hover:bg-fill-subtle lg:hover:text-ink lg:[&.sidenav\_\_item--active]:bg-inverse lg:[&.sidenav\_\_item--active]:text-on-inverse lg:[&.sidenav\_\_item--active:hover]:bg-inverse lg:[&.sidenav\_\_item--active:hover]:text-on-inverse lg:[&.sidenav\_\_item--active_.sidenav\_\_icon]:text-rose"
+        class="sidenav__item sidenav__item--secondary lg:relative lg:flex lg:items-center lg:gap-3 lg:py-2.75 lg:px-3 lg:rounded-md lg:text-muted lg:text-[14px] lg:font-semibold lg:transition-[background,color] lg:duration-150 lg:ease-[ease] lg:hover:bg-fill-subtle lg:hover:text-ink lg:[&.sidenav\_\_item--active]:bg-primary-fill lg:[&.sidenav\_\_item--active]:text-on-primary lg:[&.sidenav\_\_item--active:hover]:bg-primary-fill lg:[&.sidenav\_\_item--active:hover]:text-on-primary lg:[&.sidenav\_\_item--active_.sidenav\_\_badge]:bg-on-primary"
         :class="{ 'sidenav__item--active': isActive(item.to) }"
       >
         <span class="sidenav__icon lg:grid lg:place-items-center lg:shrink-0">
@@ -94,7 +94,7 @@ const ctaLabel = computed(() => {
         <span class="sidenav__label">{{ item.label }}</span>
         <span
           v-if="item.key === 'check-in' && store.checkInDue.value"
-          class="sidenav__badge lg:w-1.75 lg:h-1.75 lg:rounded-full lg:bg-rose-fill lg:ml-auto"
+          class="sidenav__badge lg:w-1.75 lg:h-1.75 lg:rounded-full lg:bg-primary-fill lg:ml-auto"
         />
       </NuxtLink>
     </nav>
@@ -104,7 +104,7 @@ const ctaLabel = computed(() => {
          says which day opens next and when. -->
     <NuxtLink
       :to="store.trainingLocked.value ? '/train' : `/train/${store.today.value?.id ?? ''}`"
-      class="sidenav__cta lg:mt-4.5 lg:flex lg:items-center lg:justify-center lg:py-3.25 lg:px-3.5 lg:rounded-md lg:bg-rose-fill lg:text-on-rose lg:text-[13.5px] lg:font-bold"
+      class="sidenav__cta lg:mt-4.5 lg:flex lg:items-center lg:justify-center lg:py-3.25 lg:px-3.5 lg:rounded-md lg:bg-primary-fill lg:text-on-primary lg:text-[13.5px] lg:font-bold"
     >
       <span>{{ ctaLabel }}</span>
     </NuxtLink>
@@ -114,13 +114,13 @@ const ctaLabel = computed(() => {
     <NuxtLink to="/notifications" class="sidenav__inbox lg:flex lg:items-center lg:gap-3 lg:py-2.5 lg:px-3 lg:mb-1.5 lg:rounded-md lg:text-muted lg:text-[13px] lg:font-semibold lg:hover:bg-fill-subtle lg:hover:text-ink">
       <AppIcon name="bell" :size="18" :stroke="2" />
       <span>Inbox</span>
-      <span v-if="store.unreadNotifications.value" class="sidenav__count data lg:ml-auto lg:min-w-5 lg:py-0.5 lg:px-1.5 lg:rounded-pill lg:bg-rose-fill lg:text-on-rose lg:text-[10px] lg:font-bold lg:text-center">
+      <span v-if="store.unreadNotifications.value" class="sidenav__count data lg:ml-auto lg:min-w-5 lg:py-0.5 lg:px-1.5 lg:rounded-pill lg:bg-primary-fill lg:text-on-primary lg:text-[10px] lg:font-bold lg:text-center">
         {{ store.unreadNotifications.value }}
       </span>
     </NuxtLink>
 
     <NuxtLink to="/profile" class="sidenav__member lg:flex lg:items-center lg:gap-2.5 lg:p-2.5 lg:rounded-md lg:bg-surface lg:transition-[background] lg:duration-150 lg:ease-[ease] lg:hover:bg-fill-subtle">
-      <Avatar size="md" class="sidenav__avatar lg:w-9 lg:h-9 lg:rounded-full lg:object-cover lg:shrink-0 lg:[&.sidenav\_\_avatar--initials]:grid lg:[&.sidenav\_\_avatar--initials]:place-items-center lg:[&.sidenav\_\_avatar--initials]:bg-rose-fill lg:[&.sidenav\_\_avatar--initials]:text-on-rose lg:[&.sidenav\_\_avatar--initials]:font-display lg:[&.sidenav\_\_avatar--initials]:font-black lg:[&.sidenav\_\_avatar--initials]:text-[13px]">
+      <Avatar size="md" class="sidenav__avatar lg:w-9 lg:h-9 lg:rounded-full lg:object-cover lg:shrink-0 lg:[&.sidenav\_\_avatar--initials]:grid lg:[&.sidenav\_\_avatar--initials]:place-items-center lg:[&.sidenav\_\_avatar--initials]:bg-primary-fill lg:[&.sidenav\_\_avatar--initials]:text-on-primary lg:[&.sidenav\_\_avatar--initials]:font-display lg:[&.sidenav\_\_avatar--initials]:font-black lg:[&.sidenav\_\_avatar--initials]:text-[13px]">
         <AvatarImage
           :src="store.profile.value?.avatarUrl ?? ''"
           :alt="store.displayName.value"

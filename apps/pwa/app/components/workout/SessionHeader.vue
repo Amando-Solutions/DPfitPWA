@@ -100,7 +100,7 @@ const STAT_VALUE = 'text-[17px] font-bold tabular-nums'
           <span :class="STAT_LABEL">Duration</span>
           <!-- The one monospace face left on this screen. A clock ticking in a
                proportional font redraws at a different width every second. -->
-          <span :class="STAT_VALUE" class="font-data text-rose-on-inverse">
+          <span :class="STAT_VALUE" class="font-data text-primary-on-inverse">
             {{ duration }}
           </span>
         </div>

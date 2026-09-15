@@ -122,7 +122,7 @@ const STAT_VALUE =
       >
         <div :class="CARD">
           <div class="flex gap-3">
-            <span class="grid size-9 shrink-0 place-items-center rounded-pill bg-rose-soft text-rose">
+            <span class="grid size-9 shrink-0 place-items-center rounded-pill bg-primary-soft text-primary">
               <AppIcon name="image" :size="17" />
             </span>
             <div class="min-w-0 flex-1">
@@ -132,7 +132,7 @@ const STAT_VALUE =
                 </h2>
                 <span
                   v-if="store.rewardValues.value"
-                  class="shrink-0 rounded-pill bg-rose-soft px-2 py-0.75 text-[11px] text-rose tabular-nums"
+                  class="shrink-0 rounded-pill bg-secondary-soft px-2 py-0.75 text-[11px] text-secondary-ink tabular-nums"
                 >
                   +{{ store.rewardValues.value.progressPhoto }} RP
                 </span>
@@ -177,7 +177,7 @@ const STAT_VALUE =
             :value="doneThisWeek"
             :max="store.days.value.length"
             :height="5"
-            flame
+            gradient
             class="glance__bar mt-3 mx-0 mb-4"
           />
           <DayDots :days="store.days.value" />
@@ -186,11 +186,11 @@ const STAT_VALUE =
 
       <!-- Shortcuts -->
       <section class="home__section home__section--shortcuts mt-3.25 lg:mt-0 order-6 grid grid-cols-[1fr_1fr] gap-3">
-        <NuxtLink to="/rewards" class="shortcut min-h-20.5 p-4 rounded-card bg-raised flex flex-col justify-center gap-1.5 text-rose [&_span]:text-[13.5px] [&_span]:text-ink lg:transition-[translate,box-shadow] lg:duration-150 lg:ease-[ease] lg:hover:-translate-y-0.5 lg:hover:shadow-card">
+        <NuxtLink to="/rewards" class="shortcut min-h-20.5 p-4 rounded-card bg-raised flex flex-col justify-center gap-1.5 text-primary [&_span]:text-[13.5px] [&_span]:text-ink lg:transition-[translate,box-shadow] lg:duration-150 lg:ease-[ease] lg:hover:-translate-y-0.5 lg:hover:shadow-card">
           <AppIcon name="trophy" :size="19" />
           <span>See your rewards</span>
         </NuxtLink>
-        <NuxtLink to="/guides" class="shortcut min-h-20.5 p-4 rounded-card bg-raised flex flex-col justify-center gap-1.5 text-rose [&_span]:text-[13.5px] [&_span]:text-ink lg:transition-[translate,box-shadow] lg:duration-150 lg:ease-[ease] lg:hover:-translate-y-0.5 lg:hover:shadow-card">
+        <NuxtLink to="/guides" class="shortcut min-h-20.5 p-4 rounded-card bg-raised flex flex-col justify-center gap-1.5 text-primary [&_span]:text-[13.5px] [&_span]:text-ink lg:transition-[translate,box-shadow] lg:duration-150 lg:ease-[ease] lg:hover:-translate-y-0.5 lg:hover:shadow-card">
           <AppIcon name="guides" :size="19" />
           <span>Program guides</span>
         </NuxtLink>
@@ -228,14 +228,14 @@ const STAT_VALUE =
 
           <dl class="m-0 min-w-0 flex-1">
             <div class="flex items-center gap-2.5 pb-2.5">
-              <span :class="STAT_ICON" class="bg-rose-soft text-rose">
+              <span :class="STAT_ICON" class="bg-primary-soft text-primary">
                 <AppIcon name="train" :size="14" :stroke="2.2" />
               </span>
               <dt :class="STAT_LABEL" class="flex-1">Sessions logged</dt>
               <dd :class="STAT_VALUE">{{ sessionsLogged }}</dd>
             </div>
             <div class="flex items-center gap-2.5 border-t border-hairline pt-2.5">
-              <span :class="STAT_ICON" class="bg-orange-soft text-ember-text">
+              <span :class="STAT_ICON" class="bg-secondary-soft text-secondary-ink">
                 <AppIcon name="flame" :size="14" :stroke="2.2" />
               </span>
               <dt :class="STAT_LABEL" class="flex-1">Week streak</dt>
@@ -265,7 +265,7 @@ const STAT_VALUE =
       >
         <div :class="CARD" class="flex flex-col gap-3">
           <div class="flex gap-3">
-            <span class="grid size-9 shrink-0 place-items-center rounded-pill bg-rose-soft text-rose">
+            <span class="grid size-9 shrink-0 place-items-center rounded-pill bg-primary-soft text-primary">
               <AppIcon name="chat" :size="17" />
             </span>
             <div class="min-w-0 flex-1">
@@ -294,13 +294,13 @@ const STAT_VALUE =
       <section class="home__section home__section--checkin mt-3.25 lg:mt-0 order-4">
         <div :class="CARD">
           <div class="checkin__top flex gap-3">
-            <span class="checkin__icon w-9 h-9 rounded-pill bg-rose-soft text-rose grid place-items-center shrink-0"><AppIcon name="checkCircle" :size="17" /></span>
+            <span class="checkin__icon w-9 h-9 rounded-pill bg-primary-soft text-primary grid place-items-center shrink-0"><AppIcon name="checkCircle" :size="17" /></span>
             <div class="checkin__text flex-1 min-w-0">
               <div class="checkin__head flex items-center gap-2">
                 <h2 class="checkin__title m-0 font-display font-black text-[16px] tracking-[-0.24px] text-ink">Week {{ store.clock.value.week }} check-in</h2>
                 <span
                   v-if="store.checkInDue.value && store.rewardValues.value"
-                  class="shrink-0 py-0.75 px-2 rounded-pill bg-rose-soft text-rose text-[11px] tabular-nums"
+                  class="shrink-0 py-0.75 px-2 rounded-pill bg-secondary-soft text-secondary-ink text-[11px] tabular-nums"
                 >
                   +{{ store.rewardValues.value.checkIn }} RP
                 </span>
@@ -323,14 +323,14 @@ const STAT_VALUE =
       <!-- Latest from the coach -->
       <section v-if="coachNote" class="home__section home__section--coach mt-3.25 lg:mt-0 order-5">
         <div :class="CARD" class="flex gap-3.25">
-          <span class="coach__avatar w-11 h-11 rounded-pill bg-rose-fill text-on-rose grid place-items-center font-display font-black text-[16px] shrink-0">{{ initial(coachNote.authorName) }}</span>
+          <span class="coach__avatar w-11 h-11 rounded-pill bg-secondary text-on-secondary grid place-items-center font-display font-black text-[16px] shrink-0">{{ initial(coachNote.authorName) }}</span>
           <div class="coach__text flex-1 min-w-0">
             <div class="coach__head flex items-center gap-1.75">
               <strong class="coach__name text-[14px] font-bold text-ink">{{ coachNote.authorName }}</strong>
-              <span class="py-0.5 px-1.75 rounded-pill bg-rose-soft text-rose text-[11px]">Cohort chat</span>
+              <span class="py-0.5 px-1.75 rounded-pill bg-primary-soft text-primary text-[11px]">Cohort chat</span>
             </div>
             <p class="coach__body mt-1.5 mx-0 mb-0 text-[13.5px] leading-[1.45] text-muted">{{ coachNote.text }}</p>
-            <NuxtLink to="/chat" class="coach__reply inline-flex items-center min-h-7 mt-1.25 text-[13px] font-bold text-rose">Reply in chat →</NuxtLink>
+            <NuxtLink to="/chat" class="coach__reply inline-flex items-center min-h-7 mt-1.25 text-[13px] font-bold text-primary">Reply in chat →</NuxtLink>
           </div>
         </div>
       </section>

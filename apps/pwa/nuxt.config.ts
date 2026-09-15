@@ -208,7 +208,7 @@ export default defineNuxtConfig({
         {
           key: 'theme-boot',
           tagPosition: 'head',
-          innerHTML: `(function(){try{var s=localStorage.getItem('dpfit:theme');var p=s?JSON.parse(s):'system';var d=p==='dark'||(p!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=d?'dark':'light';var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',d?'#14101a':'#f3eae4');}catch(e){document.documentElement.dataset.theme='light';}})();`,
+          innerHTML: `(function(){try{var s=localStorage.getItem('dpfit:theme');var p=s?JSON.parse(s):'system';var d=p==='dark'||(p!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=d?'dark':'light';var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',d?'#141019':'#f5f3fa');}catch(e){document.documentElement.dataset.theme='light';}})();`,
         },
       ],
 
@@ -250,7 +250,7 @@ pwa: {
     orientation: 'any',
 
     theme_color: '#241b2e',
-    background_color: '#fbf6f2',
+    background_color: '#fcfbff',
 
     icons: [
       {

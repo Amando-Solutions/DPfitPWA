@@ -67,7 +67,8 @@ const onVisibility = () => void receipt()
 onMounted(() => document.addEventListener('visibilitychange', onVisibility))
 onBeforeUnmount(() => document.removeEventListener('visibilitychange', onVisibility))
 
-const accentFor = (type: string) => (type === 'coach' ? 'orange' : 'rose')
+// The coach's notes wear the coach's violet; everything else is the primary.
+const accentFor = (type: string) => (type === 'coach' ? 'secondary' : 'primary')
 </script>
 
 <template>
@@ -80,7 +81,7 @@ const accentFor = (type: string) => (type === 'coach' ? 'orange' : 'rose')
     >
       <template v-if="receiptFailed && hasUnread" #actions>
         <button
-          class="inbox__mark shrink-0 p-0 text-[12.5px] font-bold text-rose disabled:opacity-45"
+          class="inbox__mark shrink-0 p-0 text-[12.5px] font-bold text-primary disabled:opacity-45"
           :disabled="receipting"
           @click="receipt"
         >
@@ -108,18 +109,18 @@ const accentFor = (type: string) => (type === 'coach' ? 'orange' : 'rose')
         v-for="item in store.notifications.value"
         :key="item.id"
         :to="item.to ?? undefined"
-        class="note flex gap-3 p-4 bg-raised border border-hairline rounded-card filter-(--drop-md) [&.note--unread]:border-orange-ring [&.note--link]:transition-colors [&.note--link]:hover:bg-fill-subtle"
+        class="note flex gap-3 p-4 bg-raised border border-hairline rounded-card filter-(--drop-md) [&.note--unread]:border-primary-ring [&.note--link]:transition-colors [&.note--link]:hover:bg-fill-subtle"
         :class="{ 'note--unread': fresh.has(item.id) || !item.read, 'note--link': item.to }"
       >
-        <span class="note__icon w-9.5 h-9.5 rounded-pill grid place-items-center shrink-0 [&.note__icon--orange]:bg-orange-soft [&.note__icon--orange]:text-orange-text [&.note__icon--rose]:bg-rose-soft [&.note__icon--rose]:text-rose" :class="`note__icon--${accentFor(item.type)}`">
+        <span class="note__icon w-9.5 h-9.5 rounded-pill grid place-items-center shrink-0 [&.note\_\_icon--secondary]:bg-secondary-soft [&.note\_\_icon--secondary]:text-secondary-ink [&.note\_\_icon--primary]:bg-primary-soft [&.note\_\_icon--primary]:text-primary" :class="`note__icon--${accentFor(item.type)}`">
           <AppIcon :name="item.icon" :size="17" :stroke="2" />
         </span>
         <div class="note__body flex-1 min-w-0">
           <div class="note__top flex items-center gap-1.75">
-            <span class="note__kind text-[11.5px] [&.note__kind--orange]:text-orange-text [&.note__kind--rose]:text-rose" :class="`note__kind--${accentFor(item.type)}`">
+            <span class="note__kind text-[11.5px] [&.note\_\_kind--secondary]:text-secondary-ink [&.note\_\_kind--primary]:text-primary" :class="`note__kind--${accentFor(item.type)}`">
               {{ item.title }}
             </span>
-            <span v-if="fresh.has(item.id) || !item.read" class="note__dot w-1.5 h-1.5 rounded-pill bg-rose-fill shrink-0" />
+            <span v-if="fresh.has(item.id) || !item.read" class="note__dot w-1.5 h-1.5 rounded-pill bg-primary-fill shrink-0" />
           </div>
           <p class="note__text mt-1 mx-0 mb-0 text-[13.5px] leading-[1.45] text-ink wrap-break-word">{{ item.body }}</p>
           <span class="note__time block mt-1.5 text-[11.5px] text-soft">{{ item.timeLabel }}</span>

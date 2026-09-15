@@ -45,7 +45,7 @@ const skip = () => router.push('/access-code')
       <div class="onb__copy flex-1 min-h-0 flex flex-col justify-center py-0 px-0.5 lg:py-7 lg:px-0.5">
         <Transition name="fade" mode="out-in">
           <div :key="current.id">
-            <p class="onb__eyebrow m-0 font-eyebrow font-bold text-[11.5px] tracking-[1.265px] uppercase text-rose">{{ current.eyebrow }}</p>
+            <p class="onb__eyebrow m-0 font-eyebrow font-bold text-[11.5px] tracking-[1.265px] uppercase text-primary">{{ current.eyebrow }}</p>
             <h1 class="onb__title mt-2.5 mx-0 mb-0 font-display font-black text-[44px] leading-[1.08] tracking-[-1.98px] text-(--onboard-title) [@media(max-height:_720px)]:text-[36px] [@media(max-height:_720px)]:tracking-[-1.4px]">{{ current.title }}</h1>
           </div>
         </Transition>
@@ -58,14 +58,14 @@ const skip = () => router.push('/access-code')
           v-for="(slide, i) in onboardingSlides"
           :key="slide.id"
           class="onb__dot h-1.25 rounded-[99px] transition-[width,background] duration-250 ease-[ease]"
-          :class="i === index ? 'onb__dot--active w-6 bg-rose-fill' : 'w-2.25 bg-(--onboard-dot)'"
+          :class="i === index ? 'onb__dot--active w-6 bg-primary-fill' : 'w-2.25 bg-(--onboard-dot)'"
         />
       </div>
 
-      <button class="onb__cta w-full h-14.5 rounded-pill bg-rose-fill text-on-rose font-body font-bold text-[17px] transition-[transform,opacity,background-color] duration-100 ease-out active:scale-[0.985] motion-reduce:transition-none motion-reduce:active:scale-100" @click="next">{{ current.cta }}</button>
+      <button class="onb__cta w-full h-14.5 rounded-pill bg-primary-fill text-on-primary font-body font-bold text-[17px] transition-[transform,opacity,background-color] duration-100 ease-out active:scale-[0.985] motion-reduce:transition-none motion-reduce:active:scale-100" @click="next">{{ current.cta }}</button>
 
       <div class="onb__skip-tour-slot h-8 pt-3.25 flex justify-center">
-        <button v-if="!isLast" class="onb__skip-tour py-px px-1.5 font-body font-bold text-[15px] text-rose" @click="skip">Skip tour</button>
+        <button v-if="!isLast" class="onb__skip-tour py-px px-1.5 font-body font-bold text-[15px] text-primary" @click="skip">Skip tour</button>
       </div>
     </footer>
   </div>

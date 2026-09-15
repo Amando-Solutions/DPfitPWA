@@ -179,7 +179,7 @@ export default defineNuxtConfig({
       htmlAttrs: {
         lang: 'en',
         // The marketing site is a single authored composition — the hero and
-        // the closing panel are dark *by design*, on a warm paper page — so it
+        // the closing panel are dark *by design*, on a lavender-white page — so it
         // pins the light palette instead of following the visitor's OS. The
         // member app, where someone spends real time, is the one that flips.
         'data-theme': 'light',

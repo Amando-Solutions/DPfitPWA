@@ -20,7 +20,7 @@ import { FAQS } from '~/data/landing'
     <PageContainer>
       <div class="grid gap-10 lg:grid-cols-2 lg:gap-[70px]">
         <div>
-          <p class="eyebrow-section text-[var(--rose-fill)]">Questions</p>
+          <p class="eyebrow-section text-[var(--primary-fill)]">Questions</p>
           <h2 class="title-section mt-[18px] text-ink">Before you join.</h2>
         </div>
 
@@ -40,7 +40,7 @@ import { FAQS } from '~/data/landing'
               </h3>
               <span
                 aria-hidden="true"
-                class="font-data shrink-0 text-[18px] leading-none text-[var(--rose-fill)] transition-transform duration-200 group-open:rotate-45"
+                class="font-data shrink-0 text-[18px] leading-none text-[var(--primary-fill)] transition-transform duration-200 group-open:rotate-45"
               >
                 +
               </span>

@@ -4,11 +4,11 @@ const props = withDefaults(
     value: number
     max?: number
     height?: number
-    /** Solid accent, or the flame gradient used for rank progress. */
-    tone?: 'rose' | 'orange'
-    flame?: boolean
+    /** Solid accent, or the primary-to-violet gradient used for rank progress. */
+    tone?: 'primary' | 'secondary'
+    gradient?: boolean
   }>(),
-  { max: 100, height: 6, tone: 'rose', flame: false },
+  { max: 100, height: 6, tone: 'primary', gradient: false },
 )
 
 // Height is data, not design, so it arrives as a custom property and the
@@ -16,7 +16,11 @@ const props = withDefaults(
 const vars = computed(() => ({ '--bar-h': `${props.height}px` }))
 
 const fill = computed(() =>
-  props.flame ? 'flame-gradient' : props.tone === 'orange' ? 'bg-orange' : 'bg-rose-fill',
+  props.gradient
+    ? 'progress-gradient'
+    : props.tone === 'secondary'
+      ? 'bg-secondary'
+      : 'bg-primary-fill',
 )
 </script>
 

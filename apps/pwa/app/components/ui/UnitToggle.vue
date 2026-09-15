@@ -44,7 +44,7 @@ defineEmits<{ (e: 'update:modelValue', v: string): void }>()
       :key="option.id"
       :value="option.id"
       variant="plain"
-      class="min-h-6.5 rounded-pill px-2.5 py-1 text-[11px] text-muted transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-ring data-[state=checked]:bg-inverse data-[state=checked]:font-semibold data-[state=checked]:text-on-inverse"
+      class="min-h-6.5 rounded-pill px-2.5 py-1 text-[11px] text-muted transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring data-[state=checked]:bg-inverse data-[state=checked]:font-semibold data-[state=checked]:text-on-inverse"
     >
       {{ option.label }}
     </RadioGroupItem>

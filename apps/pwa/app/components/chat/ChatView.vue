@@ -1628,7 +1628,7 @@ const swipeProgress = (id: string) => {
 const swipeOffset = (id: string) => (swipe.value?.id === id ? swipe.value.dx : 0)
 
 const TOOL =
-  'grid size-9 shrink-0 place-items-center rounded-full text-muted transition-colors duration-150 not-disabled:hover:bg-rose-soft not-disabled:hover:text-rose disabled:cursor-default disabled:opacity-40'
+  'grid size-9 shrink-0 place-items-center rounded-full text-muted transition-colors duration-150 not-disabled:hover:bg-primary-soft not-disabled:hover:text-primary disabled:cursor-default disabled:opacity-40'
 </script>
 
 <template>
@@ -1658,7 +1658,7 @@ const TOOL =
         <AppIcon name="bell" :size="18" />
         <span
           v-if="store.unreadNotifications.value"
-          class="absolute top-2 right-2 size-2 rounded-full border-[1.5px] border-(--paper-raised) bg-rose-fill"
+          class="absolute top-2 right-2 size-2 rounded-full border-[1.5px] border-(--paper-raised) bg-primary-fill"
         />
       </NuxtLink>
     </header>
@@ -1731,13 +1731,13 @@ const TOOL =
               role="separator"
               :aria-label="unreadLabel"
             >
-              <span class="h-px flex-1 bg-rose-ring" />
+              <span class="h-px flex-1 bg-primary-ring" />
               <span
-                class="data shrink-0 rounded-pill bg-rose-soft px-2.5 py-1 text-[9.5px] font-bold tracking-[0.5px] text-rose uppercase"
+                class="data shrink-0 rounded-pill bg-primary-soft px-2.5 py-1 text-[9.5px] font-bold tracking-[0.5px] text-primary uppercase"
               >
                 {{ unreadLabel }}
               </span>
-              <span class="h-px flex-1 bg-rose-ring" />
+              <span class="h-px flex-1 bg-primary-ring" />
             </div>
 
             <div
@@ -1785,7 +1785,7 @@ const TOOL =
               -->
               <span
                 v-if="flashing === m.id"
-                class="pointer-events-none absolute inset-x-2 -inset-y-1.5 rounded-2xl bg-rose-ring animate-jump-flash motion-reduce:animate-none"
+                class="pointer-events-none absolute inset-x-2 -inset-y-1.5 rounded-2xl bg-primary-ring animate-jump-flash motion-reduce:animate-none"
                 aria-hidden="true"
               />
 
@@ -1797,7 +1797,7 @@ const TOOL =
                 -->
                 <span
                   v-if="swipeProgress(m.id) > 0"
-                  class="pointer-events-none absolute top-1/2 left-0 grid size-8 -translate-y-1/2 place-items-center rounded-full bg-rose-soft text-rose"
+                  class="pointer-events-none absolute top-1/2 left-0 grid size-8 -translate-y-1/2 place-items-center rounded-full bg-primary-soft text-primary"
                   :style="{
                     opacity: swipeProgress(m.id),
                     scale: 0.6 + swipeProgress(m.id) * 0.4,
@@ -1822,7 +1822,7 @@ const TOOL =
                   -->
                   <Avatar v-if="!m.isSelf && startsRun" size="xs" class="mt-4">
                     <AvatarImage :src="m.authorAvatarUrl ?? ''" :alt="m.authorName" loading="lazy" />
-                    <AvatarFallback>{{ m.authorName.charAt(0).toUpperCase() }}</AvatarFallback>
+                    <AvatarFallback :class="m.isCoach && 'bg-secondary text-on-secondary'">{{ m.authorName.charAt(0).toUpperCase() }}</AvatarFallback>
                   </Avatar>
                   <span v-else-if="!m.isSelf" class="w-7.5 shrink-0" aria-hidden="true" />
 
@@ -1830,7 +1830,7 @@ const TOOL =
                     <span
                       v-if="!m.isSelf && startsRun"
                       class="font-eyebrow text-[8.5px] font-bold uppercase tracking-[0.5px]"
-                      :class="m.isCoach ? 'text-orange-text' : 'text-muted'"
+                      :class="m.isCoach ? 'text-secondary-ink' : 'text-muted'"
                     >
                       {{ m.authorName }}
                     </span>
@@ -1852,7 +1852,7 @@ const TOOL =
                           // A ring rather than a second `shadow-*`, which would be
                           // the second box-shadow utility on this element and would
                           // win or lose on stylesheet order. Rings compose.
-                          mentionsMe && 'ring-1 ring-rose-ring',
+                          mentionsMe && 'ring-1 ring-primary-ring',
                         ]"
                       >
                         <!--
@@ -1877,8 +1877,8 @@ const TOOL =
                             m.isSelf
                               ? 'border-white/55 bg-white/18'
                               : repliesToMe
-                                ? 'border-rose-fill bg-rose-soft'
-                                : 'border-rose-fill bg-fill-subtle',
+                                ? 'border-primary-fill bg-primary-soft'
+                                : 'border-primary-fill bg-fill-subtle',
                           ]"
                           @click="jumpToMessage(m.replyTo.messageId)"
                         >
@@ -1889,7 +1889,7 @@ const TOOL =
                           -->
                           <span
                             class="text-[11px] font-bold"
-                            :class="repliesToMe ? 'text-rose' : 'opacity-85'"
+                            :class="repliesToMe ? 'text-primary' : 'opacity-85'"
                           >
                             @{{ quoteAuthor(m.replyTo) }}
                           </span>
@@ -1955,7 +1955,7 @@ const TOOL =
                               run.mention
                                 ? m.isSelf
                                   ? 'font-bold underline underline-offset-2'
-                                  : 'font-bold text-rose'
+                                  : 'font-bold text-primary'
                                 : ''
                             "
                           >{{ run.text }}</span></p>
@@ -1991,7 +1991,7 @@ const TOOL =
                           v-for="r in m.reactions"
                           :key="r.emoji"
                           class="rounded-pill bg-raised px-2 py-0.5 text-[11px] font-bold text-ink shadow-card"
-                          :class="r.mine && 'shadow-[0_0_0_1.5px_var(--rose)]'"
+                          :class="r.mine && 'shadow-[0_0_0_1.5px_var(--primary)]'"
                           :aria-pressed="Boolean(r.mine)"
                           :aria-label="`${r.count} reacted ${r.emoji}`"
                           @click="emit('react', { messageId: m.id, emoji: r.emoji })"
@@ -2072,13 +2072,13 @@ const TOOL =
       >
         <button
           v-if="settled && unseenMentions.length"
-          class="pointer-events-auto relative grid size-10 place-items-center rounded-full bg-raised text-rose shadow-raised transition-transform duration-100 ease-out active:scale-90"
+          class="pointer-events-auto relative grid size-10 place-items-center rounded-full bg-raised text-primary shadow-raised transition-transform duration-100 ease-out active:scale-90"
           :aria-label="`Go to the ${unseenMentions.length} reply that mentions you`"
           @click="jumpToMention"
         >
           <span class="text-[17px] leading-none font-bold">@</span>
           <span
-            class="data absolute -top-1 -right-1 grid h-4.5 min-w-4.5 place-items-center rounded-pill bg-rose-fill px-1 text-[10px] font-bold text-on-rose"
+            class="data absolute -top-1 -right-1 grid h-4.5 min-w-4.5 place-items-center rounded-pill bg-primary-fill px-1 text-[10px] font-bold text-on-primary"
           >
             {{ unseenMentions.length }}
           </span>
@@ -2095,7 +2095,7 @@ const TOOL =
           <AppIcon name="chevronDown" :size="20" :stroke="2.2" />
           <span
             v-if="newBelow"
-            class="data absolute -top-1 -right-1 grid h-4.5 min-w-4.5 place-items-center rounded-pill bg-rose-fill px-1 text-[10px] font-bold text-on-rose"
+            class="data absolute -top-1 -right-1 grid h-4.5 min-w-4.5 place-items-center rounded-pill bg-primary-fill px-1 text-[10px] font-bold text-on-primary"
           >
             {{ newBelow }}
           </span>
@@ -2108,8 +2108,8 @@ const TOOL =
     >
       <p v-if="reading" class="m-0 text-xs text-muted">Adding to your message…</p>
       <p v-else-if="sending" class="m-0 text-xs text-muted">Uploading and sending…</p>
-      <p v-else-if="sendError" class="m-0 text-xs text-rose">{{ sendError }}</p>
-      <p v-else-if="attachError" class="m-0 text-xs text-rose">{{ attachError }}</p>
+      <p v-else-if="sendError" class="m-0 text-xs text-primary">{{ sendError }}</p>
+      <p v-else-if="attachError" class="m-0 text-xs text-primary">{{ attachError }}</p>
       <p v-else-if="storageFull" class="m-0 text-xs text-orange-text">
         This device is out of space. Anything you send now will be gone after a
         reload, so clear a few progress photos to make room.
@@ -2178,10 +2178,10 @@ const TOOL =
       -->
       <div
         v-if="editing"
-        class="flex items-center gap-2.5 rounded-xl border-l-[3px] border-rose-fill bg-raised py-2 pr-1.5 pl-3 shadow-card"
+        class="flex items-center gap-2.5 rounded-xl border-l-[3px] border-primary-fill bg-raised py-2 pr-1.5 pl-3 shadow-card"
       >
         <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span class="text-[11px] font-bold text-rose">Editing message</span>
+          <span class="text-[11px] font-bold text-primary">Editing message</span>
           <span class="truncate text-[12px] text-muted">{{ editing.text }}</span>
         </div>
         <button
@@ -2200,10 +2200,10 @@ const TOOL =
       -->
       <div
         v-else-if="replyingTo"
-        class="flex items-center gap-2.5 rounded-xl border-l-[3px] border-rose-fill bg-raised py-2 pr-1.5 pl-3 shadow-card"
+        class="flex items-center gap-2.5 rounded-xl border-l-[3px] border-primary-fill bg-raised py-2 pr-1.5 pl-3 shadow-card"
       >
         <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span class="text-[11px] font-bold text-rose">
+          <span class="text-[11px] font-bold text-primary">
             Replying to {{ replyingTo.isSelf ? 'yourself' : `@${replyingTo.authorName}` }}
           </span>
           <span class="truncate text-[12px] text-muted">
@@ -2304,7 +2304,7 @@ const TOOL =
               ><span
                   v-for="(run, i) in draftRuns"
                   :key="i"
-                  :class="run.mention && 'text-rose'"
+                  :class="run.mention && 'text-primary'"
                 >{{ run.text }}</span></span></div>
             <input
               ref="composer"
@@ -2351,7 +2351,7 @@ const TOOL =
              takes long enough on a phone that a second tap is the natural
              thing to do, and it would send the same photos twice. -->
         <button
-          class="grid size-12 shrink-0 place-items-center rounded-full bg-rose-fill text-on-rose transition-[transform,opacity,background-color] duration-100 ease-out active:scale-[0.94] motion-reduce:transition-none motion-reduce:active:scale-100"
+          class="grid size-12 shrink-0 place-items-center rounded-full bg-primary-fill text-on-primary transition-[transform,opacity,background-color] duration-100 ease-out active:scale-[0.94] motion-reduce:transition-none motion-reduce:active:scale-100"
           :class="!canSend && 'opacity-45'"
           :disabled="!canSend"
           :aria-label="editing ? 'Save edit' : 'Send'"
@@ -2410,7 +2410,7 @@ const TOOL =
           <span class="mx-1 h-6 w-px shrink-0 bg-hairline" aria-hidden="true" />
 
           <button
-            class="grid size-9 place-items-center rounded-full text-muted transition-colors duration-150 hover:bg-rose-soft hover:text-rose"
+            class="grid size-9 place-items-center rounded-full text-muted transition-colors duration-150 hover:bg-primary-soft hover:text-primary"
             role="menuitem"
             aria-label="Reply to this message"
             @click="replyFromPicker"
@@ -2426,7 +2426,7 @@ const TOOL =
           -->
           <button
             v-if="reacting.canEdit"
-            class="grid size-9 place-items-center rounded-full text-muted transition-colors duration-150 hover:bg-rose-soft hover:text-rose"
+            class="grid size-9 place-items-center rounded-full text-muted transition-colors duration-150 hover:bg-primary-soft hover:text-primary"
             role="menuitem"
             aria-label="Edit this message"
             @click="editFromPicker"

@@ -566,7 +566,7 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
          about the workout, it is the reason it cannot start. -->
     <Dialog v-model:open="photoGateOpen">
       <DialogContent class="w-[calc(100%-32px)] max-w-100 gap-0 rounded-lg bg-raised p-5">
-        <span class="grid size-10 place-items-center rounded-pill bg-rose-soft text-rose">
+        <span class="grid size-10 place-items-center rounded-pill bg-primary-soft text-primary">
           <AppIcon name="image" :size="19" />
         </span>
         <DialogTitle class="mt-3.5 text-[17px]">Progress photo first</DialogTitle>

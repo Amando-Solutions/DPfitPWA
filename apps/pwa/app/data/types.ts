@@ -1196,6 +1196,11 @@ export interface AnnouncementDoc extends Audited {
   cta: string | null
   /** Where `cta` goes. Ignored, and the button not rendered, when `cta` is null. */
   ctaUrl: string | null
+  /**
+   * Named for the palette this shipped under and stored as such, so the
+   * values keep their names: `rose` now renders as the primary purple and
+   * `orange` as the violet.
+   */
   accent: 'rose' | 'orange' | 'ink'
   /** An instant. Newest first, like the inbox. */
   publishedAt: Timestamp

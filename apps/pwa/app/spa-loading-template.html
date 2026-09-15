@@ -16,7 +16,7 @@
 <div class="dp-boot">
   <!-- Corner art, in the design's paint order: both discs, then the rings
        over them. -->
-  <div class="dp-boot__glow dp-boot__glow--rose"></div>
+  <div class="dp-boot__glow dp-boot__glow--primary"></div>
   <div class="dp-boot__glow dp-boot__glow--violet"></div>
   <div class="dp-boot__ring dp-boot__ring--top"></div>
   <div class="dp-boot__ring dp-boot__ring--bottom"></div>
@@ -80,18 +80,19 @@
       together on the wider desktop surface. Change it, not the geometry.
     */
     --art: 1;
-    /* The app's light palette, inlined: --surface, --text, --rose-fill and the
-       three splash-art colours. Keep in step with `assets/styles/main.css`. */
-    --boot-bg: #f3eae4;
+    /* The app's light palette, inlined: --surface, --text, --primary-fill and
+       the three splash-art colours. Keep in step with
+       `packages/theme/styles/theme.css`. */
+    --boot-bg: #f5f3fa;
     --boot-ink: #241b2e;
     /* The logo's plum. Mirrors `--brand-mark` in the design system. */
     --boot-mark: #430f32;
     /* amando's terracotta, for the credit. Mirrors `--credit-mark`. */
     --boot-credit: #8f4d2a;
-    --boot-accent: #c81e5c;
-    --boot-glow-rose: rgba(200, 30, 92, 0.5);
+    --boot-accent: #9333ea;
+    --boot-glow-primary: rgba(147, 51, 234, 0.5);
     --boot-glow-violet: rgba(36, 27, 46, 0.8);
-    --boot-ring: rgba(200, 30, 92, 0.7);
+    --boot-ring: rgba(147, 51, 234, 0.7);
 
     position: fixed;
     inset: 0;
@@ -106,20 +107,20 @@
   }
 
   [data-theme="dark"] .dp-boot {
-    --boot-bg: #14101a;
-    --boot-ink: #f5f0ea;
+    --boot-bg: #141019;
+    --boot-ink: #f4f1f6;
     /* On the near-black the brand's own answer is the all-white lockup, so the
        mark stops being plum and joins the wordmark. */
-    --boot-mark: #f5f0ea;
+    --boot-mark: #f4f1f6;
     /* The terracotta lifts here rather than flipping: #8f4d2a is 2.5:1 on this
        ground, so the credit would read as a smudge. Same hue, higher value. */
     --boot-credit: #c4794f;
-    --boot-accent: #d6295f;
-    --boot-glow-rose: rgba(255, 134, 168, 0.5);
-    /* Dark mode flips the violet disc from ink to a lifted mauve, because a glow that
-       darkens is invisible on a dark page. */
-    --boot-glow-violet: rgba(150, 132, 172, 0.35);
-    --boot-ring: rgba(255, 134, 168, 0.6);
+    /* No `--boot-accent` here: the Primary fill is the same hex in both themes. */
+    --boot-glow-primary: rgba(166, 87, 238, 0.5);
+    /* Dark mode flips the second disc from ink to the violet, because a glow
+       that darkens is invisible on a dark page. */
+    --boot-glow-violet: rgba(157, 127, 234, 0.35);
+    --boot-ring: rgba(166, 87, 238, 0.6);
   }
 
   .dp-boot__glow,
@@ -131,12 +132,12 @@
 
   /* Solid discs behind a heavy blur, not radial gradients: a gradient starts
      fading at its own centre, which reads as haze rather than as light. */
-  .dp-boot__glow--rose {
+  .dp-boot__glow--primary {
     width: calc(330px * var(--art));
     height: calc(330px * var(--art));
     top: calc(-180px * var(--art));
     right: calc(-178px * var(--art));
-    background: var(--boot-glow-rose);
+    background: var(--boot-glow-primary);
     filter: blur(calc(32px * var(--art)));
   }
 

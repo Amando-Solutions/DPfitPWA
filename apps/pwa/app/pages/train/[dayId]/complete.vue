@@ -216,7 +216,7 @@ const discard = async () => {
         @change="onPhoto"
       />
       <button
-        class="dropzone w-full min-h-32.5 rounded-card border-2 border-dashed border-hairline-strong bg-raised flex flex-col items-center justify-center gap-2.5 text-(--violet-45) text-[14px] font-semibold overflow-hidden p-0 [&.dropzone--filled]:border-solid [&.dropzone--filled]:border-rose [&.dropzone--filled]:min-h-45 [&.dropzone--error]:border-rose lg:min-h-50 lg:[&.dropzone--filled]:min-h-65"
+        class="dropzone w-full min-h-32.5 rounded-card border-2 border-dashed border-hairline-strong bg-raised flex flex-col items-center justify-center gap-2.5 text-(--violet-45) text-[14px] font-semibold overflow-hidden p-0 [&.dropzone--filled]:border-solid [&.dropzone--filled]:border-primary [&.dropzone--filled]:min-h-45 [&.dropzone--error]:border-primary lg:min-h-50 lg:[&.dropzone--filled]:min-h-65"
         :class="{ 'dropzone--filled': session.proofPhoto, 'dropzone--error': showError }"
         @click="pickPhoto"
       >
@@ -241,13 +241,13 @@ const discard = async () => {
               : 'Optional for the finisher. Add one if you want it on record.'
           }}
         </p>
-        <button v-if="session.proofPhoto" class="complete__retake shrink-0 min-h-7 p-[4px_8px] m-[-4px_-8px] text-[12.5px] font-bold text-rose" @click="clearPhoto">
+        <button v-if="session.proofPhoto" class="complete__retake shrink-0 min-h-7 p-[4px_8px] m-[-4px_-8px] text-[12.5px] font-bold text-primary" @click="clearPhoto">
           Retake
         </button>
       </div>
 
-      <p v-if="showError" class="complete__error m-[-6px_0_0] text-[13px] font-bold text-rose">• Please add a photo before saving.</p>
-      <p v-if="photoError" class="complete__error m-[-6px_0_0] text-[13px] font-bold text-rose">• {{ photoError }}</p>
+      <p v-if="showError" class="complete__error m-[-6px_0_0] text-[13px] font-bold text-primary">• Please add a photo before saving.</p>
+      <p v-if="photoError" class="complete__error m-[-6px_0_0] text-[13px] font-bold text-primary">• {{ photoError }}</p>
 
       <div class="complete__notes mt-1.5 flex flex-col gap-2.5">
         <span class="text-[13px] text-muted">Notes (optional)</span>
@@ -279,7 +279,7 @@ const discard = async () => {
         </div>
       </AppCard>
 
-      <button class="complete__discard self-center min-h-8 mt-1.5 p-[6px_14px] text-rose font-bold text-[14px]" @click="showDiscard = true">Discard workout</button>
+      <button class="complete__discard self-center min-h-8 mt-1.5 p-[6px_14px] text-primary font-bold text-[14px]" @click="showDiscard = true">Discard workout</button>
     </div>
 
     <!-- Outside the frozen body, so the label and any failure stay readable and
@@ -288,7 +288,7 @@ const discard = async () => {
       <p
         v-if="saveError"
         role="alert"
-        class="complete__save-error mb-2.5 text-center text-[13px] font-bold text-rose"
+        class="complete__save-error mb-2.5 text-center text-[13px] font-bold text-primary"
       >
         {{ saveError }}
       </p>

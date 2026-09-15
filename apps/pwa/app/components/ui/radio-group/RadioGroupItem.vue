@@ -10,7 +10,7 @@ export const radioGroupItemVariants = cva(
   {
     variants: {
       variant: {
-        dot: 'aspect-square size-4.5 shrink-0 rounded-full border-[1.5px] border-hairline-strong text-rose focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-ring data-[state=checked]:border-rose',
+        dot: 'aspect-square size-4.5 shrink-0 rounded-full border-[1.5px] border-hairline-strong text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring data-[state=checked]:border-primary',
         plain: '',
       },
     },
@@ -57,7 +57,7 @@ const forwarded = useForwardProps(delegated)
     <!-- A custom option renders its own content; the fallback is shadcn's dot. -->
     <slot>
       <RekaRadioGroupIndicator class="flex items-center justify-center">
-        <span class="size-2.5 rounded-full bg-rose-fill" />
+        <span class="size-2.5 rounded-full bg-primary-fill" />
       </RekaRadioGroupIndicator>
     </slot>
   </RekaRadioGroupItem>

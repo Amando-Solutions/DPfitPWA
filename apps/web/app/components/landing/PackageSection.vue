@@ -9,7 +9,7 @@ import { PACKAGE_ITEMS } from '~/data/landing'
   >
     <PageContainer>
       <div class="max-w-[620px]">
-        <p class="eyebrow-section text-[var(--rose-fill)]">What's included</p>
+        <p class="eyebrow-section text-[var(--primary-fill)]">What's included</p>
         <h2 class="title-section mt-[18px] text-ink">
           Everything you need, nothing you have to figure out.
         </h2>
@@ -34,7 +34,7 @@ import { PACKAGE_ITEMS } from '~/data/landing'
           class="grid gap-x-6 gap-y-3 border-b border-[var(--rule)] py-7 last:border-b-0 lg:grid-cols-[377px_1fr_auto] lg:items-start lg:gap-x-10"
         >
           <div class="flex items-baseline gap-[14px]">
-            <span class="font-data text-[11.5px] text-[var(--rose-fill)]">
+            <span class="font-data text-[11.5px] text-[var(--primary-fill)]">
               {{ String(i + 1).padStart(2, '0') }}
             </span>
             <h3
@@ -50,13 +50,13 @@ import { PACKAGE_ITEMS } from '~/data/landing'
 
           <!--
             The one guide held back until Week 3 is the interesting fact in this
-            table, so it gets the rose chip and every "Day 1" gets the quiet one.
+            table, so it gets the purple chip and every "Day 1" gets the quiet one.
           -->
           <span
             class="meta order-1 w-fit rounded-pill px-[11px] py-1.5 lg:order-3"
             :class="
               item.staged
-                ? 'bg-[var(--rose-fill)] text-white'
+                ? 'bg-[var(--primary-fill)] text-white'
                 : 'bg-[var(--chip-quiet)] text-[var(--chip-quiet-ink)]'
             "
           >

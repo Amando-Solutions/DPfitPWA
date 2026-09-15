@@ -45,7 +45,7 @@ const pct = computed(() =>
   >
     <RekaProgressIndicator
       class="h-full rounded-pill transition-[width] duration-400 ease-out"
-      :class="cn('bg-rose-fill', indicatorClass)"
+      :class="cn('bg-primary-fill', indicatorClass)"
       :style="{ width: `${pct}%` }"
     />
   </RekaProgressRoot>

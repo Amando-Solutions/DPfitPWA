@@ -356,7 +356,7 @@ watch([code, email], () => {
 
 <template>
   <div class="access flex-1 min-h-0 flex flex-col p-[40px_24px_24px] relative overflow-hidden lg:p-[44px_44px_36px]">
-    <div class="access__glow absolute w-65 h-65 -top-20 -right-20 rounded-[50%] bg-[radial-gradient(circle,var(--rose-ring),transparent_70%)] filter-[blur(8px)] pointer-events-none" />
+    <div class="access__glow absolute w-65 h-65 -top-20 -right-20 rounded-[50%] bg-[radial-gradient(circle,var(--primary-ring),transparent_70%)] filter-[blur(8px)] pointer-events-none" />
 
     <div class="access__intro relative mt-auto mb-6 flex flex-col gap-2 lg:mt-0 lg:mb-7">
       <!-- The brand's own lockup, at the one screen that earns it: this is the
@@ -496,7 +496,7 @@ watch([code, email], () => {
           </p>
           <button
             type="button"
-            class="access__switch pt-1 pb-1 text-[13px] font-bold text-rose disabled:opacity-50"
+            class="access__switch pt-1 pb-1 text-[13px] font-bold text-primary disabled:opacity-50"
             :disabled="busy !== ''"
             @click="useAnotherAccount"
           >
@@ -521,7 +521,7 @@ watch([code, email], () => {
     <div class="access__foot mt-auto flex flex-col gap-2.5 pt-5 text-center">
       <p v-if="phase === 'code'" class="access__hint muted m-0 text-[13px]">
         Can’t find your code? Check spam<template v-if="supportEmail"> or
-        <a :href="supportHref" class="access__link text-rose font-bold">contact support</a></template>.
+        <a :href="supportHref" class="access__link text-primary font-bold">contact support</a></template>.
       </p>
       <p
         v-if="store.instantSignIn"

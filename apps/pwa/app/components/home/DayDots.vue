@@ -35,15 +35,15 @@ const caption = (day: WorkoutDayView) => {
       <span
         class="relative grid aspect-square size-13.5 max-w-full place-items-center rounded-pill"
         :class="{
-          'bg-rose-fill text-on-rose': day.status === 'completed',
-          'bg-rose-softer text-rose shadow-[0_0_0_1.5px_var(--rose-ring)]': day.canStart,
+          'bg-success text-on-success': day.status === 'completed',
+          'bg-primary-softer text-primary shadow-[0_0_0_1.5px_var(--primary-ring)]': day.canStart,
           'bg-sunken text-muted': day.status !== 'completed' && !day.canStart,
         }"
       >
         <!-- The design rings the open dot; the pulse is what makes it read as "now". -->
         <span
           v-if="day.status === 'today'"
-          class="pointer-events-none absolute inset-0 rounded-[inherit] border-[1.5px] border-rose animate-day-ping motion-reduce:animate-none motion-reduce:opacity-50"
+          class="pointer-events-none absolute inset-0 rounded-[inherit] border-[1.5px] border-primary animate-day-ping motion-reduce:animate-none motion-reduce:opacity-50"
           aria-hidden="true"
         />
 
@@ -54,7 +54,7 @@ const caption = (day: WorkoutDayView) => {
 
       <span
         class="text-[11px]"
-        :class="day.canStart ? 'text-rose' : 'text-muted'"
+        :class="day.canStart ? 'text-primary' : 'text-muted'"
       >
         {{ caption(day) }}
       </span>

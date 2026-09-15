@@ -41,7 +41,7 @@ const back = () => router.push('/train')
 <template>
   <div class="saved pt-(--screen-pad-top) px-5 pb-0 min-h-full lg:p-0">
     <div class="saved__center flex flex-col items-center text-center gap-3.5 mt-8 lg:mt-6 lg:py-12 lg:px-6 lg:bg-raised lg:rounded-lg lg:shadow-card">
-      <div class="saved__check w-[96px] h-[96px] rounded-full bg-rose-soft text-rose grid place-items-center mb-1.5">
+      <div class="saved__check w-[96px] h-[96px] rounded-full bg-success-soft text-success grid place-items-center mb-1.5">
         <AppIcon name="check" :size="34" :stroke="2.6" />
       </div>
       <h1 class="saved__title m-0 font-display font-black text-[26px] text-ink">Workout saved</h1>
@@ -52,11 +52,11 @@ const back = () => router.push('/train')
       </p>
 
       <div class="saved__chips flex gap-2 mt-0.5">
-        <StatPill :value="`+${log?.rewardPoints ?? 0} RP`" variant="rose" />
+        <StatPill :value="`+${log?.rewardPoints ?? 0} RP`" variant="secondary" />
         <StatPill
           :label="`${store.rewards.value.streakWeeks} week streak`"
           icon="flame"
-          variant="rose"
+          variant="secondary"
         />
       </div>
 
