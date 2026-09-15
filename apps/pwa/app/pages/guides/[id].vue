@@ -48,7 +48,7 @@ watchEffect(() => {
 
     <ol class="guide__steps [list-style:none] [margin:0] [padding:0] [display:flex] [flex-direction:column] [gap:12px]">
       <li v-for="(step, index) in steps" :key="index" class="guide__step [display:flex] [gap:12px] [padding:16px] [border-radius:var(--radius-card)] [background:var(--paper-raised)] [box-shadow:var(--shadow-card)]">
-        <span class="guide__step-n tabular-nums [width:26px] [height:26px] [flex-shrink:0] [border-radius:var(--radius-pill)] [background:var(--rose-soft)] [color:var(--rose)] [display:grid] [place-items:center] [font-size:12px] [font-weight:700]">{{ index + 1 }}</span>
+        <span class="guide__step-n tabular-nums [width:26px] [height:26px] [flex-shrink:0] [border-radius:var(--radius-pill)] [background:var(--primary-soft)] [color:var(--primary)] [display:grid] [place-items:center] [font-size:12px] [font-weight:700]">{{ index + 1 }}</span>
         <p class="guide__step-body [margin:0] [font-size:13.5px] [line-height:1.55] [color:var(--ink)] lg:[font-size:15px]">{{ step }}</p>
       </li>
     </ol>

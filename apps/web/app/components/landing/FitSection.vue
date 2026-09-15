@@ -6,7 +6,7 @@ import { FIT_FOR_YOU, NOT_FOR_YOU } from '~/data/landing'
   <section class="bg-page py-20 lg:py-[120px]">
     <PageContainer>
       <div class="max-w-[620px]">
-        <p class="eyebrow-section text-[var(--rose-fill)]">Is this for you</p>
+        <p class="eyebrow-section text-[var(--primary-fill)]">Is this for you</p>
         <h2 class="title-section mt-[18px] text-ink">
           Be honest with yourself before you join.
         </h2>
@@ -14,7 +14,7 @@ import { FIT_FOR_YOU, NOT_FOR_YOU } from '~/data/landing'
 
       <!--
         The two columns are deliberately not symmetrical in weight: the green
-        one is tinted and the rose one is plain white, so the page reads as
+        one is tinted and the purple one is plain white, so the page reads as
         "here is who this is for, and here is the honest exception" rather than
         as a pros-and-cons table.
 
@@ -51,7 +51,7 @@ import { FIT_FOR_YOU, NOT_FOR_YOU } from '~/data/landing'
         <div
           class="rounded-[20px] border border-[rgba(36,27,46,0.12)] bg-white p-8 lg:p-[41px]"
         >
-          <h3 class="font-body text-[16px] font-semibold text-[var(--rose-fill)]">
+          <h3 class="font-body text-[16px] font-semibold text-[var(--primary-fill)]">
             This isn't the right fit if:
           </h3>
           <ul class="mt-1.5">
@@ -62,7 +62,7 @@ import { FIT_FOR_YOU, NOT_FOR_YOU } from '~/data/landing'
             >
               <span
                 aria-hidden="true"
-                class="font-body text-[15px] leading-[1.55] font-semibold text-[var(--rose-fill)]"
+                class="font-body text-[15px] leading-[1.55] font-semibold text-[var(--primary-fill)]"
               >
                 ✕
               </span>

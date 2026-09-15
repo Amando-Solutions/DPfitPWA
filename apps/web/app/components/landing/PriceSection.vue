@@ -10,7 +10,7 @@ import { PRICE, PRICE_INCLUDES, REGISTER_ANCHOR } from '~/data/landing'
     <PageContainer>
       <div class="grid gap-12 lg:grid-cols-2 lg:gap-[70px]">
         <div>
-          <p class="eyebrow-section text-[var(--rose-fill)]">
+          <p class="eyebrow-section text-[var(--primary-fill)]">
             Six weeks, group challenge
           </p>
           <p class="title-price mt-5 text-ink">{{ PRICE }}</p>

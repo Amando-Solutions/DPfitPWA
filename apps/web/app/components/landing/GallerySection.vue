@@ -8,7 +8,7 @@ import { GALLERY } from '~/data/landing'
       <div
         class="flex items-baseline justify-between border-b border-[var(--rule)] pb-4"
       >
-        <p class="meta text-[var(--rose-fill)]">Inside the challenge</p>
+        <p class="meta text-[var(--primary-fill)]">Inside the challenge</p>
         <p class="font-data text-[11px] tracking-[0.1em] text-[#9a8fa2] uppercase">
           DP Fitness
         </p>

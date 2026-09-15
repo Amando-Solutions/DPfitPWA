@@ -64,7 +64,7 @@ const router = useRouter()
         v-for="n in total"
         :key="n"
         class="h-1 flex-1 rounded-pill transition-colors duration-300"
-        :class="n <= step ? 'bg-rose-fill' : 'bg-fill-muted'"
+        :class="n <= step ? 'bg-primary-fill' : 'bg-fill-muted'"
       />
     </div>
 
@@ -89,7 +89,7 @@ const router = useRouter()
       <p
         v-if="error"
         role="alert"
-        class="mb-2.5 text-center text-[13px] font-semibold text-rose"
+        class="mb-2.5 text-center text-[13px] font-semibold text-primary"
       >
         {{ error }}
       </p>

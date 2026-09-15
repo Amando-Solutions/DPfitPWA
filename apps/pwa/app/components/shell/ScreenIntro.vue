@@ -40,7 +40,7 @@ const store = useAppStore()
         aria-label="Notifications"
       >
         <AppIcon name="bell" :size="19" />
-        <span v-if="store.unreadNotifications.value" class="intro__bell-dot absolute top-2 right-2 w-2 h-2 rounded-full bg-rose-fill border-[1.5px] border-raised" />
+        <span v-if="store.unreadNotifications.value" class="intro__bell-dot absolute top-2 right-2 w-2 h-2 rounded-full bg-primary-fill border-[1.5px] border-raised" />
       </NuxtLink>
     </div>
 

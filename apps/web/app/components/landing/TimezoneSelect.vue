@@ -198,9 +198,9 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onPointerDown,
       :aria-controls="open ? listboxId : undefined"
       :aria-invalid="invalid ? true : undefined"
       :aria-describedby="describedby"
-      class="flex h-11.5 w-full items-center gap-2 rounded-field border bg-field py-0 pr-3.75 pl-3.75 text-left font-body text-[15px] transition-colors focus:outline-none focus-visible:border-rose-fill focus-visible:ring-2 focus-visible:ring-rose-ring"
+      class="flex h-11.5 w-full items-center gap-2 rounded-field border bg-field py-0 pr-3.75 pl-3.75 text-left font-body text-[15px] transition-colors focus:outline-none focus-visible:border-primary-fill focus-visible:ring-2 focus-visible:ring-primary-ring"
       :class="[
-        invalid ? 'border-rose-fill' : 'border-field-edge',
+        invalid ? 'border-primary-fill' : 'border-field-edge',
         // No `::placeholder` on a button, so the whole label greys out until
         // the field is answered.
         selected ? 'text-ink' : 'text-[#757575]',
@@ -246,7 +246,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onPointerDown,
           placeholder="Search a city or country"
           autocomplete="off"
           spellcheck="false"
-          class="h-9 w-full rounded-[7px] border border-transparent bg-field px-3 font-body text-[14.5px] text-ink placeholder:text-[#757575] focus:outline-none focus-visible:border-rose-fill"
+          class="h-9 w-full rounded-[7px] border border-transparent bg-field px-3 font-body text-[14.5px] text-ink placeholder:text-[#757575] focus:outline-none focus-visible:border-primary-fill"
           @keydown="onSearchKeydown"
         >
       </div>
@@ -278,8 +278,8 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onPointerDown,
             :aria-selected="zone.value === modelValue"
             class="flex scroll-mt-9 cursor-pointer items-center gap-2 px-3.75 py-2 font-body text-[14.5px] text-ink"
             :class="[
-              zone.value === active ? 'bg-[rgba(200,30,92,0.07)]' : '',
-              zone.value === modelValue ? 'text-rose-fill' : '',
+              zone.value === active ? 'bg-[rgba(147,51,234,0.07)]' : '',
+              zone.value === modelValue ? 'text-primary-fill' : '',
             ]"
             @click="choose(zone)"
             @pointermove="active = zone.value"

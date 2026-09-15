@@ -15,33 +15,34 @@
    Landing page · the handful of values the shared system doesn't already carry
    -----------------------------------------------------------------------------
    Almost everything this page needs is already a token: `--text` is the ink,
-   `--text-soft` the secondary ink, `--rose-fill` the accent, `--orange` the
-   warm accent, `--macro-carbs` the green the "this is for you" column uses, and
+   `--text-soft` the secondary ink, `--primary-fill` the accent, `--secondary` the
+   violet, `--macro-carbs` the green the "this is for you" column uses, and
    the five `--font-*` families are the same. What follows is only what the
    marketing composition genuinely introduces.
 
    The page is pinned to the light palette (`data-theme="light"` in
-   `nuxt.config.ts`) because it is one authored composition — a warm paper page
+   `nuxt.config.ts`) because it is one authored composition — a lavender-white page
    with two deliberately dark panels — rather than a surface someone lives in.
    That is why these sit on plain `:root` with no dark counterpart.
    ========================================================================== */
 :root {
   /* The page itself, and the slightly deeper band that alternating sections sit
-     on. A shade warmer than the app's `--surface`/`--surface-raised`, which is
-     what stops a full-width marketing page reading as grey. */
-  --page: #fbf8f5;
-  --page-deep: #f2ebe5;
+     on. The app's `--surface-raised` and `--surface` respectively: a full-width
+     page on the page colour itself reads as grey, so it sits on the card white
+     and the bands drop to the page lavender. */
+  --page: #fcfbff;
+  --page-deep: #f5f3fa;
   /* The hero and the closing panel. Deeper than the app's `--surface-inverse`
-     (#241b2e) so the rose and orange glows bloom out of something near-black
+     (#241b2e) so the purple and violet glows bloom out of something near-black
      instead of out of violet. */
   --night: #0f0a14;
   /* Type on `--night`. Matches `--page` so the dark panels read as the page
      inverted rather than as a different brand. */
-  --paper: #fbf8f5;
+  --paper: #fcfbff;
 
-  /* A third ink, between `--text-soft` and the app's `--text-faint`, for the
-     asides under a price or a submit button. */
-  --ink-mute: #6a5f72;
+  /* The asides under a price or a submit button. Scheme A's muted text, the
+     same value as the app's `--text-muted`. */
+  --ink-mute: #5c4f66;
 
   /* The rules that divide the numbered lists. Heavier than the app's
      `--hairline` (0.11) because here they are structure, not just separation. */
@@ -53,19 +54,21 @@
 
   /* The release chip on each package row. Its own pair in Figma
      (`chip-day-surface` / `chip-day-label`) rather than a tint of the ink,
-     because it is warmer than everything around it on purpose. */
-  --chip-quiet: rgba(74, 42, 70, 0.12);
-  --chip-quiet-ink: #4a2a46;
+     because it is the violet on purpose: the one chip on the page that is
+     neither the ink nor the primary. The ink is the light-mode icon-safe violet,
+     which holds 4.6:1 on this tint where the plain violet does not. */
+  --chip-quiet: rgba(157, 127, 234, 0.14);
+  --chip-quiet-ink: #6e59a4;
 
   /* Field surfaces in the registration card. */
-  --field: #fbf8f5;
+  --field: #fcfbff;
   --field-edge: rgba(36, 27, 46, 0.18);
 
   /* The two-stop wash that paints "Do both at once." and nothing else. */
   --recomp-gradient: linear-gradient(
     111.43deg,
-    var(--brand-rose) 6.17%,
-    var(--brand-orange) 93.83%
+    var(--brand-primary) 6.17%,
+    var(--brand-violet) 93.83%
   );
 }
 
@@ -96,7 +99,7 @@
    the page has no width at which the headline is either clipped or marooned.
    ========================================================================== */
 
-/* The rose or orange kicker above every section heading. */
+/* The primary or violet kicker above every section heading. */
 @utility eyebrow-section {
   font-family: var(--font-eyebrow);
   font-weight: 700;
@@ -149,7 +152,7 @@
   text-transform: uppercase;
 }
 
-/* The rose "Do both at once." wash. Needs a painted background clipped to the
+/* The purple-to-violet "Do both at once." wash. Needs a painted background clipped to the
    glyphs, so it cannot be expressed as a colour token. */
 @utility text-recomp {
   background-image: var(--recomp-gradient);

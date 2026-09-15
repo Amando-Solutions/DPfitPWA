@@ -80,7 +80,7 @@ const initials = (name: string) =>
     .toUpperCase()
 
 const PANEL_LABEL = 'text-[13px] text-muted'
-const PANEL_COUNT = 'text-[13px] text-rose tabular-nums'
+const PANEL_COUNT = 'text-[13px] text-primary tabular-nums'
 </script>
 
 <template>
@@ -108,7 +108,7 @@ const PANEL_COUNT = 'text-[13px] text-rose tabular-nums'
               </span>
             </div>
           </div>
-          <ProgressBar :value="snapshot.rankProgress" :max="100" :height="6" flame />
+          <ProgressBar :value="snapshot.rankProgress" :max="100" :height="6" gradient />
           <p class="-mt-1 mb-0 text-[12.5px] text-on-inverse-soft">{{ nextRankLabel }}</p>
 
           <ol class="mt-1.5 flex list-none flex-col gap-2 border-t border-hairline-inverse p-[12px_0_0]">
@@ -129,7 +129,7 @@ const PANEL_COUNT = 'text-[13px] text-rose tabular-nums'
       <!-- Streak -->
       <section class="rewards__streak">
         <AppCard variant="raised" class="flex items-center gap-3.5">
-          <span class="grid size-11 shrink-0 place-items-center rounded-pill bg-rose-soft text-rose">
+          <span class="grid size-11 shrink-0 place-items-center rounded-pill bg-secondary-soft text-secondary-ink">
             <AppIcon name="flame" :size="20" :stroke="2.2" />
           </span>
           <div>
@@ -220,7 +220,7 @@ const PANEL_COUNT = 'text-[13px] text-rose tabular-nums'
               </span>
               <Avatar size="sm" class="size-8 shrink-0 rounded-full object-cover">
                 <AvatarImage :src="entry.avatarUrl ?? ''" :alt="entry.name" loading="lazy" />
-                <AvatarFallback class="bg-rose-fill text-[11px] font-semibold text-on-rose">
+                <AvatarFallback class="bg-primary-fill text-[11px] font-semibold text-on-primary">
                   {{ initials(entry.name) }}
                 </AvatarFallback>
               </Avatar>
@@ -229,7 +229,7 @@ const PANEL_COUNT = 'text-[13px] text-rose tabular-nums'
               </span>
               <span
                 class="text-[13px] tabular-nums"
-                :class="entry.isSelf ? 'text-on-inverse' : 'text-rose'"
+                :class="entry.isSelf ? 'text-on-inverse' : 'text-primary'"
               >
                 {{ entry.sessions }} {{ entry.sessions === 1 ? 'session' : 'sessions' }}
               </span>

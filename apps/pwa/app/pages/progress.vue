@@ -130,7 +130,7 @@ const takenLabel = formatDate
               : `Add ${pose} photo · Week ${store.clock.value.week}`
         }}
       </AppButton>
-      <p v-if="error" role="alert" class="progress__error -mt-1 mx-0 mb-0 text-[12px] leading-[1.45] text-muted text-center text-rose font-bold">{{ error }}</p>
+      <p v-if="error" role="alert" class="progress__error -mt-1 mx-0 mb-0 text-[12px] leading-[1.45] text-muted text-center text-primary font-bold">{{ error }}</p>
       <p v-else class="progress__note -mt-1 mx-0 mb-0 text-[12px] leading-[1.45] text-muted text-center">
         Stored on this device only. Your coach sees them when you share a check-in.
       </p>
@@ -140,7 +140,7 @@ const takenLabel = formatDate
       <section v-for="group in byWeek" :key="group.weekNumber" class="progress__week">
       <div class="progress__week-head flex items-center justify-between mb-2.5">
         <EyebrowLabel tone="muted">Week {{ group.weekNumber }}</EyebrowLabel>
-        <span class="progress__week-count tabular-nums text-[12.5px] text-rose">{{ group.photos.length }}/3</span>
+        <span class="progress__week-count tabular-nums text-[12.5px] text-primary">{{ group.photos.length }}/3</span>
       </div>
         <div
           class="progress__grid grid grid-cols-[repeat(3,_1fr)] gap-2.5 transition-opacity duration-150 lg:grid-cols-[repeat(4,_1fr)] lg:gap-3.5"
@@ -221,7 +221,7 @@ const takenLabel = formatDate
             <span class="lightbox__date tabular-nums text-[12px] text-muted">{{ takenLabel(active.takenAt) }}</span>
           </div>
           <button
-            class="lightbox__delete text-[13px] font-bold text-rose disabled:opacity-45"
+            class="lightbox__delete text-[13px] font-bold text-primary disabled:opacity-45"
             :disabled="busy"
             @click="remove"
           >
@@ -234,7 +234,7 @@ const takenLabel = formatDate
         <p
           v-if="error"
           role="alert"
-          class="lightbox__error m-0 px-4 pb-3.5 text-[12.5px] font-bold text-rose"
+          class="lightbox__error m-0 px-4 pb-3.5 text-[12.5px] font-bold text-primary"
         >
           {{ error }}
         </p>

@@ -118,7 +118,7 @@ const cta = computed(() => {
       class="absolute inset-0 size-full object-cover opacity-55 mix-blend-luminosity"
     />
     <div
-      class="absolute inset-0 bg-[var(--photo-floor),radial-gradient(120%_80%_at_100%_0%,var(--rose-ring),transparent_55%),var(--photo-scrim)]"
+      class="absolute inset-0 bg-[var(--photo-floor),radial-gradient(120%_80%_at_100%_0%,var(--primary-ring),transparent_55%),var(--photo-scrim)]"
     />
 
     <div
@@ -148,7 +148,7 @@ const cta = computed(() => {
       <!-- Flat fill: no raised stack, no coloured halo. -->
       <span
         class="mt-4.5 flex items-center justify-center rounded-pill p-3.75 text-[14.5px] font-bold"
-        :class="shut ? 'bg-on-photo/14 text-on-photo/85' : 'bg-rose-fill text-on-rose'"
+        :class="shut ? 'bg-on-photo/14 text-on-photo/85' : 'bg-primary-fill text-on-primary'"
       >
         {{ cta }}
       </span>

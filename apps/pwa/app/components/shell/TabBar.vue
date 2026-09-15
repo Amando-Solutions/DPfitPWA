@@ -42,17 +42,17 @@ const hasDot = (key: string): boolean => {
       >
         <template v-if="tab.center">
           <span class="tabbar__center-slot relative h-7.75 w-12.5">
-            <span class="tabbar__center-btn absolute -top-4.75 left-0 grid size-12.5 place-items-center rounded-pill border-4 border-inverse bg-rose-fill text-on-rose drop-shadow-[0_8px_10px_var(--rose-strong)]">
+            <span class="tabbar__center-btn absolute -top-4.75 left-0 grid size-12.5 place-items-center rounded-pill border-4 border-inverse bg-primary-fill text-on-primary drop-shadow-[0_8px_10px_var(--primary-strong)]">
               <AppIcon :name="tab.icon" :size="23" />
             </span>
           </span>
           <span class="tabbar__label text-[10.5px] leading-none font-medium">{{ tab.label }}</span>
         </template>
         <template v-else>
-          <span class="tabbar__icon relative grid place-items-center group-aria-[current=page]:text-rose-on-inverse">
+          <span class="tabbar__icon relative grid place-items-center group-aria-[current=page]:text-primary-on-inverse">
             <!-- The selected pill, drawn out of flow so switching tabs cannot
                  move the bar or the raised centre button by a pixel. It is the
-                 half of the active state that reads at a glance; the rose the
+                 half of the active state that reads at a glance; the purple the
                  glyph takes alongside it is the half that says which tab. -->
             <span
               class="tabbar__halo absolute -inset-x-3.25 -inset-y-1 rounded-pill bg-(--face-on-inverse) opacity-0 transition-opacity duration-180 ease-[ease] group-aria-[current=page]:opacity-100"
@@ -61,7 +61,7 @@ const hasDot = (key: string): boolean => {
             <AppIcon :name="tab.icon" :size="21" :stroke="2" class="relative" />
             <span
               v-if="hasDot(tab.key)"
-              class="tabbar__dot absolute -top-px -right-0.5 size-1.75 rounded-full border-[1.5px] border-inverse bg-rose-fill"
+              class="tabbar__dot absolute -top-px -right-0.5 size-1.75 rounded-full border-[1.5px] border-inverse bg-primary-fill"
             />
           </span>
           <span class="tabbar__label text-[10.5px] leading-none font-medium">{{ tab.label }}</span>

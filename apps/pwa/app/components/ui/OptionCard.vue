@@ -18,14 +18,14 @@ withDefaults(
     :class="[
       compact ? 'px-3.5 py-3' : 'px-4 py-3.5',
       selected
-        ? 'bg-rose-softer shadow-[inset_0_0_0_1.5px_var(--rose)]'
+        ? 'bg-primary-softer shadow-[inset_0_0_0_1.5px_var(--primary)]'
         : 'shadow-[inset_0_0_0_1.5px_var(--hairline)]',
     ]"
   >
     <div
       v-if="icon"
       class="grid size-9 shrink-0 place-items-center rounded-[10px] transition-colors"
-      :class="selected ? 'bg-rose-fill text-on-rose' : 'bg-fill-subtle text-ink'"
+      :class="selected ? 'bg-primary-fill text-on-primary' : 'bg-fill-subtle text-ink'"
     >
       <AppIcon :name="icon" :size="18" :stroke="2.2" />
     </div>
@@ -36,8 +36,8 @@ withDefaults(
     </div>
 
     <div
-      class="grid size-5.5 shrink-0 place-items-center rounded-full text-on-rose"
-      :class="selected && 'bg-rose-fill'"
+      class="grid size-5.5 shrink-0 place-items-center rounded-full text-on-primary"
+      :class="selected && 'bg-primary-fill'"
     >
       <AppIcon v-if="selected" name="check" :size="14" :stroke="3" />
     </div>
