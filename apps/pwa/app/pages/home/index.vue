@@ -106,6 +106,47 @@ const STAT_VALUE =
          wrappers dissolve and `order` restores the design's single-column
          sequence. -->
     <div class="home__col home__col--main contents lg:flex lg:flex-col lg:gap-4.5 lg:self-start lg:[grid-area:main]">
+      <!--
+        First progress photo. Ahead of the hero, on both layouts, because Start
+        workout refuses until it is done: leading with a session they cannot
+        start yet would be sending them to a dialog rather than to the thing
+        the dialog asks for. Shares the hero's `order-1` and comes first in the
+        DOM, which is what puts it above the hero on mobile too.
+
+        Gone for good once any photo is on file; unlike the check-in there is
+        no next week for it to come back in.
+      -->
+      <section
+        v-if="store.firstPhotoDue.value"
+        class="home__section home__section--photo order-1 mt-3.25 lg:mt-0"
+      >
+        <div :class="CARD">
+          <div class="flex gap-3">
+            <span class="grid size-9 shrink-0 place-items-center rounded-pill bg-rose-soft text-rose">
+              <AppIcon name="image" :size="17" />
+            </span>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <h2 class="m-0 font-display text-[16px] font-black tracking-[-0.24px] text-ink">
+                  Take your before photo
+                </h2>
+                <span
+                  v-if="store.rewardValues.value"
+                  class="shrink-0 rounded-pill bg-rose-soft px-2 py-0.75 text-[11px] text-rose tabular-nums"
+                >
+                  +{{ store.rewardValues.value.progressPhoto }} RP
+                </span>
+              </div>
+              <p class="mt-1 mb-0 text-[13px] leading-[1.45] text-muted">
+                Upload a progress photo before your first session. Training
+                unlocks once it’s in.
+              </p>
+            </div>
+          </div>
+          <AppButton to="/progress" class="mt-3.25">Upload progress photo</AppButton>
+        </div>
+      </section>
+
       <!-- Hero workout. Nothing to lead with until the program's training week
            has been authored, and an empty hero is worse than none. -->
       <section

@@ -746,6 +746,19 @@ const buildStore = () => {
   const checkInDue = computed(() => currentCheckIn.value === null)
 
   /**
+   * No progress photo on file yet, so there is no "before" to measure against.
+   *
+   * Any photo lifts it, from any week and in any pose: the rule is that the
+   * block starts with a picture, not that the member keeps a full set. Members
+   * already training are held to it too, deliberately; there is no exemption
+   * for having logged sessions before the rule existed. Home
+   * leads with the card while it holds, and Start workout refuses until it
+   * does not. Photos are read from the data source, not the device, so a
+   * member on a new phone is not asked a second time.
+   */
+  const firstPhotoDue = computed(() => state.value.photos.length === 0)
+
+  /**
    * Any authored day by id, whether or not it is part of the weekly quota.
    *
    * `days` only carries the quota, so an optional day — the core & cardio
@@ -1181,6 +1194,7 @@ const buildStore = () => {
     unreadNotifications,
     currentCheckIn,
     checkInDue,
+    firstPhotoDue,
     /** Sessions the whole block asks for. Zero until the program has loaded. */
     totalSessions: computed(
       () => challengeShape.value.totalWeeks * challengeShape.value.sessionsPerWeek,

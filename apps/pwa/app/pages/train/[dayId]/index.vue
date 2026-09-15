@@ -182,9 +182,22 @@ const onVisibility = () => {
   syncClock()
 }
 
+/**
+ * Open while Start was refused for want of a first progress photo.
+ *
+ * Only Start is held. A session already running is left to finish, so a member
+ * mid-workout when this rule arrived is not locked out of their own sets.
+ */
+const photoGateOpen = ref(false)
+
 const startWorkout = async () => {
   const active = store.activeSession.value
   if (!active) return
+  // Here rather than on the button: the rest timer starts the clock too.
+  if (!active.running && store.firstPhotoDue.value) {
+    photoGateOpen.value = true
+    return
+  }
   active.running = true
   active.startedAt = active.startedAt ?? trustedTimestamp()
   syncClock()
@@ -232,6 +245,9 @@ const restRemaining = ref(0)
 
 const openRest = async (seconds: number) => {
   if (!session.value?.running) await startWorkout()
+  // Start can be refused (see `photoGateOpen`), and a rest timer counting down
+  // over a workout that never began is the old half-started session again.
+  if (!session.value?.running) return
   restActive.value = true
   restRemaining.value = seconds
 }
@@ -539,5 +555,26 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
         </AppButton>
       </div>
     </BottomSheet>
+
+    <!-- A modal rather than a sheet like Discard above: this is not a choice
+         about the workout, it is the reason it cannot start. -->
+    <Dialog v-model:open="photoGateOpen">
+      <DialogContent class="w-[calc(100%-32px)] max-w-100 gap-0 rounded-lg bg-raised p-5">
+        <span class="grid size-10 place-items-center rounded-pill bg-rose-soft text-rose">
+          <AppIcon name="image" :size="19" />
+        </span>
+        <DialogTitle class="mt-3.5 text-[17px]">Progress photo first</DialogTitle>
+        <DialogDescription class="mt-1.5 text-[13.5px] leading-normal text-soft">
+          Upload a progress photo before you start training. It’s your before,
+          and what week 6 gets measured against.
+        </DialogDescription>
+        <div class="mt-4.5 flex flex-col gap-2.5">
+          <AppButton to="/progress" @click="photoGateOpen = false">
+            Upload progress photo
+          </AppButton>
+          <AppButton variant="secondary" @click="photoGateOpen = false">Not now</AppButton>
+        </div>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
