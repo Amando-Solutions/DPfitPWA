@@ -27,11 +27,44 @@ const planned = computed(() =>
 )
 
 /**
- * The clip's width over height, read off its metadata. Null until then,
- * which draws a 16:9 frame. A demo filmed upright on a phone is 9:16 and would
- * be a sliver in the middle of one.
+ * The exercise's thumbnail, if it is an address a browser can load.
+ *
+ * It can be set to anything, and not everything is one: a `gs://` bucket path
+ * names a file but no browser can fetch it. Those are dropped here rather than
+ * handed to `<img>`, which draws a broken image in their place.
  */
-const clipRatio = ref<number | null>(null)
+const thumbUrl = computed(() => {
+  const url = planned.value?.videoThumbUrl?.trim()
+  if (!url) return null
+  try {
+    // Relative to a stand-in origin, so a root-relative path still counts.
+    const { protocol } = new URL(url, 'https://app.invalid')
+    return ['https:', 'http:', 'data:', 'blob:'].includes(protocol) ? url : null
+  } catch {
+    return null
+  }
+})
+
+/**
+ * Whether `thumbUrl` has actually loaded. A well-formed link can still 404, and
+ * the thumbnail is only drawn once it is known to work: until then — and for
+ * good, if it never does — How to shows the plain frame.
+ */
+const thumbLoaded = ref(false)
+
+watch(
+  thumbUrl,
+  (url) => {
+    thumbLoaded.value = false
+    if (!url) return
+    const probe = new Image()
+    probe.onload = () => {
+      if (thumbUrl.value === url) thumbLoaded.value = true
+    }
+    probe.src = url
+  },
+  { immediate: true },
+)
 
 /**
  * The browser cannot play the link. It can point anywhere, so this covers a file
@@ -47,12 +80,19 @@ const clip = ref<HTMLVideoElement | null>(null)
 /** Driven by the element's own events, so it cannot drift from what is on screen. */
 const clipState = ref<'paused' | 'loading' | 'playing'>('paused')
 
+/**
+ * Whether the clip has ever shown a moving frame. The thumbnail covers the
+ * frame until then — through the spinner too, so a slow start does not flash
+ * black — and never comes back: a paused clip shows where it stopped.
+ */
+const clipStarted = ref(false)
+
 watch(
   () => planned.value?.videoUrl,
   () => {
-    clipRatio.value = null
     clipFailed.value = false
     clipState.value = 'paused'
+    clipStarted.value = false
   },
 )
 
@@ -77,23 +117,35 @@ const toggleClip = () => {
 const onClipMetadata = (event: Event) => {
   const { videoWidth, videoHeight } = event.target as HTMLVideoElement
   if (!videoWidth || !videoHeight) clipFailed.value = true
-  else clipRatio.value = videoWidth / videoHeight
 }
 
 /**
- * The clip's source, starting a hair past zero when there is no thumbnail.
+ * The clip's source, starting a hair past zero.
  *
- * iOS Safari draws nothing for `preload="metadata"` until play is pressed, so an
- * exercise with no `videoThumbUrl` is a black frame there. Asking for a start
- * time makes it seek, and a seek paints that frame. The fragment never reaches
- * the server, so any host sees the link exactly as it was stored — a signed or
- * tokened URL still matches.
+ * iOS Safari draws nothing for `preload="metadata"` until play is pressed, so a
+ * clip with no thumbnail over it is a black frame there. Asking for a start
+ * time makes it seek, and a seek paints that frame. Done whether or not there
+ * is a thumbnail: it sits under one, and shows if the thumbnail never loads.
+ * The fragment never reaches the server, so any host sees the link exactly as
+ * it was stored — a signed or tokened URL still matches.
  */
 const clipSrc = computed(() => {
   const url = planned.value?.videoUrl
-  if (!url || planned.value?.videoThumbUrl || url.includes('#')) return url ?? undefined
+  if (!url || url.includes('#')) return url ?? undefined
   return `${url}#t=0.001`
 })
+
+/**
+ * The demo's frame, shared by the player and the placeholder so the box is the
+ * same whether a video plays in it, is still loading, or is not there.
+ *
+ * A fixed shape, not the clip's own: 16:9 on a phone, and no taller than 360px
+ * on a wide screen. The clip is cropped to fill it rather than letterboxed, so
+ * a portrait demo shows its middle band instead of the frame resizing when
+ * playback starts.
+ */
+const VIDEO_FRAME =
+  'relative aspect-video max-h-90 w-full overflow-hidden rounded-card bg-photo'
 
 const history = computed(() => store.historyFor(exerciseId.value))
 
@@ -185,15 +237,8 @@ const TRIGGER =
               </header>
 
               <div class="mt-3.5 flex items-center gap-3 px-5 lg:px-10">
-                <img
-                  v-if="planned?.videoThumbUrl"
-                  :src="planned.videoThumbUrl"
-                  alt=""
-                  decoding="async"
-                  class="size-11 shrink-0 rounded-pill object-cover"
-                />
+                <!-- The barbell every exercise wears elsewhere, not the thumbnail. -->
                 <span
-                  v-else
                   class="grid size-11 shrink-0 place-items-center rounded-pill bg-primary-soft text-primary"
                 >
                   <AppIcon name="train" :size="19" :stroke="2.2" />
@@ -257,32 +302,34 @@ const TRIGGER =
               `playsinline`, or iOS takes the clip fullscreen and out of the
               page. `metadata` only, so opening the tab does not start pulling
               down a whole video on gym signal before anyone presses play.
-              The frame takes the clip's own shape once its metadata is in,
-              and a portrait one is capped in width so it does not run the
-              page's full height on a wide screen.
+              `object-cover`, so the clip fills the fixed frame and is cropped
+              to it — see `VIDEO_FRAME`.
+
+              The thumbnail is an `<img>` over the clip rather than its
+              `poster`: a poster is dropped the moment the browser has a frame
+              to show, which with the start-time seek is before anyone presses
+              play, and iOS handles it inconsistently besides.
             -->
-            <div
-              v-if="planned?.videoUrl && !clipFailed"
-              :key="planned.videoUrl"
-              :style="clipRatio ? { aspectRatio: clipRatio } : undefined"
-              :class="[
-                'relative aspect-video w-full overflow-hidden rounded-card bg-photo',
-                clipRatio && clipRatio < 1 ? 'mx-auto max-w-80' : 'max-w-full',
-              ]"
-            >
+            <div v-if="planned?.videoUrl && !clipFailed" :key="planned.videoUrl" :class="VIDEO_FRAME">
               <video
                 ref="clip"
                 :src="clipSrc"
-                :poster="planned.videoThumbUrl ?? undefined"
                 playsinline
                 preload="metadata"
-                class="absolute inset-0 size-full object-contain"
+                class="absolute inset-0 size-full object-cover"
                 @loadedmetadata="onClipMetadata"
                 @error="clipFailed = true"
                 @play="clipState = 'loading'"
                 @waiting="clipState = 'loading'"
-                @playing="clipState = 'playing'"
+                @playing="(clipState = 'playing'), (clipStarted = true)"
                 @pause="clipState = 'paused'"
+              />
+              <img
+                v-if="thumbUrl && thumbLoaded && !clipStarted"
+                :src="thumbUrl"
+                alt=""
+                decoding="async"
+                class="absolute inset-0 size-full object-cover"
               />
               <button
                 type="button"
@@ -315,16 +362,18 @@ const TRIGGER =
               v-else
               :role="clipFailed ? undefined : 'img'"
               :aria-label="clipFailed ? undefined : `${name} demonstration video, coming soon`"
-              class="relative aspect-video w-full max-w-full overflow-hidden rounded-card bg-photo text-on-photo"
+              :class="VIDEO_FRAME"
+              class="text-on-photo"
             >
-              <img
-                v-if="planned?.videoThumbUrl"
-                :src="planned.videoThumbUrl"
-                alt=""
-                decoding="async"
-                class="absolute inset-0 size-full object-cover"
-              />
-              <div v-if="planned?.videoThumbUrl" class="absolute inset-0 bg-photo/70" />
+              <template v-if="thumbUrl && thumbLoaded">
+                <img
+                  :src="thumbUrl"
+                  alt=""
+                  decoding="async"
+                  class="absolute inset-0 size-full object-cover"
+                />
+                <div class="absolute inset-0 bg-photo/70" />
+              </template>
               <div class="relative flex size-full flex-col items-center justify-center gap-2.5">
                 <template v-if="clipFailed && planned?.videoUrl">
                   <span class="text-[13px] font-semibold text-on-photo/80">
