@@ -20,6 +20,10 @@ rules_version = '2';
 //      carry email addresses, body weight, injuries and allergies, and no
 //      feature is worth handing that to forty-seven strangers.
 //
+// And a member is signed in on one device at a time. `signedIn()` is true only
+// for the account's most recent sign-in, so every rule built on it refuses an
+// older device outright. See `signIns` below.
+//
 // WHAT THESE RULES CANNOT DO
 //
 // Rules validate shape, ownership and transitions. They cannot re-derive a
@@ -41,8 +45,26 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // --- Helpers -----------------------------------------------------------
+    /**
+     * Whether the caller's token comes from the account's latest sign-in.
+     *
+     * `auth_time` is when the device signed in, and a refreshed token keeps
+     * it, so it names the sign-in rather than the token. `signIns/{uid}` holds
+     * the latest. One `get`, billed as a read.
+     */
+    function onLatestSignIn() {
+      let latest = get(/databases/$(database)/documents/signIns/$(request.auth.uid));
+      return latest != null && latest.data.authTime == request.auth.token.auth_time;
+    }
+
+    /**
+     * Signed in, on the device the account most recently signed in on.
+     *
+     * Every member rule starts here, so a device that has lost the account to
+     * a later sign-in is refused everything but finding that out.
+     */
     function signedIn() {
-      return request.auth != null;
+      return request.auth != null && onLatestSignIn();
     }
 
     function isSelf(uid) {
@@ -54,9 +76,12 @@ service cloud.firestore {
      *
      * Set with the Admin SDK (`setCustomUserClaims`), never from the client,
      * which is what makes it trustworthy here. Absent for every member.
+     *
+     * Read off the token alone, not through `signedIn()`: the console is not a
+     * member's device and never claims one.
      */
     function isCoach() {
-      return signedIn() && request.auth.token.coach == true;
+      return request.auth != null && request.auth.token.coach == true;
     }
 
     /** The caller's member document. One `get`, billed as a read. */
@@ -87,13 +112,38 @@ service cloud.firestore {
       return name == null || name == '' ? fallback : name;
     }
 
+    // --- Sign-ins ----------------------------------------------------------
+    // `signIns/{uid}` — the account's latest sign-in, which is the one device
+    // it is signed in on. `signedIn()` refuses every other.
+    //
+    // Outside `signedIn()` on purpose. A device that has lost the account has
+    // to be able to read this to find out, and a device that has just signed
+    // in has to write it before anything else will let it in.
+    match /signIns/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+
+      // Only the caller's own sign-in, and never one older than what is there.
+      // The first stops a device naming a sign-in it did not make; the second
+      // stops an older device taking the account back. Signing in again is
+      // the only way back, and that makes it the latest.
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['authTime', 'signedInAt'])
+        && request.resource.data.authTime == request.auth.token.auth_time
+        && request.resource.data.signedInAt == request.time
+        && (resource == null || request.resource.data.authTime >= resource.data.authTime);
+
+      // Clearing it would let a device signed out while offline come back,
+      // find no claim, and take the account again.
+      allow delete: if false;
+    }
+
     // --- Access codes ------------------------------------------------------
     // `accessCodes/{code}` — keyed by the code itself.
     match /accessCodes/{code} {
       // `get` but never `list`. The code IS the secret, so looking one up by
       // name is the intended operation; enumerating the collection would hand
       // over every unredeemed seat in the business.
-      allow get: if signedIn();
+      allow get: if isCoach() || signedIn();
       allow list: if isCoach();
 
       allow create, delete: if isCoach();
@@ -178,11 +228,11 @@ service cloud.firestore {
     // Authored content. Every signed-in member reads it; only the console
     // writes it.
     match /programs/{programId} {
-      allow read: if signedIn();
+      allow read: if isCoach() || signedIn();
       allow write: if isCoach();
 
       match /{sub=**} {
-        allow read: if signedIn();
+        allow read: if isCoach() || signedIn();
       }
 
       // Weeks, guides, and the flat `workoutDays` a migration leaves behind.

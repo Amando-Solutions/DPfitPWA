@@ -8,6 +8,7 @@ import {
   type ActiveSessionInput,
   type CheckInInput,
   type DataSource,
+  type DeviceClaim,
   type PendingFile,
   type PhotoInput,
   type SessionInput,
@@ -310,6 +311,15 @@ export class LocalDataSource implements DataSource {
 
   async signOut(): Promise<void> {
     storage.clear()
+  }
+
+  /** Signed in on this browser's storage alone, so there is no other device to lose to. */
+  async claimDevice(): Promise<DeviceClaim> {
+    return 'claimed'
+  }
+
+  async watchDevice(): Promise<Unsubscribe> {
+    return () => {}
   }
 
   // =========================================================================

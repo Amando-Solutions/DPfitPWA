@@ -82,8 +82,27 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // --- Identity ----------------------------------------------------------
+    /**
+     * Whether the caller's token comes from the account's latest sign-in.
+     *
+     * A member is signed in on one device at a time. `auth_time` is when the
+     * device signed in, and a refreshed token keeps it, so it names the
+     * sign-in rather than the token. `signIns/{uid}` holds the latest. One
+     * `get`, billed as a read.
+     */
+    function onLatestSignIn() {
+      let latest = get(/databases/$(database)/documents/signIns/$(request.auth.uid));
+      return latest != null && latest.data.authTime == request.auth.token.auth_time;
+    }
+
+    /**
+     * Signed in, on the device the account most recently signed in on.
+     *
+     * Every member rule starts here, so a device that has lost the account to
+     * a later sign-in is refused everything but finding that out.
+     */
     function signedIn() {
-      return request.auth != null;
+      return request.auth != null && onLatestSignIn();
     }
 
     function isSelf(uid) {
@@ -99,9 +118,12 @@ service cloud.firestore {
      * [MERGE] The console minted `dpfitAdmin`; the app's rules read `coach`.
      * Both are accepted so neither side breaks on the day this lands. Pick
      * `dpfitAdmin`, re-mint, then delete the second clause.
+     *
+     * Read off the token alone, not through `signedIn()`: the console is not a
+     * member's device and never claims one.
      */
     function isAdmin() {
-      return signedIn()
+      return request.auth != null
         && (request.auth.token.dpfitAdmin == true || request.auth.token.coach == true);
     }
 
@@ -284,11 +306,36 @@ service cloud.firestore {
         && request.resource.data.updatedByUid == request.auth.uid;
     }
 
+    // --- Sign-ins ----------------------------------------------------------
+    // `signIns/{uid}` — the account's latest sign-in, which is the one device
+    // it is signed in on. `signedIn()` refuses every other.
+    //
+    // Outside `signedIn()` on purpose. A device that has lost the account has
+    // to be able to read this to find out, and a device that has just signed
+    // in has to write it before anything else will let it in.
+    match /signIns/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+
+      // Only the caller's own sign-in, and never one older than what is there.
+      // The first stops a device naming a sign-in it did not make; the second
+      // stops an older device taking the account back. Signing in again is
+      // the only way back, and that makes it the latest.
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['authTime', 'signedInAt'])
+        && request.resource.data.authTime == request.auth.token.auth_time
+        && request.resource.data.signedInAt == request.time
+        && (resource == null || request.resource.data.authTime >= resource.data.authTime);
+
+      // Clearing it would let a device signed out while offline come back,
+      // find no claim, and take the account again.
+      allow delete: if false;
+    }
+
     match /accessCodes/{code} {
       // `get` but never `list`. The code IS the secret, so looking one up by
       // name is the intended operation; enumerating the collection would hand
       // over every unredeemed seat in the business.
-      allow get: if signedIn();
+      allow get: if isAdmin() || signedIn();
       allow list: if isAdmin();
 
       allow create: if isAdmin() && isValidCodeCreate(code);
@@ -467,7 +514,7 @@ service cloud.firestore {
     match /programs/{programId} {
       // [MERGE] Authored content. Every signed-in member reads it — the PWA
       // loads the program and its workout days on every session.
-      allow read: if signedIn();
+      allow read: if isAdmin() || signedIn();
 
       allow create: if isAdmin() && isValidProgramCreate(programId);
       allow update: if isAdmin()
@@ -481,7 +528,7 @@ service cloud.firestore {
         && resource.data.workoutDayCount == 0;
 
       match /workoutDays/{dayId} {
-        allow read: if signedIn();
+        allow read: if isAdmin() || signedIn();
 
         allow create: if isAdmin()
           && programData(programId).status == 'draft'

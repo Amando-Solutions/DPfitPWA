@@ -32,6 +32,7 @@ import {
   writeBatch,
   type CollectionReference,
   type DocumentData,
+  type DocumentReference,
   type DocumentSnapshot,
   type QueryDocumentSnapshot,
 } from 'firebase/firestore'
@@ -67,6 +68,7 @@ import {
   type ActiveSessionInput,
   type CheckInInput,
   type DataSource,
+  type DeviceClaim,
   type PendingFile,
   type PhotoInput,
   type SessionInput,
@@ -103,6 +105,7 @@ import type {
   ProgressPhoto,
   RewardConfig,
   SessionLog,
+  SignInDoc,
   StoredImage,
   ThreadId,
   TrainingWeek,
@@ -132,6 +135,32 @@ const normaliseEmail = (email: string): string => email.trim().toLowerCase()
  * does. This just stops "sarah@" reaching the network.
  */
 const isEmail = (value: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+
+/**
+ * When this device signed in, as `firestore.rules` sees it: `auth_time` from
+ * the ID token, in epoch seconds. See `SignInDoc`.
+ *
+ * Not forced, because a refreshed token carries the same `auth_time` as the one
+ * it replaced. Typed as a string by the SDK; the token holds a number, and the
+ * rules compare it as one.
+ */
+const authTimeOf = async (user: User): Promise<number> =>
+  Number((await user.getIdTokenResult()).claims.auth_time)
+
+/** The sign-in holding the account, or `null` before any device has claimed it. */
+const latestAuthTime = (snap: DocumentSnapshot<DocumentData>): number | null => {
+  const authTime = (snap.data() as Partial<SignInDoc> | undefined)?.authTime
+  return typeof authTime === 'number' ? authTime : null
+}
+
+/**
+ * No connection, as the device claim meets it: a document that was never cached,
+ * or a token that had expired and could not be refreshed.
+ */
+const isOffline = (cause: unknown): boolean => {
+  const code = (cause as { code?: string }).code
+  return code === 'unavailable' || code === 'auth/network-request-failed'
+}
 
 /** The single document under `members/{uid}/state` holding the live workout. */
 const ACTIVE_SESSION_ID = 'activeSession'
@@ -625,6 +654,88 @@ export class FirestoreDataSource implements DataSource {
     this.myReactions.clear()
     this.typingWrittenAt.clear()
     webStorage.clear()
+  }
+
+  // --- One device at a time -------------------------------------------------
+  //
+  // Signing out does not touch `signIns/{uid}`, on purpose. Clearing it would
+  // let a device that was signed out while offline come back, find nothing
+  // there, and claim the account again.
+
+  async claimDevice(): Promise<DeviceClaim> {
+    const user = await this.requireUser()
+    const ref = this.signInRef(user.uid)
+    try {
+      const [mine, snap] = await Promise.all([authTimeOf(user), getDoc(ref)])
+      // From the cache means offline. The cache cannot say whether the account
+      // has signed in anywhere since, and a claim written now would not resolve
+      // until there was a connection. `watchDevice` settles it once there is.
+      if (snap.metadata.fromCache) return 'claimed'
+      return await this.settleClaim(ref, mine, latestAuthTime(snap))
+    } catch (cause) {
+      if (isOffline(cause)) return 'claimed'
+      throw cause
+    }
+  }
+
+  async watchDevice(
+    onSuperseded: () => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
+    const user = await this.requireUser()
+    const ref = this.signInRef(user.uid)
+
+    let stopped = false
+
+    const stop = onSnapshot(
+      ref,
+      // Without metadata changes, a device that loaded offline never hears
+      // from the server once it reconnects if nothing changed, and never gets
+      // to write the claim `claimDevice` had to skip.
+      { includeMetadataChanges: true },
+      (snap) => {
+        // Only the server knows about a sign-in on another device. The cache
+        // repeats what this device already knew, and a pending write is this
+        // device's own claim on its way out.
+        if (stopped || snap.metadata.fromCache || snap.metadata.hasPendingWrites) return
+        authTimeOf(user)
+          .then((mine) => this.settleClaim(ref, mine, latestAuthTime(snap)))
+          .then((claim) => {
+            if (stopped || claim !== 'superseded') return
+            stopped = true
+            stop()
+            onSuperseded()
+          })
+          .catch((cause) => console.warn('[datasource] could not check this device’s sign-in', cause))
+      },
+      (error) => {
+        if (!stopped) onError?.(error)
+      },
+    )
+
+    return () => {
+      stopped = true
+      stop()
+    }
+  }
+
+  /**
+   * Decide which sign-in holds the account, and claim it if it is this one.
+   *
+   * A later sign-in wins. Anything else, including no claim at all, is this
+   * device's to take. The rules refuse a claim older than the one there, so
+   * two devices writing at once cannot end with the older one holding it.
+   */
+  private async settleClaim(
+    ref: DocumentReference<DocumentData>,
+    mine: number,
+    latest: number | null,
+  ): Promise<DeviceClaim> {
+    if (latest !== null && latest > mine) return 'superseded'
+    if (latest !== mine) {
+      await setDoc(ref, { authTime: mine, signedInAt: serverTimestamp() })
+    }
+    return 'claimed'
   }
 
   // =========================================================================
@@ -2079,6 +2190,10 @@ export class FirestoreDataSource implements DataSource {
   // =========================================================================
   private leaderboardRef(cohortId: string, memberId: string) {
     return doc(firebaseDb(), 'cohorts', cohortId, 'leaderboard', memberId)
+  }
+
+  private signInRef(uid: string) {
+    return doc(firebaseDb(), 'signIns', uid)
   }
 
   private viewOf(message: Message, viewerUid: string, mine: string[]): ChatMessageView {

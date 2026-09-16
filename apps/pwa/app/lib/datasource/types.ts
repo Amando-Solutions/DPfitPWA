@@ -145,6 +145,33 @@ export interface DataSource {
 
   signOut(): Promise<void>
 
+  /**
+   * Make this device the one the account is signed in on, unless a later
+   * sign-in already is.
+   *
+   * One device at a time: the most recent sign-in holds the account, and every
+   * older one is signed out. Called on every load with somebody signed in,
+   * before anything else is read, which covers both a sign-in that has just
+   * happened and a device that signed in before this rule existed.
+   *
+   * `superseded` means the account has signed in somewhere else since this
+   * device did, and the caller should sign it out. Anything the check cannot
+   * settle — no connection — answers `claimed` and leaves it to `watchDevice`,
+   * because a load that waited for a network would not start in a gym.
+   */
+  claimDevice(): Promise<DeviceClaim>
+
+  /**
+   * Calls `onSuperseded` once, when the account signs in on another device.
+   *
+   * Same contract as `watchMessages`: callers must call the unsubscribe, and
+   * `onError` means the subscription has stopped.
+   */
+  watchDevice(
+    onSuperseded: () => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe>
+
   // =========================================================================
   // Membership — `members/{uid}`
   // =========================================================================
@@ -551,6 +578,9 @@ export interface DataSource {
 
 /** Stops a live subscription. Idempotent — calling it twice is not an error. */
 export type Unsubscribe = () => void
+
+/** Whether this device holds the account. See `claimDevice`. */
+export type DeviceClaim = 'claimed' | 'superseded'
 
 /** A non-image file picked on the device, before anything has stored it. */
 export interface PendingFile {

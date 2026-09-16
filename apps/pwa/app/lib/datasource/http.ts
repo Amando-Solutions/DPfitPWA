@@ -5,6 +5,7 @@ import {
   type ActiveSessionInput,
   type CheckInInput,
   type DataSource,
+  type DeviceClaim,
   type PendingFile,
   type PhotoInput,
   type SessionInput,
@@ -190,6 +191,19 @@ export class HttpDataSource implements DataSource {
 
   async signOut() {
     await this.send('/auth/session', 'DELETE')
+  }
+
+  /**
+   * Nothing to claim: the backend issues the session, so ending the older one
+   * is the backend's job. A call on an ended session comes back 401, which
+   * `send` already reports as `unauthenticated`.
+   */
+  async claimDevice(): Promise<DeviceClaim> {
+    return 'claimed'
+  }
+
+  async watchDevice(): Promise<Unsubscribe> {
+    return () => {}
   }
 
   // --- Membership ----------------------------------------------------------

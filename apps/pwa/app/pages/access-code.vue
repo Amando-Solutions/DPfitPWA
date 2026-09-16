@@ -97,23 +97,34 @@ const settle = async () => {
 }
 
 /**
+ * Whatever the store had to say before this screen could ask.
+ *
+ * A Google sign-in that had to leave the page is already finished by the time
+ * anything here runs — the store consumes it during hydration, before route
+ * middleware — so all that is left of it is whatever went wrong.
+ *
+ * Watched rather than read once on mount, because one of them arrives while
+ * the screen is open: a device signed out by a sign-in elsewhere is sent here,
+ * and it may already be here, waiting on an access code.
+ */
+watch(
+  () => store.startupError.value,
+  (next) => {
+    if (!next) return
+    error.value = next
+    store.startupError.value = ''
+  },
+  { immediate: true },
+)
+
+/**
  * Finish sign-in if this page was opened from a link.
  *
  * Runs on mount rather than in middleware: the link lands on this route
  * carrying its credentials in the query string, and they have to be consumed
  * before anything else can decide where the member belongs.
- *
- * A Google sign-in that had to leave the page is already finished by the time
- * anything here runs — the store consumes it during hydration, before route
- * middleware — so all that is left of it is whatever went wrong, which is
- * collected first.
  */
 onMounted(async () => {
-  if (store.startupError.value) {
-    error.value = store.startupError.value
-    store.startupError.value = ''
-  }
-
   const url = window.location.href
   if (!(await store.isSignInLink(url))) return
 

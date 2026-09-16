@@ -30,6 +30,7 @@ one. Read them before changing anything in `app/lib/datasource/firestore.ts`.
 | `members/{uid}/badges/{badgeId}` | Awards, keyed so a double-award is a no-op. |
 | `members/{uid}/notificationState/{id}` | Read markers. Present means read. |
 | `members/{uid}/lifecycleEvents/{id}` | Append-only status history. |
+| `signIns/{uid}` | The account's latest sign-in, which is the one device it is signed in on. See **One device at a time**. |
 
 ## Three decisions worth knowing about
 
@@ -286,6 +287,50 @@ serves `/__/auth/*` for the project from any of its domains, ahead of the
 catch-all rewrite in `firebase.json`, so on a Firebase-hosted deploy this needs
 no extra configuration — just the changed value and that domain in the
 authorised list.
+
+## One device at a time
+
+A member is signed in on one device at a time. Signing in on a new device signs
+out every other one.
+
+`signIns/{uid}` holds the account's latest sign-in, identified by `auth_time`
+from the ID token: the second that device signed in. Refreshing a token keeps
+its `auth_time`, so it identifies the sign-in rather than the token, and the
+rules can read it as `request.auth.token.auth_time`.
+
+- **On every load**, `hydrate` calls `claimDevice` before reading anything
+  else. If the stored sign-in is newer than this device's, the device signs
+  out and the sign-in screen says why. Otherwise the device writes its own
+  `auth_time`, unless it is already there.
+- **While the app is open**, `watchDevice` listens to the same document and
+  signs the device out as soon as another device claims the account.
+- **In the rules**, `signedIn()` is true only when the caller's `auth_time`
+  matches the stored one, and every member rule is built on it. A device that
+  skipped the client code would still be refused. `isCoach()` and `isAdmin()`
+  read the token alone, so the console never claims anything.
+
+Signing out leaves the document alone. Clearing it would let a device that was
+signed out while offline reconnect, find no claim, and take the account back.
+
+What it costs, and where it stops:
+
+- Every member request reads `signIns/{uid}` in the rules. That is one extra
+  billed read per request, not per document returned.
+- `auth_time` has one-second resolution. Two devices that sign in within the
+  same second both hold the account until one of them signs in again.
+- A device that is offline when it loses the account keeps working from its
+  cache. When it reconnects, it is signed out and anything it logged in the
+  meantime is refused.
+- `storage.rules` does not check it. The app signs a superseded device out
+  before it can upload, but an upload made with the SDK directly would still
+  land. The document that points at the upload would be refused.
+
+**Deploy the app before the rules.** The new app tolerates the old rules: a
+claim the rules do not know about fails, is logged, and the load carries on.
+The new rules do not tolerate the old app, which never claims, so every member
+still on it is refused until the service worker picks up the new build. Members
+already signed in on several devices keep the account on whichever signed in
+most recently, and the others are signed out the next time they open the app.
 
 ## Where access codes come from
 

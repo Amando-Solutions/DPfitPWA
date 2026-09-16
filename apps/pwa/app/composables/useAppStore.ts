@@ -1,7 +1,7 @@
 import { Timestamp } from 'firebase/firestore'
 
 import { DataSourceError, useDataSourceClient } from '~/lib/datasource'
-import type { ActiveSessionInput, CheckInInput } from '~/lib/datasource'
+import type { ActiveSessionInput, CheckInInput, DeviceClaim } from '~/lib/datasource'
 import { defaultPreferences } from '~/lib/datasource/local'
 import {
   challengeClock,
@@ -139,6 +139,10 @@ interface AppState {
 const readMessage = (cause: unknown): string =>
   cause instanceof DataSourceError ? cause.message : 'Couldn’t load your account. Try again.'
 
+/** What a device signed out by a later sign-in is told, on the sign-in screen. */
+const SIGNED_IN_ELSEWHERE =
+  'Your account was signed in on another device, so you’ve been signed out here.'
+
 const emptyState = (): AppState => ({
   hydrated: false,
   nowMs: Date.now(),
@@ -229,6 +233,31 @@ const buildStore = () => {
       startupError.value = readMessage(cause)
       state.value = { ...emptyState(), hydrated: true, nowMs: trustedNow().getTime() }
       return
+    }
+
+    // One device at a time, settled before anything is read as this member.
+    // The rules refuse every read from a device that has lost the account, and
+    // finding that out through a failed member read would look like a broken
+    // account rather than a sign-in somewhere else. See `claimDevice`.
+    if (authUser) {
+      let claim: DeviceClaim = 'claimed'
+      try {
+        claim = await data.claimDevice()
+      } catch (cause) {
+        // Not fatal. If the claim really is lost, the member read below is
+        // refused and reports it the way any unreadable account does.
+        console.warn('[store] could not claim this device for the account', cause)
+      }
+      if (claim === 'superseded') {
+        try {
+          await data.signOut()
+        } catch (cause) {
+          console.warn('[store] could not sign out a superseded device', cause)
+        }
+        startupError.value = SIGNED_IN_ELSEWHERE
+        state.value = { ...emptyState(), hydrated: true, nowMs: trustedNow().getTime() }
+        return
+      }
     }
 
     // Two reads, in order, rather than one `Promise.all`.
@@ -1176,6 +1205,63 @@ const buildStore = () => {
     await data.signOut()
     await hydrate(true)
   }
+
+  // --- One device at a time ------------------------------------------------
+  //
+  // `hydrate` checks on every load. This is the other half: a device that is
+  // already open when the account signs in somewhere else. Keyed on the auth
+  // user rather than the member, because the account is claimed at sign-in,
+  // before there is a member document.
+
+  const nuxtApp = useNuxtApp()
+
+  let stopDevice: (() => void) | null = null
+  /** Bumped per subscription, so a slow one that resolves late cannot win. */
+  let deviceWatch = 0
+
+  const unwatchDevice = () => {
+    stopDevice?.()
+    stopDevice = null
+  }
+
+  /** Signed out by a later sign-in, and told why on the screen it lands on. */
+  const signedInElsewhere = async () => {
+    try {
+      await signOut()
+    } catch (cause) {
+      console.error('[device] could not sign out a superseded device', cause)
+    }
+    // After the sign-out, because `hydrate` clears it on the way in.
+    startupError.value = SIGNED_IN_ELSEWHERE
+    await nuxtApp.runWithContext(() => navigateTo('/access-code', { replace: true }))
+  }
+
+  watch(
+    () => state.value.authUser?.uid ?? null,
+    async (uid) => {
+      unwatchDevice()
+      const current = ++deviceWatch
+      if (!uid) return
+      try {
+        const stop = await data.watchDevice(
+          () => {
+            if (current === deviceWatch) void signedInElsewhere()
+          },
+          (error) => console.error('[device] the sign-in listener stopped', error),
+        )
+        if (current === deviceWatch) stopDevice = stop
+        else stop()
+      } catch (cause) {
+        console.error('[device] could not watch this account’s sign-ins', cause)
+      }
+    },
+    { immediate: true },
+  )
+
+  onScopeDispose(() => {
+    deviceWatch++
+    unwatchDevice()
+  })
 
   // --- Actions: workout logging -------------------------------------------
   /**

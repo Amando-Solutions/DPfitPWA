@@ -1068,6 +1068,26 @@ export type SignInLinkStatus =
   | 'invalid'
 
 /**
+ * `signIns/{uid}` — the account's most recent sign-in. One per account.
+ *
+ * An account is signed in on one device at a time, and this is how that is
+ * decided: the latest sign-in holds the account, and every device holding an
+ * older one is signed out.
+ *
+ * A sign-in is identified by `auth_time` from its ID token — the moment that
+ * device signed in, in seconds. Firebase keeps it unchanged every time the token
+ * is refreshed, so it names the sign-in rather than the token, and it is
+ * something the rules can read too (`request.auth.token.auth_time`). That is
+ * what lets `firestore.rules` refuse an older device outright rather than
+ * trusting it to sign itself out.
+ */
+export interface SignInDoc {
+  /** `auth_time` of the sign-in that holds the account, in epoch seconds. */
+  authTime: number
+  signedInAt: Timestamp
+}
+
+/**
  * Where a member lands after sign-in.
  *
  * The first three exist because auth and cohort membership are separate facts,
