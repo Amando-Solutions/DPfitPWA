@@ -12,6 +12,7 @@ import {
   weekAt,
 } from '~/lib/domain/challenge'
 import { chatNotificationFor, chatNotificationId, reactionsNotificationFor } from '~/lib/chat'
+import { liveCallFrom, todaysLiveCall } from '~/lib/domain/liveCall'
 import { nutritionTargetsFor } from '~/lib/domain/nutrition'
 import {
   finalPhotoOf,
@@ -517,21 +518,23 @@ const buildStore = () => {
   const coach = computed(() => state.value.cohort?.coach ?? null)
 
   /**
-   * The weekly call, or `null` when this cohort has none set.
+   * The weekly call as it stands today, or `null` when today has none.
    *
-   * Null is the common case, not an error: a cohort between blocks has no call
-   * to advertise, and Home renders nothing rather than a card whose button goes
-   * nowhere. Set it on the cohort document — see FIREBASE.md.
+   * Null is the common case, not an error: six days a week there is no call,
+   * and a cohort between blocks has none at all. Set on the cohort document by
+   * the admin app — see FIREBASE.md.
    *
-   * Both halves are required here as well as in `FirestoreDataSource`, which is
-   * not redundant: Home's `v-if` is the one thing standing between a member and
-   * a "Join the call" button that navigates nowhere, and it should hold whatever
-   * implementation answered and whatever a coach half-typed into the console.
+   * Read through `liveCallFrom` here as well as in `FirestoreDataSource`, which
+   * is not redundant: Home's `v-if` is the one thing standing between a member
+   * and a "Join the call" button that navigates nowhere, and it should hold
+   * whichever implementation answered.
+   *
+   * `now` does not tick by the minute, so the phase can be stale by the time
+   * it is read. `LiveCallCard` wakes the store at each change; see there.
    */
-  const liveCall = computed(() => {
-    const call = state.value.cohort?.liveCall
-    return call?.when?.trim() && call?.joinUrl?.trim() ? call : null
-  })
+  const liveCallToday = computed(() =>
+    todaysLiveCall(liveCallFrom(state.value.cohort?.liveCall), now.value),
+  )
 
   /** Whether the cohort's board is switched on, and the week it was promised for. */
   const leaderboardVisible = computed(() => state.value.cohort?.leaderboardVisible === true)
@@ -1648,7 +1651,7 @@ const buildStore = () => {
     program,
     cohort,
     coach,
-    liveCall,
+    liveCallToday,
     guides,
     guideCategories,
     announcements,

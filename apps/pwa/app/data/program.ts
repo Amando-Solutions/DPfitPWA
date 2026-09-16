@@ -100,15 +100,16 @@ export const cohort: Cohort = {
   programVersion: PROGRAM_VERSION,
   archivedAt: null,
   /**
-   * The weekly live call.
+   * The weekly live call: Tuesdays, 7:00 PM in Lagos, from week 1.
    *
-   * One time for the whole cohort, set by the coach on this document. `null`
-   * is the other legitimate value and Home renders no card for it — worth
-   * exercising by hand in mock mode, because a cohort between blocks is the
-   * common case and the empty state has to be a complete screen.
+   * One call for the whole cohort, repeating weekly from `startsAt`. Home shows
+   * it on Tuesdays only, so in mock mode on any other day there is no card —
+   * move `startsAt` onto today's weekday to see it, and before, during and
+   * after the hour to see its three states.
    */
   liveCall: {
-    when: 'Tuesday, 7:00 PM WAT',
+    startsAt: at('2026-08-18T18:00:00Z'),
+    durationMinutes: 60,
     joinUrl: 'https://meet.google.com/dpf-recomp-live',
   },
   /**

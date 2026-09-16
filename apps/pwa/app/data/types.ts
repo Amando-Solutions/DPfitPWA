@@ -242,19 +242,35 @@ export interface CoachRef {
 }
 
 /**
- * The weekly live call, set by the coach on the cohort document.
+ * The weekly live call, as the admin app writes it on the cohort document.
  *
- * One time for the whole cohort: there are no slots to assign, no attendance
- * to record and nothing to mark as done, so every member sees the same card
- * every week. `null` on the cohort means there is no call this block, and Home
- * renders nothing rather than a card with a dead button — which is the whole
- * reason this is a nullable object rather than two nullable strings. A `when`
- * with no `joinUrl` is not a state anybody should have to render.
+ * One call for the whole cohort: there are no slots to assign, no attendance
+ * to record and nothing to mark as done, so every member sees the same card.
+ *
+ * `startsAt` is one occurrence and the call repeats every seven days from it,
+ * so it is set once rather than every week. Moving the call is moving that
+ * instant, and the weeks after follow it. Skipping a week is moving it a week
+ * later, because nothing before `startsAt` is a call.
+ *
+ * Every field is nullable because the map exists before anybody has filled it
+ * in: a new cohort carries it empty, so the admin app edits fields that are
+ * already there. A map missing `startsAt` or `joinUrl` is no call at all — a
+ * time with no link is a button that goes nowhere, and a link with no time is
+ * a meeting nobody knows to attend. `Cohort.liveCall` is that reading of it.
  */
-export interface LiveCall {
-  /** As it reads on the card, e.g. "Tuesday, 7:00 PM WAT". Carries its own zone. */
-  when: string
+export interface LiveCallDoc {
+  /** When one occurrence starts. The same instant for every member, whatever their zone. */
+  startsAt: Timestamp | null
+  /** How long the join button stays open after `startsAt`. 60 when unset. */
+  durationMinutes: number | null
   /** Zoom, Meet, whatever the coach uses. Opened in a new tab. */
+  joinUrl: string | null
+}
+
+/** A live call complete enough to put on Home. See `liveCallFrom`. */
+export interface LiveCall {
+  startsAt: Timestamp
+  durationMinutes: number
   joinUrl: string
 }
 
@@ -278,11 +294,11 @@ export interface CohortDoc extends Audited {
   programVersion: number | null
   archivedAt: Timestamp | null
   /**
-   * The weekly call, or `null` when this cohort has none. Set from the console
-   * — see FIREBASE.md — and read on Home, which renders no card at all when it
-   * is absent.
+   * The weekly call, or `null` when this cohort has none. Set by the admin app
+   * — see FIREBASE.md — and read on Home, which shows it on the day it happens
+   * and nothing on any other day.
    */
-  liveCall: LiveCall | null
+  liveCall: LiveCallDoc | null
   /**
    * Whether the cohort leaderboard is visible to members yet.
    *
@@ -303,7 +319,8 @@ export interface CohortDoc extends Audited {
   leaderboardRevealWeek: number
 }
 
-export type Cohort = WithId<CohortDoc>
+/** The cohort as the app handles it: the live call already read as complete or absent. */
+export type Cohort = WithId<Omit<CohortDoc, 'liveCall'> & { liveCall: LiveCall | null }>
 
 // =============================================================================
 // Programs — `programs/{programId}`

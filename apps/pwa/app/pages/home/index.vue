@@ -306,46 +306,21 @@ const STAT_VALUE =
       <!--
         The weekly live call, read off the cohort document.
 
-        Deliberately the same card for everybody, every week: there is no slot
-        to be assigned, no attendance to track and nothing to dismiss, so it
-        stays on Home whether or not they made it last week. A card that
-        disappeared once you had attended would be a card that stopped
-        reminding you the week you most needed it.
+        Only on the day of the call. The same card for everybody: there is no
+        slot to be assigned, no attendance to track and nothing to dismiss.
+        Before the call starts the button is there but shut, so the time is on
+        Home all day; once it starts the button opens the link; after it ends
+        the card stays for the rest of the day, shut again.
 
-        `v-if` is the whole feature, though. A cohort with no call set — between
-        blocks, or one that never runs them — has `liveCall: null`, and this
-        renders nothing at all rather than a card whose button goes nowhere.
-        The coach sets it on `cohorts/{id}.liveCall`; see FIREBASE.md.
+        No call set, or one only half filled in, renders nothing at all rather
+        than a card whose button goes nowhere. The admin app sets it on
+        `cohorts/{id}.liveCall`; see FIREBASE.md.
       -->
       <section
-        v-if="store.liveCall.value"
+        v-if="store.liveCallToday.value"
         class="home__section home__section--live order-3 mt-3.25 lg:mt-0 lg:order-3"
       >
-        <div :class="CARD" class="flex flex-col gap-3">
-          <div class="flex gap-3">
-            <span class="grid size-9 shrink-0 place-items-center rounded-pill bg-primary-soft text-primary">
-              <AppIcon name="chat" :size="17" />
-            </span>
-            <div class="min-w-0 flex-1">
-              <h2 class="m-0 font-display text-[16px] font-black tracking-[-0.24px] text-ink">
-                Join the live call
-              </h2>
-              <p class="mt-1 mb-0 text-[13px] leading-[1.45] text-muted">
-                {{ store.liveCall.value.when }}
-              </p>
-            </div>
-          </div>
-          <!-- An outside link, so it opens away from the app rather than
-               replacing the session the member is in the middle of. -->
-          <AppButton
-            :to="store.liveCall.value.joinUrl"
-            size="md"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Join the call
-          </AppButton>
-        </div>
+        <LiveCallCard :call="store.liveCallToday.value" />
       </section>
 
       <!-- Weekly check-in. This card is the reminder the "Weekly check-in

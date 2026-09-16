@@ -59,6 +59,7 @@ import {
 } from '~/lib/chat'
 import { withShippedBadges } from '~/data/badges'
 import { daysBetween, isDateKey, resolvePlanWeek, weekOf } from '~/lib/domain/challenge'
+import { liveCallFrom } from '~/lib/domain/liveCall'
 import { prescribedSets } from '~/lib/domain/sets'
 import { storage as webStorage } from '~/lib/storage'
 import { trustedNow } from '~/lib/time'
@@ -91,7 +92,6 @@ import type {
   Guide,
   LeaderboardEntry,
   LeaderboardEntryDoc,
-  LiveCall,
   Member,
   MemberDoc,
   MemberPreferences,
@@ -172,27 +172,13 @@ const withId = <T>(snap: QueryDocumentSnapshot<DocumentData>): T =>
   ({ id: snap.id, ...snap.data() }) as T
 
 /**
- * A live call is either complete or it is not there.
- *
- * Both halves have to be present for the card to be worth rendering: a time
- * with no link is a button that goes nowhere, and a link with no time is a
- * meeting nobody knows to attend. A coach part-way through typing one into the
- * console is exactly the state this collapses to `null`, which Home reads as
- * "no call this block" and draws nothing.
- */
-const normaliseLiveCall = (value: LiveCall | null | undefined): LiveCall | null => {
-  const when = value?.when?.trim() ?? ''
-  const joinUrl = value?.joinUrl?.trim() ?? ''
-  return when && joinUrl ? { when, joinUrl } : null
-}
-
-/**
  * The cohort document, with the three member-facing fields defaulted.
  *
  * They were added after cohorts were already being created, so a document
  * written before them has no `liveCall` key at all — and `undefined` reaching
  * a template is a card rendered with a dead button rather than no card. The
- * defaults here are the "not set" reading of each: no call, no board.
+ * defaults here are the "not set" reading of each: no call, no board. A live
+ * call the admin has only half filled in is also no call; see `liveCallFrom`.
  *
  * Shared by `getCohort` and `watchCohort`, so the boot read and the listener
  * cannot disagree about whether the board is on.
@@ -203,7 +189,7 @@ const cohortFrom = (snap: DocumentSnapshot<DocumentData>): Cohort | null => {
   return {
     ...(data as CohortDoc),
     id: snap.id,
-    liveCall: normaliseLiveCall(data.liveCall),
+    liveCall: liveCallFrom(data.liveCall),
     leaderboardVisible: data.leaderboardVisible === true,
     leaderboardRevealWeek:
       typeof data.leaderboardRevealWeek === 'number' ? data.leaderboardRevealWeek : 1,

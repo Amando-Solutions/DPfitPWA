@@ -284,12 +284,14 @@ const plan = (): Planned[] => {
     //
     // `liveCall` because seeding one would put a fake Google Meet link on
     // every member's Home screen and a dead button is worse than no card —
-    // it is a decision, so it starts null and the coach makes it. The count
+    // it is a decision, so it starts empty and the admin app fills it in. The
+    // map is written with its fields rather than as `null` so they are there
+    // to edit; missing `startsAt` or `joinUrl` renders no card. The count
     // because nothing in the app maintains it and a seeded 48 is a number
     // that is wrong from the first member who joins. `memberCount` is not
     // read by any screen (Chat counts the board projection), and it should
     // not start out lying either.
-    liveCall: null,
+    liveCall: { startsAt: null, durationMinutes: 60, joinUrl: null },
     memberCount: 0,
     leaderboardVisible: false,
     // `--no-coach` leaves the block off the document entirely rather than
@@ -408,9 +410,9 @@ const run = async () => {
   }
 
   console.log(
-    '\nThe live call is not seeded as a decision: it is on the cohort document as\n' +
-      '`liveCall`, and Home renders no card while it is null. Set it with\n' +
-      '`bun run live-call -- --database=… --when="…" --url=…`, or in the console.',
+    '\nThe live call is not seeded as a decision: `liveCall` on the cohort document\n' +
+      'is written empty, and Home renders no card until the admin app sets its\n' +
+      '`startsAt` and `joinUrl`. See "The weekly live call" in FIREBASE.md.',
   )
 }
 
