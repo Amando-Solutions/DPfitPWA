@@ -46,6 +46,19 @@ const reviveTimestamps = (_key: string, value: unknown) => {
 
 const VERSION_KEY = `${NAMESPACE}:schema-version`
 
+/**
+ * Keys that describe the device rather than whoever is signed in on it.
+ *
+ * Everything else under the namespace belongs to an account, so sign-out and a
+ * schema bump both drop it. A key under this prefix survives both: the fact it
+ * holds was true of this browser before anyone signed in and stays true after
+ * they leave. Because a schema bump does not reach these, never change the shape
+ * stored under one: give the new shape a new key.
+ */
+export const DEVICE_PREFIX = 'device:'
+
+const isDeviceKey = (key: string) => key.startsWith(`${NAMESPACE}:${DEVICE_PREFIX}`)
+
 type Listener = () => void
 const listeners = new Set<Listener>()
 
@@ -106,11 +119,11 @@ const ensureVersion = () => {
   const stored = window.localStorage.getItem(VERSION_KEY)
   if (stored !== String(SCHEMA_VERSION)) {
     // Drop everything under our namespace: a partial migration is worse than
-    // a clean start while the schema is still moving.
+    // a clean start while the schema is still moving. Device keys excepted.
     const doomed: string[] = []
     for (let i = 0; i < window.localStorage.length; i++) {
       const key = window.localStorage.key(i)
-      if (key?.startsWith(`${NAMESPACE}:`)) doomed.push(key)
+      if (key?.startsWith(`${NAMESPACE}:`) && !isDeviceKey(key)) doomed.push(key)
     }
     doomed.forEach((key) => window.localStorage.removeItem(key))
     window.localStorage.setItem(VERSION_KEY, String(SCHEMA_VERSION))
@@ -186,18 +199,24 @@ export const storage = {
     listeners.forEach((fn) => fn())
   },
 
-  /** Wipe every key this app owns (sign out / reset). */
+  /** Wipe every key this app owns (sign out / reset), except the device's own. */
   clear(): void {
     if (available()) {
       const doomed: string[] = []
       for (let i = 0; i < window.localStorage.length; i++) {
         const key = window.localStorage.key(i)
-        if (key?.startsWith(`${NAMESPACE}:`) && key !== VERSION_KEY) doomed.push(key)
+        if (key?.startsWith(`${NAMESPACE}:`) && key !== VERSION_KEY && !isDeviceKey(key)) {
+          doomed.push(key)
+        }
       }
       doomed.forEach((key) => window.localStorage.removeItem(key))
     }
-    memory.clear()
-    overflowed.clear()
+    for (const key of [...memory.keys()]) {
+      if (!isDeviceKey(key)) memory.delete(key)
+    }
+    for (const key of [...overflowed]) {
+      if (!isDeviceKey(key)) overflowed.delete(key)
+    }
     listeners.forEach((fn) => fn())
   },
 

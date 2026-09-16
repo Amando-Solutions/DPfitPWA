@@ -31,6 +31,7 @@ import {
   trustedTimestamp,
 } from '~/lib/time'
 import type { ProcessedImage } from '~/lib/image'
+import { DEVICE_PREFIX, storage } from '~/lib/storage'
 import type {
   ActiveSessionDoc,
   Announcement,
@@ -139,6 +140,9 @@ interface AppState {
 const readMessage = (cause: unknown): string =>
   cause instanceof DataSourceError ? cause.message : 'Couldn’t load your account. Try again.'
 
+/** Whether the tour has been seen on this device. A device key: sign-out keeps it. */
+const ONBOARDED_KEY = `${DEVICE_PREFIX}onboarded`
+
 /** What a device signed out by a later sign-in is told, on the sign-in screen. */
 const SIGNED_IN_ELSEWHERE =
   'Your account was signed in on another device, so you’ve been signed out here.'
@@ -194,6 +198,24 @@ const buildStore = () => {
   /** `resumeSignIn` answers for the whole load, so it runs once per load. */
   let resumed = false
 
+  /**
+   * Whether this device has been through the onboarding tour.
+   *
+   * Kept on the device rather than the member document, because the tour is
+   * shown to somebody who is not signed in: there is no document to read at the
+   * moment the question is asked. A device key, so signing out does not replay
+   * it. Once true it never goes back.
+   */
+  const isOnboarded = useState<boolean>('onboarded', () =>
+    storage.read<boolean>(ONBOARDED_KEY, false),
+  )
+
+  const markOnboarded = () => {
+    if (isOnboarded.value) return
+    isOnboarded.value = true
+    storage.write(ONBOARDED_KEY, true)
+  }
+
   // --- Loading -------------------------------------------------------------
   const hydrate = async (force = false) => {
     if (state.value.hydrated && !force) return
@@ -234,6 +256,12 @@ const buildStore = () => {
       state.value = { ...emptyState(), hydrated: true, nowMs: trustedNow().getTime() }
       return
     }
+
+    // Anybody signed in here is past the tour, however they got in: a sign-in
+    // link opened on a fresh device skips it, and members signed in from before
+    // the flag existed never set it. Recorded now, so signing out later does
+    // not send them back through it.
+    if (authUser) markOnboarded()
 
     // One device at a time, settled before anything is read as this member.
     // The rules refuse every read from a device that has lost the account, and
@@ -1597,6 +1625,8 @@ const buildStore = () => {
     isSetupComplete,
     gate,
     atTheDoor,
+    isOnboarded: computed(() => isOnboarded.value),
+    markOnboarded,
     displayName,
     now,
     nowTs,

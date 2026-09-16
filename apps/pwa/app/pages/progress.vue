@@ -23,7 +23,7 @@ const error = ref('')
 const pending = ref<'' | 'add' | 'delete'>('')
 const busy = computed(() => pending.value !== '')
 
-/** Newest week first, each with its three poses. */
+/** Newest week first, each with every photo taken that week. */
 const byWeek = computed(() => {
   const weeks = new Map<number, ProgressPhoto[]>()
   for (const photo of store.photos.value) {
@@ -140,7 +140,7 @@ const takenLabel = formatDate
       <section v-for="group in byWeek" :key="group.weekNumber" class="progress__week">
       <div class="progress__week-head flex items-center justify-between mb-2.5">
         <EyebrowLabel tone="muted">Week {{ group.weekNumber }}</EyebrowLabel>
-        <span class="progress__week-count tabular-nums text-[12.5px] text-primary">{{ group.photos.length }}/3</span>
+        <span class="progress__week-count tabular-nums text-[12.5px] text-primary">{{ group.photos.length }} {{ group.photos.length === 1 ? 'photo' : 'photos' }}</span>
       </div>
         <div
           class="progress__grid grid grid-cols-[repeat(3,_1fr)] gap-2.5 transition-opacity duration-150 lg:grid-cols-[repeat(4,_1fr)] lg:gap-3.5"

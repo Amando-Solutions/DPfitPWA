@@ -1,7 +1,7 @@
 /**
  * The flow gate.
  *
- *   no member          → the intro / access-code flow
+ *   no member          → the intro / access-code flow (the intro only once per device)
  *   member, no setup   → the setup steps
  *   member, setup done → the app; the intro screens bounce to Home
  *
@@ -54,8 +54,13 @@ export default defineNuxtRouteMiddleware((to) => {
   const isSetup = SETUP_ROUTES.includes(to.path)
 
   // No member document — or no way to know there is one: only the intro flow
-  // is reachable, signed in or not.
+  // is reachable, signed in or not. The tour only until it has been seen once:
+  // a device that has been through it goes to sign-in instead, whether it got
+  // here from a reload, a bookmark or Back.
   if (store.atTheDoor.value) {
+    if (to.path === '/onboarding' && store.isOnboarded.value) {
+      return navigateTo('/access-code', { replace: true })
+    }
     return isPublic ? undefined : navigateTo('/access-code')
   }
 

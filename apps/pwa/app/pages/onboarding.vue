@@ -5,6 +5,7 @@ definePageMeta({ layout: 'default' })
 import { onboardingSlides } from '~/data/onboarding'
 
 const router = useRouter()
+const store = useAppStore()
 
 const index = ref(0)
 // `index` is only ever moved within bounds, but an arbitrary index is still
@@ -12,11 +13,22 @@ const index = ref(0)
 const current = computed(() => onboardingSlides[index.value] ?? onboardingSlides[0])
 const isLast = computed(() => index.value === onboardingSlides.length - 1)
 
+/**
+ * Leave the tour for good.
+ *
+ * Skipping counts as having seen it. Replaces rather than pushes: the tour will
+ * not be shown on this device again, so there is nothing for Back to return to.
+ */
+const finish = () => {
+  store.markOnboarded()
+  router.replace('/access-code')
+}
+
 const next = () => {
-  if (isLast.value) router.push('/access-code')
+  if (isLast.value) finish()
   else index.value++
 }
-const skip = () => router.push('/access-code')
+const skip = finish
 </script>
 
 <template>

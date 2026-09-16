@@ -20,12 +20,15 @@ definePageMeta({
     const store = useAppStore()
     switch (store.gate.value) {
       // Nobody signed in: the tour, which ends on the sign-in screen. Unless
-      // the load has something to tell them, such as a device signed out by a
-      // sign-in elsewhere: the sign-in screen shows it and the tour would not.
+      // this device has seen it already — it is shown once, not on every
+      // launch after a sign-out — or the load has something to tell them, such
+      // as a device signed out by a sign-in elsewhere: the sign-in screen shows
+      // it and the tour would not.
       case 'needs-auth':
-        return navigateTo(store.startupError.value ? '/access-code' : '/onboarding', {
-          replace: true,
-        })
+        return navigateTo(
+          store.isOnboarded.value || store.startupError.value ? '/access-code' : '/onboarding',
+          { replace: true },
+        )
       // Signed in already, so the tour has nothing left to say — and being
       // walked back through three marketing slides on every launch is what a
       // half-finished sign-up felt like. Straight to the outstanding half.
