@@ -210,11 +210,14 @@
     the words set at 0.72 of the wordmark's height, so the label's cap height
     matches the wordmark's x-height and the two read as one line. 117:21 is the
     artwork's own ratio, so 12px tall is 66.9px wide.
+
+    Baseline, not centre, for the reason `PoweredBy` gives: the wordmark stands
+    on the bottom edge of its box, which is what flex uses as an SVG's baseline.
   */
   .dp-boot__credit {
     margin: 0;
     display: flex;
-    align-items: center;
+    align-items: baseline;
     gap: 7px;
     font-size: 9px;
     line-height: 1;

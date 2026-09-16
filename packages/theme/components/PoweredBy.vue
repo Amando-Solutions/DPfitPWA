@@ -121,7 +121,7 @@ const linkAttrs = computed(() =>
   <component
     :is="tag"
     v-bind="linkAttrs"
-    class="group inline-flex items-center rounded-xs align-middle outline-offset-4"
+    class="group inline-flex items-baseline rounded-xs align-middle outline-offset-4"
     :style="{ '--credit-accent': accent, gap }"
   >
     <!--
@@ -130,10 +130,16 @@ const linkAttrs = computed(() =>
       the SVG is also what lets it sit in the app's own mono face rather than
       in whatever the export was set in.
 
-      `leading-none` so the words measure exactly their cap height: with normal
-      line-height the label's box is taller than the wordmark beside it and
-      `items-center` then centres the two boxes rather than the two marks,
-      which drops the words a pixel below the baseline of the logo.
+      `items-baseline`, not `items-center`. The wordmark's letters stand on the
+      bottom edge of its artwork, and an SVG has no text baseline of its own, so
+      flex gives it that bottom edge -- which is exactly where the words should
+      sit. Centring instead lines up the middles of two boxes, and where the
+      label's baseline lands inside its box is up to the font's metrics: in
+      Space Mono it lands well above the box's bottom, which left the logo
+      hanging a couple of pixels below the words.
+
+      `leading-none` now only keeps the label's box from sticking up above the
+      wordmark and making the credit taller than it looks.
     -->
     <span
       class="font-data font-normal uppercase leading-none whitespace-nowrap"

@@ -413,7 +413,12 @@ watch([code, email], () => {
             :disabled="busy !== ''"
             @click="signInWithGoogle"
           >
-            {{ busy === 'google' ? 'Opening Google…' : 'Continue with Google' }}
+            <!-- Buttons carry no icons, but this one is Google's mark rather
+                 than decoration: it is how people recognise the door. -->
+            <span class="inline-flex items-center gap-2">
+              <AppIcon name="google" :size="18" />
+              {{ busy === 'google' ? 'Opening Google…' : 'Continue with Google' }}
+            </span>
           </AppButton>
 
           <div class="access__or flex items-center gap-3" aria-hidden="true">
