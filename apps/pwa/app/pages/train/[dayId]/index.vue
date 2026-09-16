@@ -37,7 +37,19 @@ const trainHref = computed(() =>
 const exerciseHref = (exerciseId: string) =>
   `/train/${dayId.value}/exercise/${exerciseId}${weekParam.value ? `?week=${weekParam.value}` : ''}`
 
-const session = computed(() => store.activeSession.value)
+/**
+ * The session in progress, when it is this day's.
+ *
+ * Only one session is ever open, and it belongs to one day in one week. Opening
+ * an open day creates it on arrival, so without this check every other day — a
+ * padlocked one included — rendered that session under its own title, with a
+ * live Start button that started the other day's workout.
+ */
+const session = computed(() =>
+  day.value && store.isActiveDay(dayId.value, day.value.weekNumber)
+    ? store.activeSession.value
+    : null,
+)
 
 /**
  * True while the screen is still deciding between logging and preview.
@@ -71,9 +83,10 @@ onMounted(open)
 
 // Midnight rolls the store's clock over, which is exactly when a day being
 // previewed becomes the day that is open. Turn the preview into a session on
-// the spot rather than making them find their way back to the picker.
+// the spot rather than making them find their way back to the picker. Not while
+// another day's session is open, though: opening this one would replace it.
 watch(() => day.value?.canStart, (canStart) => {
-  if (canStart && !session.value) void open()
+  if (canStart && !store.activeSession.value) void open()
 })
 
 /** The read-only state: a day to look at, with no session behind it. */
@@ -155,7 +168,7 @@ let lastTickAt = 0
 let carry = 0
 
 const advance = (seconds: number) => {
-  const active = store.activeSession.value
+  const active = session.value
   if (!active || seconds <= 0) return
 
   const before = active.elapsedSeconds
@@ -197,7 +210,7 @@ const startClock = () => {
 
 /** Only run while there is something to count. */
 const syncClock = () => {
-  if (store.activeSession.value?.running && !document.hidden) startClock()
+  if (session.value?.running && !document.hidden) startClock()
   else stopClock()
 }
 
@@ -207,14 +220,14 @@ const syncClock = () => {
  */
 const onVisibility = () => {
   if (document.hidden) {
-    if (store.activeSession.value?.running && lastTickAt) {
+    if (session.value?.running && lastTickAt) {
       advance((Date.now() - lastTickAt) / 1000)
     }
     stopClock()
     store.persistActiveSession()
     return
   }
-  if (store.activeSession.value?.running && lastTickAt) {
+  if (session.value?.running && lastTickAt) {
     advance((Date.now() - lastTickAt) / 1000)
   }
   syncClock()
@@ -229,7 +242,7 @@ const onVisibility = () => {
 const photoGateOpen = ref(false)
 
 const startWorkout = async () => {
-  const active = store.activeSession.value
+  const active = session.value
   if (!active) return
   if (!active.running && store.firstPhotoDue.value) {
     photoGateOpen.value = true
@@ -241,7 +254,7 @@ const startWorkout = async () => {
   await store.persistActiveSession()
 }
 
-watch(() => store.activeSession.value?.running, syncClock)
+watch(() => session.value?.running, syncClock)
 
 /**
  * The clock and rest timer as they stood when the member stepped out to an
@@ -262,7 +275,7 @@ onMounted(() => {
   document.addEventListener('visibilitychange', onVisibility)
   const back = detour.value
   detour.value = null
-  if (back?.dayId === dayId.value && store.activeSession.value?.running) {
+  if (back?.dayId === dayId.value && session.value?.running) {
     // Rest first: `advance` counts it down along with the clock.
     if (back.rest > 0) {
       restRemaining.value = back.rest
@@ -279,7 +292,7 @@ onBeforeUnmount(() => {
   const leavingForExercise = router.currentRoute.value.path.startsWith(
     `/train/${dayId.value}/exercise/`,
   )
-  if (leavingForExercise && clock && store.activeSession.value?.running) {
+  if (leavingForExercise && clock && session.value?.running) {
     // Settle the part of a second since the last tick, so the gap measured on
     // the way back starts exactly where the count stopped.
     advance((Date.now() - lastTickAt) / 1000)
@@ -342,7 +355,7 @@ const restFor = (exerciseIndex: number) => {
 
 // --- Set logging -----------------------------------------------------------
 const toggleSet = async (exerciseIndex: number, setIndex: number) => {
-  const active = store.activeSession.value
+  const active = session.value
   if (!active) return
   // Ticking a set used to start the clock on the member's behalf, which meant a
   // workout could be half logged before it had officially begun and the
@@ -362,7 +375,7 @@ const updateSet = async (
   exerciseIndex: number,
   payload: { index: number; field: 'reps' | 'weightKg'; value: number },
 ) => {
-  const active = store.activeSession.value
+  const active = session.value
   if (!active) return
   const set = active.exercises[exerciseIndex]?.sets[payload.index]
   if (!set) return
@@ -371,7 +384,7 @@ const updateSet = async (
 }
 
 const addSet = async (exerciseIndex: number) => {
-  const active = store.activeSession.value
+  const active = session.value
   if (!active) return
   const exercise = active.exercises[exerciseIndex]
   if (!exercise) return
@@ -398,7 +411,7 @@ const setSetType = async (
   exerciseIndex: number,
   payload: { index: number; setType: SetType },
 ) => {
-  const active = store.activeSession.value
+  const active = session.value
   if (!active) return
   const set = active.exercises[exerciseIndex]?.sets[payload.index]
   if (!set) return
@@ -418,7 +431,7 @@ const setSetType = async (
  * too — the sheet is a UI, and this is the only thing that touches the session.
  */
 const removeSet = async (exerciseIndex: number, setIndex: number) => {
-  const active = store.activeSession.value
+  const active = session.value
   if (!active) return
   const exercise = active.exercises[exerciseIndex]
   if (!exercise?.sets[setIndex]?.added) return
@@ -427,7 +440,7 @@ const removeSet = async (exerciseIndex: number, setIndex: number) => {
 }
 
 const updateNote = async (exerciseIndex: number, value: string) => {
-  const active = store.activeSession.value
+  const active = session.value
   if (!active) return
   const exercise = active.exercises[exerciseIndex]
   if (!exercise) return
