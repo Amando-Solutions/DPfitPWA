@@ -245,7 +245,7 @@ const heightUnits = computed(() => store.prefs.value.heightUnits)
 /**
  * Which preference is being written, if any.
  *
- * Every preference control on this screen — both unit toggles and the three
+ * Every preference control on this screen — both unit toggles and the
  * switches — writes the same `prefs` document, and `savePreferences` replaces
  * it with whatever comes back. Two of them open at once is two replacements
  * racing, and the one that lands second wins regardless of which was asked
@@ -289,9 +289,14 @@ const onWeight = (raw: string | number | null) => {
       : fromDisplayWeight(value, units.value)
 }
 
+/*
+  Only switches that change something are shown. `workoutReminders` and
+  `coachMessages` are still on `MemberPreferences` and still default to true,
+  but nothing acts on either yet — there is no push delivery and the inbox does
+  not filter — so a switch for them would be a control that does nothing. Add
+  each back here once it has a reader.
+*/
 const toggles = computed(() => [
-  { key: 'workoutReminders' as const, label: 'Workout reminders', value: store.prefs.value.workoutReminders },
-  { key: 'coachMessages' as const, label: 'Coach messages', value: store.prefs.value.coachMessages },
   { key: 'weeklyCheckInReminder' as const, label: 'Weekly check-in reminder', value: store.prefs.value.weeklyCheckInReminder },
 ])
 

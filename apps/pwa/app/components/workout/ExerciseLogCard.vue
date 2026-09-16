@@ -324,7 +324,7 @@ const NO_SPINNER =
         >
           {{ row.label }}
         </span>
-        <span :class="PREV" class="truncate text-[11.5px] text-muted tabular-nums">
+        <span :class="PREV" class="truncate text-center text-[11.5px] text-muted tabular-nums">
           {{ previousLabel(row.set) }}
         </span>
 

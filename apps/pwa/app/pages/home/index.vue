@@ -348,8 +348,13 @@ const STAT_VALUE =
         </div>
       </section>
 
-      <!-- Weekly check-in -->
-      <section class="home__section home__section--checkin mt-3.25 lg:mt-0 order-4">
+      <!-- Weekly check-in. This card is the reminder the "Weekly check-in
+           reminder" switch on Profile turns off; the check-in itself stays
+           reachable from the nav and the More menu. -->
+      <section
+        v-if="store.prefs.value.weeklyCheckInReminder"
+        class="home__section home__section--checkin mt-3.25 lg:mt-0 order-4"
+      >
         <div :class="CARD">
           <div class="checkin__top flex gap-3">
             <span class="checkin__icon w-9 h-9 rounded-pill bg-primary-soft text-primary grid place-items-center shrink-0"><AppIcon name="checkCircle" :size="17" /></span>
