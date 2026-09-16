@@ -116,6 +116,34 @@ const chooseSignInHere = () => {
 }
 
 /**
+ * Install alongside, everywhere else that can.
+ *
+ * An offer beside the sign-in rather than a step before it: outside iOS the
+ * installed app shares the browser's storage, so a sign-in here is already a
+ * sign-in there and the order costs nothing. iOS is left out because it has
+ * `installFirst`, and a member who chose to sign in there instead has already
+ * answered.
+ */
+const offerInstall = computed(
+  () =>
+    (install.method.value === 'prompt' || install.method.value === 'manual') &&
+    phase.value === 'email' &&
+    !confirmingEmail.value,
+)
+
+const installing = ref(false)
+
+const runInstall = async () => {
+  if (installing.value) return
+  installing.value = true
+  try {
+    await install.install()
+  } finally {
+    installing.value = false
+  }
+}
+
+/**
  * Which action is in flight, so the labels can say what is happening.
  *
  * One ref rather than a flag per button: only one of these can be running at a
@@ -715,6 +743,31 @@ watch([code, email, link], () => {
         </div>
       </AppCard>
     </form>
+
+    <!-- Under the card, not in it: signing in is what this screen is for, and
+         the offer should not read as part of the form. `How to install` opens
+         the same guide Home and More do, mounted below. -->
+    <section
+      v-if="offerInstall"
+      class="access__install-offer relative mt-4 flex items-center gap-2.5 rounded-md p-[10px_10px_10px_12px] shadow-[inset_0_0_0_1px_var(--hairline)]"
+    >
+      <span class="grid size-7.5 shrink-0 place-items-center rounded-pill bg-primary-soft text-primary">
+        <AppIcon name="download" :size="15" />
+      </span>
+      <div class="min-w-0 flex-auto">
+        <p class="m-0 font-display text-[14px] font-black tracking-[-0.2px] text-ink">Install DP Fitness</p>
+        <p class="m-0 mt-0.5 text-[12px] leading-[1.35] text-(--violet-45)">Full screen, and it works offline.</p>
+      </div>
+      <button
+        type="button"
+        class="h-9 shrink-0 whitespace-nowrap rounded-pill bg-primary-soft px-3.5 text-[13px] font-bold text-primary transition-transform duration-100 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45"
+        :disabled="installing"
+        @click="runInstall"
+      >
+        {{ install.ctaLabel.value }}
+      </button>
+    </section>
+    <InstallAppSheet />
 
     <!--
       `mt-auto` here is what balances the same on `access__intro`: between them

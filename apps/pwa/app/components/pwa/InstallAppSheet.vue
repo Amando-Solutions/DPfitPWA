@@ -11,8 +11,9 @@ const install = useInstallApp()
       Three taps and the challenge sits on your home screen: full screen, no
       address bar, and your sessions open offline.
       <!-- Only iOS walls the installed app off from the browser's storage, and
-           this sheet only mounts behind a sign-in, so that sign-in is what
-           doesn't come along. Said before the taps, not discovered after. -->
+           on iOS this sheet only opens behind a sign-in — the sign-in screen
+           shows the steps inline instead — so that sign-in is what doesn't
+           come along. Said before the taps, not discovered after. -->
       <template v-if="install.method.value === 'ios'">
         You&rsquo;ll sign in once more when you open it.
       </template>

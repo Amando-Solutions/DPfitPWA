@@ -89,8 +89,13 @@ export const useInstallApp = () => {
     })
   }
 
+  /* Not the module's word on iOS. It counts any iOS browser without "Safari" in
+     its user agent as installed, and the in-app browsers of Instagram, Facebook
+     and the like leave it out — so those read as the home-screen app, and the
+     ask to open in Safari and add it never showed. `navigator.standalone`,
+     read into `installed` above, is only true for the real thing. */
   const isInstalled = computed(
-    () => installed.value || $pwa?.isPWAInstalled === true,
+    () => installed.value || (!ios.value && $pwa?.isPWAInstalled === true),
   )
 
   const method = computed<InstallMethod | null>(() => {
