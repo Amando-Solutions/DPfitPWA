@@ -447,14 +447,21 @@ export interface Exercise {
   restSeconds: number
   videoThumbUrl: string | null
   /**
-   * The demo clip the How to tab plays. An https URL to a file a `<video>`
-   * element can play (MP4 is the safe choice), not a YouTube or Vimeo page.
+   * The demo clip the How to tab plays, in a `<video>` element. An https link to
+   * the video file itself, from any host — UploadThing, a storage bucket, a CDN.
+   * Not a page that shows a video: a YouTube, Vimeo or Google Drive share link
+   * is HTML, and will not play.
    *
-   * Optional because every exercise authored before it existed has none, and
-   * `firestore.staging.rules` accepts it absent for the same reason. Missing or
-   * null shows the "Video coming soon" placeholder.
+   * Any format can be stored, but only what the member's browser decodes will
+   * play. MP4 (H.264) plays everywhere; an iPhone's HEVC `.mov` does not play in
+   * Chrome on Android. When a link will not play, the tab offers to open it.
+   *
+   * Null shows the "Video coming soon" placeholder. Always written, null when
+   * there is no video, so every exercise has the same shape. The app still
+   * treats it absent as null, and `firestore.staging.rules` still accepts it
+   * absent, because a database that has not been backfilled has none.
    */
-  videoUrl?: string | null
+  videoUrl: string | null
   cues: string[]
   sets: PrescribedSet[]
 }
