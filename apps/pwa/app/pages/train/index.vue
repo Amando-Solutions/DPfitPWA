@@ -143,7 +143,10 @@ const lockedHeading = computed(() => {
   return restDay.value ? 'Rest day' : 'Nothing to log today'
 })
 
-const CHIP_ACCENT = 'bg-rose-soft text-rose'
+const CHIP_ACCENT = 'bg-primary-soft text-primary'
+// Solid rather than a tint: the done green only clears contrast as a fill under
+// white, and this chip says "Logged" in words.
+const CHIP_DONE = 'bg-success text-on-success'
 const CHIP_QUIET = 'bg-fill-subtle text-muted'
 
 /**
@@ -157,7 +160,7 @@ const CHIP_QUIET = 'bg-fill-subtle text-muted'
 const rows = computed(() =>
   shownDays.value.map((day) => {
     if (day.status === 'completed') {
-      return { day, chip: { text: 'Logged', cls: CHIP_ACCENT } }
+      return { day, chip: { text: 'Logged', cls: CHIP_DONE } }
     }
     // A day behind them is open on the same terms as today's, but it is not
     // today's — the chip is what tells them which one they are picking up.
@@ -223,8 +226,8 @@ const items = computed(() => {
 
     <!-- Says why no row offers to start, so a day without a Start button reads
          as a rule rather than as the screen having failed. -->
-    <div v-if="store.trainingLocked.value && store.days.value.length" class="picker__locked flex items-center gap-3 mt-5 py-3.5 px-4.5 rounded-card bg-rose-softer border border-rose-ring">
-      <span class="picker__locked-icon w-8.5 h-8.5 rounded-pill bg-rose-fill text-on-rose grid place-items-center shrink-0"><AppIcon :name="lockedIcon" :size="16" /></span>
+    <div v-if="store.trainingLocked.value && store.days.value.length" class="picker__locked flex items-center gap-3 mt-5 py-3.5 px-4.5 rounded-card bg-primary-softer border border-primary-ring">
+      <span class="picker__locked-icon w-8.5 h-8.5 rounded-pill bg-primary-fill text-on-primary grid place-items-center shrink-0"><AppIcon :name="lockedIcon" :size="16" /></span>
       <span class="picker__locked-text flex flex-col gap-0.5 min-w-0 [&_strong]:font-display [&_strong]:font-black [&_strong]:text-[14.5px] [&_strong]:text-ink [&_small]:text-[12.5px] [&_small]:text-muted">
         <strong>{{ lockedHeading }}</strong>
         <small>{{ lockedNote }}</small>
@@ -233,7 +236,7 @@ const items = computed(() => {
 
     <!-- A workout left half-logged is the first thing they should see. -->
     <NuxtLink v-if="resumable" :to="resumeHref" class="picker__resume flex items-center gap-3 mt-5 py-3.5 px-4.5 rounded-card bg-inverse text-on-inverse shadow-hero lg:mt-6 lg:transition-[translate,box-shadow] lg:duration-150 lg:ease-[ease] lg:hover:-translate-y-0.5 lg:hover:shadow-raised">
-      <span class="picker__resume-icon w-9.5 h-9.5 rounded-[14px] bg-rose-fill grid place-items-center shrink-0"><AppIcon name="train" :size="18" /></span>
+      <span class="picker__resume-icon w-9.5 h-9.5 rounded-[14px] bg-primary-fill grid place-items-center shrink-0"><AppIcon name="train" :size="18" /></span>
       <span class="picker__resume-text flex-1 min-w-0 flex flex-col gap-0.5 [&_strong]:font-display [&_strong]:font-black [&_strong]:text-[15px] [&_small]:text-[12.5px] [&_small]:text-on-inverse-soft">
         <strong>Pick up where you left off</strong>
         <small>
@@ -270,7 +273,7 @@ const items = computed(() => {
         <!-- Marks the calendar's week, so it can be found again from any other. -->
         <span
           v-if="week.weekNumber === store.clock.value.week"
-          class="absolute top-1 right-1.5 size-1.5 rounded-pill bg-rose"
+          class="absolute top-1 right-1.5 size-1.5 rounded-pill bg-primary"
           aria-hidden="true"
         />
         <span v-if="week.weekNumber === store.clock.value.week" class="sr-only">(this week)</span>
@@ -304,21 +307,21 @@ const items = computed(() => {
           v-if="item.kind === 'today'"
           class="picker__today flex items-center gap-2.5 py-1 text-[12.5px] lg:col-span-2"
         >
-          <span class="size-2 shrink-0 rounded-pill bg-rose" aria-hidden="true" />
-          <strong class="font-semibold text-rose">Today</strong>
+          <span class="size-2 shrink-0 rounded-pill bg-primary" aria-hidden="true" />
+          <strong class="font-semibold text-primary">Today</strong>
           <span class="truncate text-muted">{{ todayLabel }} · no session scheduled</span>
           <span class="h-px min-w-4 flex-1 bg-hairline" aria-hidden="true" />
         </div>
         <NuxtLink
           v-else
           :to="dayHref(item.day.id)"
-          class="day flex items-center gap-3 p-4.5 rounded-card bg-raised border border-hairline filter-(--drop-md) text-ink [&.day--done]:border-rose-ring [&.day--shut]:opacity-70 [&.day--shut_.day__badge]:bg-fill-subtle [&.day--shut_.day__badge]:text-muted lg:transition-[translate,box-shadow] lg:duration-150 lg:ease-[ease] lg:hover:-translate-y-0.5 lg:hover:shadow-raised"
+          class="day flex items-center gap-3 p-4.5 rounded-card bg-raised border border-hairline filter-(--drop-md) text-ink [&.day--done]:border-success-ring [&.day--done_.day\_\_badge]:bg-success-soft [&.day--done_.day\_\_badge]:text-success [&.day--shut]:opacity-70 [&.day--shut_.day\_\_badge]:bg-fill-subtle [&.day--shut_.day\_\_badge]:text-muted lg:transition-[translate,box-shadow] lg:duration-150 lg:ease-[ease] lg:hover:-translate-y-0.5 lg:hover:shadow-raised"
           :class="{
             'day--done': item.day.status === 'completed',
             'day--shut': !item.day.canStart && item.day.status !== 'completed',
           }"
         >
-          <span class="day__badge w-10.5 h-10.5 rounded-[14px] bg-rose-soft text-rose grid place-items-center shrink-0 text-[13px] font-bold tabular-nums">
+          <span class="day__badge w-10.5 h-10.5 rounded-[14px] bg-primary-soft text-primary grid place-items-center shrink-0 text-[13px] font-bold tabular-nums">
             <AppIcon v-if="item.day.status === 'completed'" name="check" :size="16" />
             <AppIcon v-else-if="!item.day.canStart" name="lock" :size="16" />
             <span v-else>D{{ item.day.dayNumber }}</span>

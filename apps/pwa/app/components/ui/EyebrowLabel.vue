@@ -9,15 +9,15 @@
 // label; the weight is enough to lift it off the title's shoulder.
 const props = withDefaults(
   defineProps<{
-    tone?: 'rose' | 'rose-on-inverse' | 'muted' | 'soft' | 'inherit'
+    tone?: 'primary' | 'primary-on-inverse' | 'muted' | 'soft' | 'inherit'
   }>(),
-  { tone: 'rose' },
+  { tone: 'primary' },
 )
 
 const TONES: Record<NonNullable<typeof props.tone>, string> = {
-  rose: 'text-rose',
-  // The deep brand rose is unreadable on a dark card; this is its bright twin.
-  'rose-on-inverse': 'text-rose-on-inverse',
+  primary: 'text-primary',
+  // Neither Primary value holds up on a dark card; this is its lifted twin.
+  'primary-on-inverse': 'text-primary-on-inverse',
   muted: 'text-muted',
   soft: 'text-soft',
   inherit: 'text-current',

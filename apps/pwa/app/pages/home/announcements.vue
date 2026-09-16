@@ -31,11 +31,11 @@ const isExternal = (url: string) => /^https?:\/\//i.test(url)
         v-for="a in cards"
         :key="a.id"
         :variant="a.accent === 'ink' ? 'ink' : 'raised'"
-        class="deck__card [position:relative] [overflow:hidden] [display:flex] [flex-direction:column] [gap:10px] [padding-left:22px] [&.deck__card--ink_.deck__card-body]:[color:var(--on-inverse-soft)]"
+        class="deck__card [position:relative] [overflow:hidden] [display:flex] [flex-direction:column] [gap:10px] [padding-left:22px] [&.deck\_\_card--ink_.deck\_\_card-body]:[color:var(--on-inverse-soft)]"
         :class="`deck__card--${a.accent}`"
       >
-        <div class="deck__accent-bar [position:absolute] [left:0] [top:0] [bottom:0] [width:5px] [&.deck__accent-bar--rose]:[background:var(--rose-fill)] [&.deck__accent-bar--orange]:[background:var(--orange)] [&.deck__accent-bar--ink]:[background:var(--rose-fill)]" :class="`deck__accent-bar--${a.accent}`" />
-        <EyebrowLabel :tone="a.accent === 'ink' ? 'rose-on-inverse' : 'rose'">
+        <div class="deck__accent-bar [position:absolute] [left:0] [top:0] [bottom:0] [width:5px] [&.deck\_\_accent-bar--rose]:[background:var(--primary-fill)] [&.deck\_\_accent-bar--orange]:[background:var(--secondary)] [&.deck\_\_accent-bar--ink]:[background:var(--primary-fill)]" :class="`deck__accent-bar--${a.accent}`" />
+        <EyebrowLabel :tone="a.accent === 'ink' ? 'primary-on-inverse' : 'primary'">
           {{ a.eyebrow }}
         </EyebrowLabel>
         <h2 class="deck__card-title [margin:0] [font-family:var(--font-display)] [font-weight:900] [font-size:18px] [line-height:1.15] lg:[font-size:20px]">{{ a.title }}</h2>

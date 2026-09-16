@@ -11,13 +11,13 @@ export const bubbleVariants = cva(
   {
     variants: {
       variant: {
-        default: "*:data-[slot=bubble-content]:bg-rose-fill *:data-[slot=bubble-content]:text-on-rose [&>[data-slot=bubble-content]:is(button,a):hover]:bg-rose-fill/90",
+        default: "*:data-[slot=bubble-content]:bg-primary-fill *:data-[slot=bubble-content]:text-on-primary [&>[data-slot=bubble-content]:is(button,a):hover]:bg-primary-fill/90",
         secondary: "*:data-[slot=bubble-content]:bg-raised *:data-[slot=bubble-content]:text-ink [&>[data-slot=bubble-content]:is(button,a):hover]:bg-fill-muted",
         muted: "*:data-[slot=bubble-content]:bg-bubble-coach *:data-[slot=bubble-content]:text-ink [&>[data-slot=bubble-content]:is(button,a):hover]:bg-bubble-coach/90",
-        tinted: "*:data-[slot=bubble-content]:bg-rose-soft *:data-[slot=bubble-content]:text-ink [&>[data-slot=bubble-content]:is(button,a):hover]:bg-rose-ring",
+        tinted: "*:data-[slot=bubble-content]:bg-primary-soft *:data-[slot=bubble-content]:text-ink [&>[data-slot=bubble-content]:is(button,a):hover]:bg-primary-ring",
         outline: "*:data-[slot=bubble-content]:border-hairline *:data-[slot=bubble-content]:bg-raised *:data-[slot=bubble-content]:text-ink [&>[data-slot=bubble-content]:is(button,a):hover]:bg-fill-subtle",
         ghost: "*:data-[slot=bubble-content]:rounded-none *:data-[slot=bubble-content]:bg-transparent *:data-[slot=bubble-content]:p-0 *:data-[slot=bubble-content]:text-ink [&>[data-slot=bubble-content]:is(button,a):hover]:bg-fill-subtle border-none",
-        destructive: "*:data-[slot=bubble-content]:bg-rose-soft *:data-[slot=bubble-content]:text-rose [&>[data-slot=bubble-content]:is(button,a):hover]:bg-rose-ring",
+        destructive: "*:data-[slot=bubble-content]:bg-primary-soft *:data-[slot=bubble-content]:text-primary [&>[data-slot=bubble-content]:is(button,a):hover]:bg-primary-ring",
       },
     },
     defaultVariants: {

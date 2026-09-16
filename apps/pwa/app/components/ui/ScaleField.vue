@@ -33,7 +33,7 @@ defineEmits<{ (e: 'update:modelValue', value: number): void }>()
         :key="step"
         :value="step"
         variant="plain"
-        class="min-w-0 rounded-md border-[1.5px] border-hairline bg-sunken px-0.5 py-3 text-center text-[13px] font-bold text-soft tabular-nums transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-ring data-[state=checked]:border-rose data-[state=checked]:bg-rose-soft data-[state=checked]:text-rose"
+        class="min-w-0 rounded-md border-[1.5px] border-hairline bg-sunken px-0.5 py-3 text-center text-[13px] font-bold text-soft tabular-nums transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring data-[state=checked]:border-primary data-[state=checked]:bg-primary-soft data-[state=checked]:text-primary"
       >
         {{ step }}
       </RadioGroupItem>

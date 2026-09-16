@@ -103,7 +103,7 @@ const lockup = (markFill, wordFill) => `<g transform="scale(${LOCKUP_SCALE})">
 
 const PLUM = '#430f32'
 /** `--surface-raised`, and the manifest's `background_color`. */
-const CREAM = '#fbf6f2'
+const GROUND = '#fcfbff'
 
 /**
  * The mark, centred in a square.
@@ -131,10 +131,10 @@ const targets = [
   // Transparent: the tab bar supplies its own ground, in either theme.
   { file: 'favicon-32.png', size: 32, scale: 0.78, bg: null },
   // iOS composites a home-screen icon onto black, so this one needs a ground.
-  { file: 'apple-touch-icon.png', size: 180, scale: 0.64, bg: CREAM },
-  { file: 'icon-192.png', size: 192, scale: 0.64, bg: CREAM },
-  { file: 'icon-512.png', size: 512, scale: 0.64, bg: CREAM },
-  { file: 'icon-512-maskable.png', size: 512, scale: 0.5, bg: CREAM },
+  { file: 'apple-touch-icon.png', size: 180, scale: 0.64, bg: GROUND },
+  { file: 'icon-192.png', size: 192, scale: 0.64, bg: GROUND },
+  { file: 'icon-512.png', size: 512, scale: 0.64, bg: GROUND },
+  { file: 'icon-512-maskable.png', size: 512, scale: 0.5, bg: GROUND },
 ]
 
 const browser = await chromium.launch()
@@ -196,18 +196,18 @@ const lockupW = (lockupH * LOCKUP_W) / LOCKUP_H
 const og = `<svg xmlns="http://www.w3.org/2000/svg" width="${OG_W}" height="${OG_H}" viewBox="0 0 ${OG_W} ${OG_H}">
   <rect width="${OG_W}" height="${OG_H}" fill="#0f0a14"/>
   <defs>
-    <radialGradient id="rose" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#c81e5c" stop-opacity="0.34"/>
-      <stop offset="45%" stop-color="#c81e5c" stop-opacity="0.05"/>
-      <stop offset="70%" stop-color="#c81e5c" stop-opacity="0"/>
+    <radialGradient id="primary" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#9333ea" stop-opacity="0.34"/>
+      <stop offset="45%" stop-color="#9333ea" stop-opacity="0.05"/>
+      <stop offset="70%" stop-color="#9333ea" stop-opacity="0"/>
     </radialGradient>
-    <radialGradient id="amber" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#e8a33d" stop-opacity="0.18"/>
-      <stop offset="66%" stop-color="#e8a33d" stop-opacity="0"/>
+    <radialGradient id="violet" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#9d7fea" stop-opacity="0.2"/>
+      <stop offset="66%" stop-color="#9d7fea" stop-opacity="0"/>
     </radialGradient>
   </defs>
-  <ellipse cx="${OG_W / 2}" cy="60" rx="700" ry="440" fill="url(#rose)"/>
-  <ellipse cx="${OG_W - 60}" cy="${OG_H - 40}" rx="420" ry="420" fill="url(#amber)"/>
+  <ellipse cx="${OG_W / 2}" cy="60" rx="700" ry="440" fill="url(#primary)"/>
+  <ellipse cx="${OG_W - 60}" cy="${OG_H - 40}" rx="420" ry="420" fill="url(#violet)"/>
   <g transform="translate(${(OG_W - lockupW) / 2} ${(OG_H - lockupH) / 2}) scale(${lockupH / LOCKUP_H})">
     ${lockup('#ffffff', '#ffffff')}
   </g>

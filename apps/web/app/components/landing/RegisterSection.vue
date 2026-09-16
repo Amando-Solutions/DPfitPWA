@@ -263,7 +263,7 @@ async function onSubmit() {
   <section id="register" class="bg-page py-20 lg:py-30">
     <PageContainer>
       <div class="max-w-155">
-        <p class="eyebrow-section text-rose-fill">Register, then pay</p>
+        <p class="eyebrow-section text-primary-fill">Register, then pay</p>
         <h2 class="title-section mt-4.5 text-ink">Register for your spot.</h2>
         <p class="mt-4 font-body text-[17px] leading-[1.7] text-soft">
           Fill this in once. Your program access and nutrition guidance are set
@@ -351,10 +351,10 @@ async function onSubmit() {
                 :aria-describedby="
                   errors[field.name] ? `register-${field.name}-error` : undefined
                 "
-                class="h-11.5 rounded-field border bg-field px-3.75 font-body text-[15px] text-ink transition-colors placeholder:text-[#757575] focus:outline-none focus-visible:border-rose-fill focus-visible:ring-2 focus-visible:ring-rose-ring"
+                class="h-11.5 rounded-field border bg-field px-3.75 font-body text-[15px] text-ink transition-colors placeholder:text-[#757575] focus:outline-none focus-visible:border-primary-fill focus-visible:ring-2 focus-visible:ring-primary-ring"
                 :class="
                   errors[field.name]
-                    ? 'border-rose-fill'
+                    ? 'border-primary-fill'
                     : 'border-field-edge'
                 "
                 @input="onInput(field)"
@@ -363,7 +363,7 @@ async function onSubmit() {
               <p
                 v-if="errors[field.name]"
                 :id="`register-${field.name}-error`"
-                class="font-body text-[13px] text-rose-fill"
+                class="font-body text-[13px] text-primary-fill"
               >
                 {{ errors[field.name] }}
               </p>
@@ -389,7 +389,7 @@ async function onSubmit() {
           <p
             v-if="failure"
             role="alert"
-            class="mt-6 rounded-field border border-rose-fill bg-[rgba(200,30,92,0.06)] px-4 py-3 font-body text-[14.5px] text-rose-fill"
+            class="mt-6 rounded-field border border-primary-fill bg-[rgba(147,51,234,0.06)] px-4 py-3 font-body text-[14.5px] text-primary-fill"
           >
             {{ failure }}
           </p>

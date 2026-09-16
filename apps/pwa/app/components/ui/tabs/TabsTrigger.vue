@@ -25,7 +25,7 @@ const forwarded = useForwardProps(delegated)
       cn(
         'h-9.5 flex-1 rounded-pill text-[13px]',
         'text-muted transition-colors duration-150 hover:text-ink',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-ring',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring',
         'data-[state=active]:btn-raised data-[state=active]:bg-inverse data-[state=active]:font-semibold data-[state=active]:text-on-inverse data-[state=active]:[--btn-face:var(--surface-inverse)]',
         props.class,
       )

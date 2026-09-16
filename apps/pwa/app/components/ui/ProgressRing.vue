@@ -4,9 +4,9 @@ const props = withDefaults(
     value: number // 0..100
     size?: number
     stroke?: number
-    tone?: 'rose' | 'orange'
+    tone?: 'primary' | 'secondary'
   }>(),
-  { size: 92, stroke: 8, tone: 'rose' },
+  { size: 92, stroke: 8, tone: 'primary' },
 )
 
 const radius = computed(() => (props.size - props.stroke) / 2)
@@ -41,7 +41,7 @@ const vars = computed(() => ({ '--ring-size': `${props.size}px` }))
         :stroke-dasharray="circumference"
         :stroke-dashoffset="offset"
         class="transition-[stroke-dashoffset] duration-500 ease-out"
-        :class="tone === 'orange' ? 'stroke-orange' : 'stroke-rose'"
+        :class="tone === 'secondary' ? 'stroke-secondary' : 'stroke-primary-fill'"
       />
     </svg>
     <div class="absolute inset-0 grid place-items-center text-center">

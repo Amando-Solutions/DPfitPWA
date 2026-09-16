@@ -364,7 +364,7 @@ const SNAPSHOT_VALUE = 'text-[17px] font-bold text-on-inverse tabular-nums'
         </div>
         <div class="flex flex-col gap-1.25">
           <span :class="SNAPSHOT_LABEL">Change</span>
-          <span :class="SNAPSHOT_VALUE" class="text-rose-on-inverse">{{ changeLabel }}</span>
+          <span :class="SNAPSHOT_VALUE" class="text-primary-on-inverse">{{ changeLabel }}</span>
         </div>
         <div class="flex flex-col gap-1.25">
           <span :class="SNAPSHOT_LABEL">Height</span>
@@ -379,7 +379,7 @@ const SNAPSHOT_VALUE = 'text-[17px] font-bold text-on-inverse tabular-nums'
         <span :class="SECTION_LABEL">Your details</span>
         <Transition name="fade">
           <span v-if="savingProfile" class="text-[12px] text-muted">Saving…</span>
-          <span v-else-if="saved" class="text-[12px] text-rose">Saved</span>
+          <span v-else-if="saved" class="text-[12px] text-primary">Saved</span>
         </Transition>
       </div>
 
@@ -472,7 +472,7 @@ const SNAPSHOT_VALUE = 'text-[17px] font-bold text-on-inverse tabular-nums'
         </div>
       </AppCard>
 
-      <p v-if="profileError" role="alert" class="m-0 text-[12.5px] font-bold text-rose">
+      <p v-if="profileError" role="alert" class="m-0 text-[12.5px] font-bold text-primary">
         {{ profileError }}
       </p>
     </section>
@@ -504,7 +504,7 @@ const SNAPSHOT_VALUE = 'text-[17px] font-bold text-on-inverse tabular-nums'
             />
           </div>
 
-          <p v-if="prefsError" role="alert" class="m-0 text-[12.5px] font-bold text-rose">
+          <p v-if="prefsError" role="alert" class="m-0 text-[12.5px] font-bold text-primary">
             {{ prefsError }}
           </p>
         </AppCard>

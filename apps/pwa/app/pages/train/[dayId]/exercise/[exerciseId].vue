@@ -67,7 +67,7 @@ const ROW = computed(() =>
 )
 
 const TRIGGER =
-  'relative h-12 flex-1 text-[15px] text-muted transition-colors duration-150 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-rose-ring data-[state=active]:font-semibold data-[state=active]:text-rose'
+  'relative h-12 flex-1 text-[15px] text-muted transition-colors duration-150 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-ring data-[state=active]:font-semibold data-[state=active]:text-primary'
 </script>
 
 <template>
@@ -84,7 +84,7 @@ const TRIGGER =
         <TabsTrigger value="history" :class="TRIGGER">History</TabsTrigger>
         <TabsTrigger value="how-to" :class="TRIGGER">How to</TabsTrigger>
         <TabsIndicator
-          class="absolute bottom-0 left-0 h-0.75 w-(--reka-tabs-indicator-size) translate-x-(--reka-tabs-indicator-position) rounded-pill bg-rose transition-[width,translate] duration-200 motion-reduce:transition-none"
+          class="absolute bottom-0 left-0 h-0.75 w-(--reka-tabs-indicator-size) translate-x-(--reka-tabs-indicator-position) rounded-pill bg-primary transition-[width,translate] duration-200 motion-reduce:transition-none"
         />
       </TabsList>
 
@@ -120,7 +120,7 @@ const TRIGGER =
                 />
                 <span
                   v-else
-                  class="grid size-11 shrink-0 place-items-center rounded-pill bg-rose-soft text-rose"
+                  class="grid size-11 shrink-0 place-items-center rounded-pill bg-primary-soft text-primary"
                 >
                   <AppIcon name="train" :size="19" :stroke="2.2" />
                 </span>
@@ -239,7 +239,7 @@ const TRIGGER =
                 <ol class="mt-3 mb-0 flex list-none flex-col gap-2.5 p-0">
                   <li v-for="(cue, i) in planned.cues" :key="cue" class="flex gap-3">
                     <span
-                      class="grid size-6 shrink-0 place-items-center rounded-pill bg-rose-soft text-[12px] font-bold text-rose tabular-nums"
+                      class="grid size-6 shrink-0 place-items-center rounded-pill bg-primary-soft text-[12px] font-bold text-primary tabular-nums"
                     >
                       {{ i + 1 }}
                     </span>

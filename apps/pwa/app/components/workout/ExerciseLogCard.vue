@@ -210,7 +210,7 @@ const PREV = 'pl-2.5'
   are reserved for things you press.
 */
 const INPUT =
-  'h-8 w-full rounded-field border-none bg-sunken px-2 text-right text-[13.5px] font-bold text-ink tabular-nums shadow-[inset_0_0_0_1px_var(--hairline)] outline-none focus:shadow-[inset_0_0_0_1.5px_var(--rose)]'
+  'h-8 w-full rounded-field border-none bg-sunken px-2 text-right text-[13.5px] font-bold text-ink tabular-nums shadow-[inset_0_0_0_1px_var(--hairline)] outline-none focus:shadow-[inset_0_0_0_1.5px_var(--primary)]'
 // Chrome/Safari spinners eat the available width in a 58px cell.
 const NO_SPINNER =
   'appearance-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none'
@@ -227,7 +227,7 @@ const NO_SPINNER =
   <AppCard variant="raised" class="flex flex-col rounded-2xl font-exercise">
     <div class="flex items-center gap-2.5">
       <div
-        class="grid size-8 shrink-0 place-items-center rounded-pill bg-rose-soft text-rose"
+        class="grid size-8 shrink-0 place-items-center rounded-pill bg-primary-soft text-primary"
       >
         <AppIcon name="train" :size="16" :stroke="2.2" />
       </div>
@@ -239,11 +239,11 @@ const NO_SPINNER =
         is a weight-and-reps exercise because there is a weight column and a
         reps column.
       -->
-      <h3 class="m-0 min-w-0 flex-1 truncate text-[15px] font-bold text-rose">
+      <h3 class="m-0 min-w-0 flex-1 truncate text-[15px] font-bold text-primary">
         <NuxtLink
           v-if="to"
           :to="to"
-          class="rounded-field transition-opacity duration-100 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-ring active:opacity-70"
+          class="rounded-field transition-opacity duration-100 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring active:opacity-70"
         >
           {{ name }}
         </NuxtLink>
@@ -276,7 +276,7 @@ const NO_SPINNER =
 
     <button
       v-if="!readonly"
-      class="mt-0.5 flex min-h-7 items-center py-1 text-[12.5px] text-rose disabled:cursor-default disabled:opacity-60"
+      class="mt-0.5 flex min-h-7 items-center py-1 text-[12.5px] text-primary disabled:cursor-default disabled:opacity-60"
       :disabled="!canRest"
       @click="emit('rest', restSeconds)"
     >
@@ -300,7 +300,7 @@ const NO_SPINNER =
         :class="[
           ROW,
           'border-fill-subtle',
-          row.set.done && 'rounded-field bg-rose-softer',
+          row.set.done && 'rounded-field bg-success-softer',
         ]"
       >
         <!-- 16b · Select Set Type. The badge is the control: there is nowhere
@@ -358,11 +358,11 @@ const NO_SPINNER =
           {{ row.set.reps }}
         </span>
 
-        <!-- Neutral until it is ticked, and ticked it fills with the surface's
-             own strong ink rather than a second accent colour. -->
+        <!-- Neutral until it is ticked, and ticked it fills with the done
+             green, which is the one thing that colour is allowed to mean. -->
         <button
           class="grid size-7 place-items-center justify-self-center rounded-field transition-colors duration-150 disabled:cursor-default disabled:opacity-60"
-          :class="row.set.done ? 'bg-rose-fill text-on-rose' : 'bg-fill-subtle text-transparent'"
+          :class="row.set.done ? 'bg-success text-on-success' : 'bg-fill-subtle text-transparent'"
           :disabled="readonly || !started"
           :aria-label="`Mark ${rowName(row, position)} ${row.set.done ? 'not done' : 'done'}`"
           @click="emit('toggle-set', row.index)"
@@ -406,7 +406,7 @@ const NO_SPINNER =
           <textarea
             :id="noteId"
             v-model="noteDraft"
-            class="w-full scroll-mt-4 resize-none rounded-field border-none bg-sunken px-3.5 py-3 text-base text-ink shadow-[inset_0_0_0_1.5px_var(--hairline)] outline-none focus:shadow-[inset_0_0_0_1.5px_var(--rose)] sm:text-sm"
+            class="w-full scroll-mt-4 resize-none rounded-field border-none bg-sunken px-3.5 py-3 text-base text-ink shadow-[inset_0_0_0_1.5px_var(--hairline)] outline-none focus:shadow-[inset_0_0_0_1.5px_var(--primary)] sm:text-sm"
             rows="3"
             placeholder="Felt heavy, dropped to 12kg on the last set…"
             @focus="noteFocused = true"

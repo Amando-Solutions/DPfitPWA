@@ -53,8 +53,8 @@ const NOTE_CARD =
         </span>
       </div>
 
-      <div :class="MACRO" class="border-rose-ring bg-rose-soft">
-        <span :class="MACRO_VALUE" class="text-rose">{{ targets.proteinG }}g</span>
+      <div :class="MACRO" class="border-primary-ring bg-primary-soft">
+        <span :class="MACRO_VALUE" class="text-primary">{{ targets.proteinG }}g</span>
         <span :class="MACRO_LABEL">Protein</span>
       </div>
 
@@ -88,7 +88,7 @@ const NOTE_CARD =
           class="mt-px flex items-center justify-between gap-3 border-t border-dashed border-hairline-strong pt-2.5 text-[13px]"
         >
           <span class="font-semibold text-ink">Daily target</span>
-          <span class="font-semibold text-rose tabular-nums">{{ targets.kcalTarget }} kcal</span>
+          <span class="font-semibold text-primary tabular-nums">{{ targets.kcalTarget }} kcal</span>
         </div>
       </div>
     </section>

@@ -604,7 +604,7 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
             <h2 class="m-0 min-w-0 font-display text-[15.5px] font-black tracking-[-0.2325px] text-ink">
               <NuxtLink
                 :to="exerciseHref(exercise.id)"
-                class="rounded-field transition-opacity duration-100 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-ring active:opacity-70"
+                class="rounded-field transition-opacity duration-100 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring active:opacity-70"
               >
                 {{ exercise.name }}
               </NuxtLink>
@@ -667,7 +667,7 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
          about the workout, it is the reason it cannot start. -->
     <Dialog v-model:open="photoGateOpen">
       <DialogContent class="w-[calc(100%-32px)] max-w-100 gap-0 rounded-lg bg-raised p-5">
-        <span class="grid size-10 place-items-center rounded-pill bg-rose-soft text-rose">
+        <span class="grid size-10 place-items-center rounded-pill bg-primary-soft text-primary">
           <AppIcon name="image" :size="19" />
         </span>
         <DialogTitle class="mt-3.5 text-[17px]">Progress photo first</DialogTitle>

@@ -77,7 +77,7 @@ const rows = computed(() =>
         </div>
         <h2 class="guide__title mt-0 mx-0 mb-1.5 font-display font-black text-[17px]">{{ guide.title }}</h2>
         <p class="guide__excerpt mt-0 mx-0 mb-2.5 text-[13px] leading-[1.5] text-muted">{{ guide.excerpt }}</p>
-        <span class="guide__category inline-block text-[11.5px] text-rose bg-rose-soft py-1 px-2.25 rounded-pill">{{ guide.category }}</span>
+        <span class="guide__category inline-block text-[11.5px] text-primary bg-primary-soft py-1 px-2.25 rounded-pill">{{ guide.category }}</span>
       </component>
     </div>
 

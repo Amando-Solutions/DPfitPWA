@@ -29,8 +29,8 @@ const NuxtLink = resolveComponent('NuxtLink')
   Flat fills.
 
   These used to carry `btn-raised` — a derived stroke, top glint, bottom shade
-  and an in-hue cast — and the pink ones added `btn-glow` on top of that, a
-  rose halo bleeding a good 26px past the button. At the size a CTA is drawn
+  and an in-hue cast — and the accent ones added `btn-glow` on top of that, a
+  coloured halo bleeding a good 26px past the button. At the size a CTA is drawn
   that halo reads as the button being lit from behind, and on a screen with two
   of them the page glows in two places before it says anything. The fill and the
   label are enough to say "this is the action"; the press state does the rest.
@@ -40,12 +40,12 @@ const NuxtLink = resolveComponent('NuxtLink')
   photograph — and those set it themselves.
 */
 const VARIANTS: Record<NonNullable<typeof props.variant>, string> = {
-  primary: 'bg-rose-fill text-on-rose',
+  primary: 'bg-primary-fill text-on-primary',
   // Same treatment as primary; the difference is intent, not colour.
-  danger: 'bg-rose-fill text-on-rose',
+  danger: 'bg-primary-fill text-on-primary',
   dark: 'bg-inverse text-on-inverse',
   secondary: 'bg-raised text-ink shadow-[inset_0_0_0_1px_var(--hairline)]',
-  ghost: 'bg-transparent text-rose',
+  ghost: 'bg-transparent text-primary',
 }
 
 const SIZES: Record<NonNullable<typeof props.size>, string> = {

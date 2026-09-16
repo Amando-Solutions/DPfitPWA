@@ -41,7 +41,7 @@ const back = () => router.push('/train')
 <template>
   <div class="saved pt-(--screen-pad-top) px-5 pb-0 min-h-full lg:p-0">
     <div class="saved__center flex flex-col items-center text-center gap-3.5 mt-8 lg:mt-6 lg:py-12 lg:px-6 lg:bg-raised lg:rounded-lg lg:shadow-card">
-      <div class="saved__check w-[96px] h-[96px] rounded-full bg-rose-soft text-rose grid place-items-center mb-1.5">
+      <div class="saved__check w-[96px] h-[96px] rounded-full bg-success-soft text-success grid place-items-center mb-1.5">
         <AppIcon name="check" :size="34" :stroke="2.6" />
       </div>
       <h1 class="saved__title m-0 font-display font-black text-[26px] text-ink">Workout saved</h1>
@@ -52,11 +52,11 @@ const back = () => router.push('/train')
       </p>
 
       <div class="saved__chips flex gap-2 mt-0.5">
-        <StatPill :value="`+${log?.rewardPoints ?? 0} RP`" variant="rose" />
+        <StatPill :value="`+${log?.rewardPoints ?? 0} RP`" variant="secondary" />
         <StatPill
           :label="`${store.rewards.value.streakWeeks} week streak`"
           icon="flame"
-          variant="rose"
+          variant="secondary"
         />
       </div>
 
@@ -90,7 +90,7 @@ const back = () => router.push('/train')
            the main action; Back to workouts steps down rather than going away,
            because a catch-up may still be open behind it. -->
       <template v-if="store.finalPhotoDue.value">
-        <p class="saved__final m-0 max-w-[320px] py-2.5 px-3.5 rounded-md bg-rose-soft text-[12.5px] leading-[1.45] text-ink">
+        <p class="saved__final m-0 max-w-[320px] py-2.5 px-3.5 rounded-md bg-primary-soft text-[12.5px] leading-[1.45] text-ink">
           That was the last session of the block. One thing left: upload your final
           progress photo<template v-if="store.finalPhotoBadge.value?.points">
             for +{{ store.finalPhotoBadge.value.points }} RP</template

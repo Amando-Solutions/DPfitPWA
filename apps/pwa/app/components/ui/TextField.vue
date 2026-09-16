@@ -46,8 +46,8 @@ defineEmits<{
       class="flex h-13.5 min-w-0 items-center gap-2.5 rounded-2xl border bg-sunken px-4.25 transition-colors duration-150"
       :class="
         error
-          ? 'border-rose'
-          : 'border-hairline focus-within:border-rose'
+          ? 'border-primary'
+          : 'border-hairline focus-within:border-primary'
       "
     >
       <AppIcon v-if="icon" :name="icon" :size="18" class="text-muted" />
@@ -69,7 +69,7 @@ defineEmits<{
       </span>
     </div>
 
-    <span v-if="error" class="mt-1.5 block text-xs font-semibold text-rose">
+    <span v-if="error" class="mt-1.5 block text-xs font-semibold text-primary">
       {{ error }}
     </span>
   </label>
