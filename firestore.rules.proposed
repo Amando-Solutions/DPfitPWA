@@ -119,6 +119,20 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys();
     }
 
+    /**
+     * The name a member goes by in front of the cohort, derived the way every
+     * client writer derives it: `profile.displayName || fallback`.
+     *
+     * The display name is fixed after setup (see `isValidMemberSelfUpdate`),
+     * and this is what makes that true everywhere the name is *seen*. The
+     * leaderboard row and a chat message each carry a copy, and a copy the
+     * caller chose freely would be a rename by another route.
+     */
+    function shownName(member, fallback) {
+      let name = member.get('profile', {}).get('displayName', null);
+      return name == null || name == '' ? fallback : name;
+    }
+
     function cohortData(cohortId) {
       return get(/databases/$(database)/documents/cohorts/$(cohortId)).data;
     }
@@ -668,10 +682,23 @@ service cloud.firestore {
         // too, and on a delete `request.resource` is null, so the `keys()`
         // check errors and denies — which would have made a member unable to
         // remove their own row and broken `reset()`.
+        //
+        // The name is the member's own, never one the caller picked. Read with
+        // `getAfter`, because redemption writes this row in the same
+        // transaction that creates the member document, and `get` would not
+        // see it yet. A row may also keep the name it already has: that is how
+        // `deleteSession` writes, merging only the count.
         allow create, update: if isAdmin() || (
           isSelf(memberId)
           && request.resource.data.keys().hasOnly(
                ['name', 'avatarUrl', 'sessions', 'updatedAt'])
+          && (
+            request.resource.data.get('name', null) == shownName(
+              getAfter(/databases/$(database)/documents/members/$(memberId)).data,
+              'Member')
+            || (resource != null
+                && request.resource.data.get('name', null) == resource.data.get('name', null))
+          )
         );
         allow delete: if isAdmin() || isSelf(memberId);
       }
@@ -697,6 +724,8 @@ service cloud.firestore {
             inCohort(cohortId)
             && myThread()
             && request.resource.data.authorUid == request.auth.uid
+            // Posted under the member's own name.
+            && request.resource.data.authorName == shownName(me(), 'You')
             // Only the coach's messages get the coach's styling.
             && request.resource.data.isCoach == false
             // A new message starts with no reactions. Counts are only ever
@@ -760,6 +789,11 @@ service cloud.firestore {
      * setup — `completeSetup()` writes `status: 'active'`. Everything else on
      * the lifecycle is the console's, and the pause fields are untouchable
      * from here, so a paused member cannot resume themselves by clearing them.
+     *
+     * Display name and height are answered at setup and fixed after it — which
+     * is also why `status` may never go back to `onboarding`. Read with `get`
+     * so a document from before either field existed still takes other
+     * updates: a missing key is null on both sides.
      */
     function isValidMemberSelfUpdate() {
       return request.resource.data.cohortId == resource.data.cohortId
@@ -774,7 +808,13 @@ service cloud.firestore {
         )
         && request.resource.data.previousStatus == resource.data.previousStatus
         && request.resource.data.pauseReason == resource.data.pauseReason
-        && request.resource.data.pausedAt == resource.data.pausedAt;
+        && request.resource.data.pausedAt == resource.data.pausedAt
+        && (resource.data.status == 'onboarding' || (
+          request.resource.data.get('profile', {}).get('displayName', null)
+            == resource.data.get('profile', {}).get('displayName', null)
+          && request.resource.data.get('profile', {}).get('heightCm', null)
+            == resource.data.get('profile', {}).get('heightCm', null)
+        ));
     }
 
     function isValidMemberPause() {
@@ -856,10 +896,12 @@ service cloud.firestore {
       allow update: if (isSelf(uid) && isValidMemberSelfUpdate())
         || (isAdmin() && (isValidMemberPause() || isValidMemberResume()));
 
-      // `reset()` deletes the member document and the leaderboard row. A
-      // client cannot delete subcollections — recursive delete lives in the
-      // Admin SDK — so the document going away is what a cleanup job keys off.
-      allow delete: if isSelf(uid) || isAdmin();
+      // Admin only. A member who could delete their own document could redeem
+      // their code again, which rebuilds it in `onboarding` and reopens the
+      // display name and height that `isValidMemberSelfUpdate` fixes. The
+      // client's `reset()` is the one writer this refuses, and nothing in the
+      // app calls it.
+      allow delete: if isAdmin();
 
       // Everything below a member belongs to that member alone. One rule
       // rather than eight: sessions, check-ins, photos, badges, the active

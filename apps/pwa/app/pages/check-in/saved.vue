@@ -1,6 +1,19 @@
 <script setup lang="ts">
 // 22 · Weekly Check-in · Success
-definePageMeta({ layout: 'app' })
+//
+// Also where /check-in sends a member whose week is already in: a sent
+// check-in cannot be rewritten, so this doubles as the read-only view of it.
+definePageMeta({
+  layout: 'app',
+  // Nothing to show without a check-in for this week — a direct hit on this
+  // URL, or the week rolling over while the tab sat open. The form is the
+  // answer to both.
+  middleware: () => {
+    if (!useAppStore().currentCheckIn.value) {
+      return navigateTo('/check-in', { replace: true })
+    }
+  },
+})
 
 import { trainingFeelOptions } from '~/data/onboarding'
 import type { BadgeDef } from '~/data/types'
@@ -46,17 +59,17 @@ onMounted(() => {
       </div>
 
       <div v-if="record" class="done__summary w-full max-w-[340px] py-2 px-4 rounded-card bg-raised shadow-card">
-        <div class="done__row flex items-center justify-between py-2.25 px-0 text-[13px] text-muted [&_+_.done__row]:border-t [&_+_.done__row]:border-hairline [&_.data]:font-bold [&_.data]:text-ink">
-          <span>Workouts done</span><span class="data">{{ record.workoutsDone }}</span>
+        <div class="done__row flex items-center justify-between py-2.25 px-0 text-[13px] text-muted [&_+_.done__row]:border-t [&_+_.done__row]:border-hairline [&_.done__value]:font-bold [&_.done__value]:text-ink [&_.done__value]:tabular-nums">
+          <span>Workouts done</span><span class="done__value">{{ record.workoutsDone }}</span>
         </div>
-        <div class="done__row flex items-center justify-between py-2.25 px-0 text-[13px] text-muted [&_+_.done__row]:border-t [&_+_.done__row]:border-hairline [&_.data]:font-bold [&_.data]:text-ink">
-          <span>Nutrition</span><span class="data">{{ record.nutritionPct }}%</span>
+        <div class="done__row flex items-center justify-between py-2.25 px-0 text-[13px] text-muted [&_+_.done__row]:border-t [&_+_.done__row]:border-hairline [&_.done__value]:font-bold [&_.done__value]:text-ink [&_.done__value]:tabular-nums">
+          <span>Nutrition</span><span class="done__value">{{ record.nutritionPct }}%</span>
         </div>
-        <div class="done__row flex items-center justify-between py-2.25 px-0 text-[13px] text-muted [&_+_.done__row]:border-t [&_+_.done__row]:border-hairline [&_.data]:font-bold [&_.data]:text-ink">
-          <span>Energy</span><span class="data">{{ record.energy }}/5</span>
+        <div class="done__row flex items-center justify-between py-2.25 px-0 text-[13px] text-muted [&_+_.done__row]:border-t [&_+_.done__row]:border-hairline [&_.done__value]:font-bold [&_.done__value]:text-ink [&_.done__value]:tabular-nums">
+          <span>Energy</span><span class="done__value">{{ record.energy }}/5</span>
         </div>
-        <div class="done__row flex items-center justify-between py-2.25 px-0 text-[13px] text-muted [&_+_.done__row]:border-t [&_+_.done__row]:border-hairline [&_.data]:font-bold [&_.data]:text-ink">
-          <span>Training felt</span><span class="data">{{ feelLabel }}</span>
+        <div class="done__row flex items-center justify-between py-2.25 px-0 text-[13px] text-muted [&_+_.done__row]:border-t [&_+_.done__row]:border-hairline [&_.done__value]:font-bold [&_.done__value]:text-ink [&_.done__value]:tabular-nums">
+          <span>Training felt</span><span class="done__value">{{ feelLabel }}</span>
         </div>
       </div>
 

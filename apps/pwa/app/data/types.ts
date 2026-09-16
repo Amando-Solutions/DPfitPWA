@@ -562,7 +562,6 @@ export interface MemberProfile {
   activity: ActivityLevel | ''
   goal: Goal | ''
   trainingDaysPerWeek: number
-  injuries: string
   avatarUrl: string
 }
 
@@ -794,7 +793,8 @@ export type ActiveSession = WithId<ActiveSessionDoc>
 // --- Check-ins ----------------------- `members/{uid}/checkIns/week-{n}` -----
 //
 // The document id is the week (`week-3`), so one check-in per week is enforced
-// by the key and a resubmit is a natural overwrite.
+// by the key. Once sent it is final: the rules allow the create and nothing
+// after it.
 
 export type TrainingFeel = 'too-easy' | 'just-right' | 'too-hard'
 

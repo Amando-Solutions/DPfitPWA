@@ -54,9 +54,7 @@ const router = useRouter()
       >
         <AppIcon name="arrowLeft" :size="20" :stroke="2.2" />
       </button>
-      <span
-        class="font-eyebrow text-[10px] font-bold uppercase tracking-[1.5px] text-muted"
-      >
+      <span class="text-[12.5px] text-muted tabular-nums">
         Step {{ step }} of {{ total }}
       </span>
     </header>

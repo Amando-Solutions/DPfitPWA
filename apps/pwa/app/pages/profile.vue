@@ -4,14 +4,18 @@ definePageMeta({ layout: 'app' })
 
 import { activityOptions } from '~/data/onboarding'
 import {
-  cmToFeetInches,
-  feetInchesToCm,
   formatHeight,
   formatWeight,
   fromDisplayWeight,
   toDisplayWeight,
 } from '~/lib/domain/nutrition'
-import type { ActivityLevel, HeightUnits, MemberPreferences, Units } from '~/data/types'
+import type {
+  ActivityLevel,
+  HeightUnits,
+  MemberPreferences,
+  MemberProfile,
+  Units,
+} from '~/data/types'
 
 const store = useAppStore()
 const router = useRouter()
@@ -25,10 +29,15 @@ const router = useRouter()
     · the goal dropdown is gone — it moved off this screen with the rest of the
       plan choices, which the coach owns
     · health conditions are gone, along with the Fuel note that read them
-    · injuries are no longer asked at setup, so this is the only place they
-      are entered
+    · injuries are gone, here as well as at setup, and the "Coach only" card
+      that held nothing else went with them
     · the preferred-call radio is gone; the live call is one time for everyone
     · both unit toggles are here, on the fields they govern
+    · display name and height are shown, not edited. Both are answered once
+      at setup and fixed from then on, and the lock is `firestore.rules`, not
+      this template: a field hidden here is still a field anyone with devtools
+      can write, so the rules refuse the change once setup is finished.
+    · weight and the WhatsApp number ask before they save. See `ask`.
 
   Sign out moved to the More menu. It was the single destructive control at the
   bottom of a form people open to change their weight.
@@ -49,12 +58,15 @@ const HEIGHT_UNITS = [
 
 const profile = computed(() => store.profile.value)
 
-// --- Editable fields (saved on blur so nothing needs a "save" button) -------
-const displayName = ref(profile.value?.displayName ?? '')
+// --- Fixed at setup ----------------------------------------------------------
+// Read straight off the profile and never written from this screen. See the
+// note at the top, and the `members` update rule.
+const displayName = computed(() => profile.value?.displayName?.trim() || '-')
+const heightCm = computed(() => profile.value?.heightCm ?? null)
+
+// --- Editable fields (nothing needs a "save" button) -------------------------
 const weightKg = ref<number | null>(profile.value?.weightKg ?? null)
-const heightCm = ref<number | null>(profile.value?.heightCm ?? null)
 const activity = ref<ActivityLevel | ''>(profile.value?.activity ?? '')
-const injuries = ref(profile.value?.injuries ?? '')
 const whatsapp = ref(profile.value?.whatsapp ?? '')
 
 /**
@@ -83,53 +95,23 @@ const flashSaved = () => {
 onBeforeUnmount(() => savedTimer && clearTimeout(savedTimer))
 
 /**
- * A profile write is open, and both cards are frozen for it.
+ * A profile write is open, and the card is frozen for it.
  *
- * This screen has no button to press, but it is a write flow like any other:
- * `persist` sends *every* field on it in one patch, so the moment it is called
- * the whole card has been read. A field that still takes input after that is a
- * field whose value is no longer the one being saved — and the next blur
- * starts a second patch built from the half-edited state, racing the first over
- * the same document.
- *
- * Which is why both cards freeze and not just the field that was left: the
- * patch covers "Your details" and "Coach only" together, so that is the scope
- * of the write.
+ * Each write carries only the field it is about — an activity option, or a
+ * confirmed weight or number — but they all land on the same member document,
+ * and `saveProfile` builds its patch from the profile as it last read it. Two
+ * open at once is two whole profiles racing, and the one that lands second
+ * undoes the first. So the whole card freezes, not just the field in question.
  */
 const savingProfile = ref(false)
 const profileError = ref('')
 
-/**
- * Where focus was going when the blur that started the save fired.
- *
- * Blur-saving and freezing pull against each other: leaving a field is what
- * starts the write, and the write is what takes the field away — so without
- * this, clicking from one box to the next would drop the caret on the floor
- * and the member would have to click again to carry on. `relatedTarget` on the
- * blur names the control they were moving to, and focus is handed back to it
- * once the write lands. Keystrokes during the freeze are still refused; that
- * part is the point.
- */
-let focusAfterSave: HTMLElement | null = null
-
-const persist = async (ev?: FocusEvent) => {
+const save = async (patch: Partial<MemberProfile>) => {
   if (savingProfile.value) return
-  focusAfterSave = (ev?.relatedTarget as HTMLElement | null) ?? null
   savingProfile.value = true
   profileError.value = ''
   try {
-    await store.saveProfile({
-      displayName: displayName.value.trim(),
-      weightKg: weightKg.value,
-      heightCm: heightCm.value,
-      activity: (activity.value || undefined) as ActivityLevel,
-      injuries: injuries.value.trim(),
-      // Held back while it is malformed, rather than blocking the whole save.
-      // Every other field on this screen blur-saves through here, and losing an
-      // edit to the weight field because a phone number is half-typed would be a
-      // strange way to enforce a phone number.
-      ...(whatsappError.value ? {} : { whatsapp: whatsapp.value.trim() }),
-    })
+    await store.saveProfile(patch)
     flashSaved()
   } catch (cause) {
     profileError.value =
@@ -138,13 +120,121 @@ const persist = async (ev?: FocusEvent) => {
         : 'Could not save that. Check your connection and try again.'
   } finally {
     savingProfile.value = false
-    const next = focusAfterSave
-    focusAfterSave = null
-    // After the re-render that lifts `inert`: focusing a still-inert element
-    // does nothing.
-    await nextTick()
-    if (next?.isConnected) next.focus()
   }
+}
+
+// --- Confirming a change -----------------------------------------------------
+/**
+ * Weight and the WhatsApp number ask before they save.
+ *
+ * Both are easy to get wrong without noticing. A slipped digit in the weight
+ * moves every fuel target the app sets, and a wrong digit in the number is how
+ * a member quietly drops out of the coach's reach. Both used to save the moment
+ * the field was left, so leaving it was the whole commitment. Now leaving one
+ * with a different value opens a sheet naming the old value and the new one,
+ * and nothing is sent until the member says yes. Cancel puts the saved value
+ * back in the field.
+ *
+ * The patch is captured when the sheet opens rather than read from the field
+ * on confirm, so what is written is exactly what the sheet said would be.
+ *
+ * Focus needs no handling here: Reka returns it, when the sheet closes, to
+ * wherever it was when the sheet opened — which is where the member was heading
+ * when they left the field.
+ */
+interface PendingChange {
+  field: 'weightKg' | 'whatsapp'
+  title: string
+  description: string
+  from: string
+  to: string
+  patch: Partial<MemberProfile>
+}
+
+/**
+ * Left in place when the sheet closes. The panel animates out, and clearing
+ * its content first would collapse it halfway down the screen.
+ */
+const pending = ref<PendingChange | null>(null)
+const confirmOpen = ref(false)
+const confirming = ref(false)
+
+const ask = (change: PendingChange) => {
+  pending.value = change
+  confirmOpen.value = true
+}
+
+const onWeightBlur = () => {
+  const stored = profile.value?.weightKg ?? null
+  // An emptied or unreadable field is not a new weight. The saved one goes
+  // back, rather than a blank being put up for confirmation.
+  if (weightKg.value === null) {
+    weightKg.value = stored
+    return
+  }
+  // Compared as shown, not as stored. The same weight typed in lbs converts
+  // back to kilograms a few decimals off, and "68kg → 68kg?" is a question
+  // about rounding.
+  if (
+    stored !== null &&
+    toDisplayWeight(weightKg.value, units.value) === toDisplayWeight(stored, units.value)
+  ) {
+    weightKg.value = stored
+    return
+  }
+  ask({
+    field: 'weightKg',
+    title: 'Update your weight?',
+    description: 'Your daily fuel targets recalculate straight away.',
+    from: formatWeight(stored, units.value),
+    to: formatWeight(weightKg.value, units.value),
+    patch: { weightKg: weightKg.value },
+  })
+}
+
+const onWhatsappBlur = () => {
+  const stored = profile.value?.whatsapp ?? ''
+  const next = whatsapp.value.trim()
+  // A malformed number stays in the field with its error under it, unsent.
+  if (whatsappError.value || next === stored) return
+  ask({
+    field: 'whatsapp',
+    title: next ? 'Change your WhatsApp number?' : 'Remove your WhatsApp number?',
+    description: 'It’s the number your coach uses to add you to the group chat.',
+    from: stored || 'None',
+    to: next || 'None',
+    patch: { whatsapp: next },
+  })
+}
+
+const cancelChange = () => {
+  if (pending.value?.field === 'weightKg') weightKg.value = profile.value?.weightKg ?? null
+  if (pending.value?.field === 'whatsapp') whatsapp.value = profile.value?.whatsapp ?? ''
+  confirmOpen.value = false
+}
+
+const confirmChange = async () => {
+  if (!pending.value || confirming.value) return
+  confirming.value = true
+  try {
+    // `save` reports its own failure under the card, where it stays visible
+    // once the sheet is gone; the field keeps the new value, so leaving it
+    // again asks again.
+    await save(pending.value.patch)
+  } finally {
+    confirming.value = false
+    confirmOpen.value = false
+  }
+}
+
+/**
+ * Escape, the scrim, or a swipe. Before the write starts that is Cancel. After
+ * it has started the write is already out, and only the sheet goes.
+ */
+const onConfirmToggle = (open: boolean) => {
+  if (open) return
+  if (confirming.value) confirmOpen.value = false
+  else cancelChange()
 }
 
 // --- Units -----------------------------------------------------------------
@@ -199,24 +289,6 @@ const onWeight = (raw: string | number | null) => {
       : fromDisplayWeight(value, units.value)
 }
 
-const feetInches = computed(() =>
-  heightCm.value === null ? { feet: null, inches: null } : cmToFeetInches(heightCm.value),
-)
-
-const onHeightCm = (raw: string | number | null) => {
-  const value = Number(raw)
-  heightCm.value = raw === '' || raw === null || !Number.isFinite(value) ? null : value
-}
-
-const onFeetInches = (part: 'feet' | 'inches', raw: string | number | null) => {
-  const value = Number(raw)
-  const next = Number.isFinite(value) && raw !== '' && raw !== null ? value : 0
-  const current = feetInches.value
-  const feet = part === 'feet' ? next : (current.feet ?? 0)
-  const inches = part === 'inches' ? next : (current.inches ?? 0)
-  heightCm.value = feet === 0 && inches === 0 ? null : feetInchesToCm(feet, inches)
-}
-
 const toggles = computed(() => [
   { key: 'workoutReminders' as const, label: 'Workout reminders', value: store.prefs.value.workoutReminders },
   { key: 'coachMessages' as const, label: 'Coach messages', value: store.prefs.value.coachMessages },
@@ -259,8 +331,11 @@ const SECTION = 'flex flex-col gap-2.5'
 const SECTION_LABEL = 'text-[13px] text-muted'
 const FIELD_HEAD = 'mb-1.5 flex items-center justify-between gap-2'
 const FIELD_LABEL = 'text-[13px] text-soft'
-const AREA =
-  'w-full resize-none rounded-md border-none bg-sunken p-[12px_14px] font-body text-[14px] text-ink shadow-[inset_0_0_0_1.5px_var(--hairline)] outline-none'
+// The shape of a TextField with nothing to type into: plain text, so there is no
+// input for a stray tap to focus or a keyboard to open over.
+const FIXED_VALUE =
+  'm-0 flex h-13.5 items-center rounded-2xl bg-sunken px-4.25 text-[15px] text-soft'
+const FIXED_HINT = 'mt-1.5 mb-0 text-[12px] text-muted'
 const ROW = 'flex flex-wrap items-center justify-between gap-x-3 gap-y-2.5'
 const ROW_LABEL = 'text-[14px] font-semibold text-ink'
 const SNAPSHOT_LABEL = 'text-[12px] text-on-inverse-muted'
@@ -319,7 +394,11 @@ const SNAPSHOT_VALUE = 'text-[17px] font-bold text-on-inverse tabular-nums'
         :inert="savingProfile"
         :aria-busy="savingProfile || undefined"
       >
-        <TextField v-model="displayName" label="Display name" @blur="persist" />
+        <div>
+          <span :class="FIELD_LABEL" class="mb-1.5 block">Display name</span>
+          <p :class="FIXED_VALUE">{{ displayName }}</p>
+          <p :class="FIXED_HINT">Set during setup. It can’t be changed.</p>
+        </div>
 
         <!-- The number the coach uses to add somebody to the cohort's group
              chat. Seeded from the access code at redemption, so for anyone who
@@ -332,7 +411,7 @@ const SNAPSHOT_VALUE = 'text-[17px] font-bold text-on-inverse tabular-nums'
           inputmode="tel"
           placeholder="+234 801 234 5678"
           :error="whatsappError"
-          @blur="persist"
+          @blur="onWhatsappBlur"
         />
 
         <!-- Weight, with the unit switch on the field it governs. -->
@@ -353,11 +432,11 @@ const SNAPSHOT_VALUE = 'text-[17px] font-bold text-on-inverse tabular-nums'
             inputmode="decimal"
             :suffix="units"
             @update:model-value="onWeight"
-            @blur="persist"
+            @blur="onWeightBlur"
           />
         </div>
 
-        <!-- Height. Feet is two fields, never a decimal. -->
+        <!-- Height. Fixed, but the unit it is shown in is still a preference. -->
         <div>
           <div :class="FIELD_HEAD">
             <span :class="FIELD_LABEL">Height</span>
@@ -369,35 +448,8 @@ const SNAPSHOT_VALUE = 'text-[17px] font-bold text-on-inverse tabular-nums'
               @update:model-value="setHeightUnits"
             />
           </div>
-          <TextField
-            v-if="heightUnits === 'cm'"
-            :model-value="heightCm"
-            type="number"
-            inputmode="numeric"
-            suffix="cm"
-            @update:model-value="onHeightCm"
-            @blur="persist"
-          />
-          <div v-else class="grid grid-cols-2 gap-3">
-            <TextField
-              :model-value="feetInches.feet"
-              type="number"
-              inputmode="numeric"
-              suffix="ft"
-              aria-label="Height in feet"
-              @update:model-value="(v) => onFeetInches('feet', v)"
-              @blur="persist"
-            />
-            <TextField
-              :model-value="feetInches.inches"
-              type="number"
-              inputmode="numeric"
-              suffix="in"
-              aria-label="Height in inches"
-              @update:model-value="(v) => onFeetInches('inches', v)"
-              @blur="persist"
-            />
-          </div>
+          <p :class="FIXED_VALUE">{{ formatHeight(heightCm, heightUnits) }}</p>
+          <p :class="FIXED_HINT">Set during setup. It can’t be changed.</p>
         </div>
 
         <div>
@@ -412,7 +464,7 @@ const SNAPSHOT_VALUE = 'text-[17px] font-bold text-on-inverse tabular-nums'
               @click="
                 () => {
                   activity = option.id
-                  persist()
+                  save({ activity: option.id })
                 }
               "
             />
@@ -426,37 +478,9 @@ const SNAPSHOT_VALUE = 'text-[17px] font-bold text-on-inverse tabular-nums'
     </section>
 
     <div class="profile__right contents lg:[grid-area:right] lg:flex lg:flex-col lg:gap-4.5 lg:self-start">
-      <!-- Coach only -->
+      <!-- Preferences & notifications -->
       <section :class="SECTION">
-        <span :class="SECTION_LABEL">Coach only</span>
-        <!-- Frozen with the card above it: one `persist` sends both, so both
-             are inside the same write. -->
-        <AppCard
-          variant="raised"
-          class="flex flex-col gap-4.5 transition-opacity duration-150"
-          :class="savingProfile && 'opacity-60'"
-          :inert="savingProfile"
-          :aria-busy="savingProfile || undefined"
-        >
-          <div>
-            <label class="mb-2.5 block text-[13px] text-soft" for="injuries">
-              Injuries or limitations
-            </label>
-            <textarea
-              id="injuries"
-              v-model="injuries"
-              :class="AREA"
-              rows="2"
-              placeholder="e.g. slight knee tenderness"
-              @blur="persist"
-            />
-          </div>
-        </AppCard>
-      </section>
-
-      <!-- Preferences -->
-      <section :class="SECTION">
-        <span :class="SECTION_LABEL">Preferences</span>
+        <span :class="SECTION_LABEL">Preferences &amp; Notifications</span>
         <AppCard variant="raised" class="flex flex-col gap-4.5">
           <div :class="ROW">
             <span :class="ROW_LABEL">Appearance</span>
@@ -500,6 +524,33 @@ const SNAPSHOT_VALUE = 'text-[17px] font-bold text-on-inverse tabular-nums'
         </AppButton>
         <AppButton variant="danger" :disabled="signingOut" @click="signOut">
           {{ signingOut ? 'Signing out…' : 'Sign out' }}
+        </AppButton>
+      </div>
+    </BottomSheet>
+
+    <!-- Weight and WhatsApp number. See `ask`. Confirm also waits out any
+         write already open, since `save` would otherwise drop this one. -->
+    <BottomSheet
+      :model-value="confirmOpen"
+      :title="pending?.title"
+      :description="pending?.description"
+      @update:model-value="onConfirmToggle"
+    >
+      <p
+        v-if="pending"
+        class="m-0 mb-4 flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-2xl bg-sunken p-[13px_15px] text-[15px] tabular-nums"
+      >
+        <span class="text-muted">{{ pending.from }}</span>
+        <span aria-hidden="true" class="text-muted">→</span>
+        <span class="sr-only">to</span>
+        <span class="font-bold text-ink">{{ pending.to }}</span>
+      </p>
+      <div class="grid grid-cols-2 gap-3">
+        <AppButton variant="secondary" :disabled="confirming" @click="cancelChange">
+          Cancel
+        </AppButton>
+        <AppButton :disabled="confirming || savingProfile" @click="confirmChange">
+          {{ confirming ? 'Saving…' : 'Update' }}
         </AppButton>
       </div>
     </BottomSheet>

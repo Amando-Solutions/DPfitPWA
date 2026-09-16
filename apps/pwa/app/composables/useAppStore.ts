@@ -1324,13 +1324,24 @@ const buildStore = () => {
 
   // --- Actions: check-ins & photos ----------------------------------------
   const saveCheckIn = async (input: CheckInInput) => {
-    const record = await data.saveCheckIn(input)
-    state.value.checkIns = [
-      record,
-      ...state.value.checkIns.filter((c) => c.weekNumber !== record.weekNumber),
-    ]
-    await syncBadges()
-    return record
+    try {
+      const record = await data.saveCheckIn(input)
+      state.value.checkIns = [record, ...state.value.checkIns]
+      await syncBadges()
+      return record
+    } catch (cause) {
+      // Refused because the week is already in, sent from another device since
+      // this one loaded. Pull it down so `currentCheckIn` shows what was sent
+      // instead of leaving a form that can only be refused again. A failed
+      // reload keeps the list as it was; the refusal is still the error.
+      if (cause instanceof DataSourceError && cause.code === 'check-in-submitted') {
+        await data
+          .listCheckIns()
+          .then((checkIns) => (state.value.checkIns = checkIns))
+          .catch(() => {})
+      }
+      throw cause
+    }
   }
 
   const addPhoto = async (input: { pose: PhotoPose; image: ProcessedImage }) => {

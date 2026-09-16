@@ -525,9 +525,9 @@ watch([code, email], () => {
       </p>
       <p
         v-if="store.instantSignIn"
-        class="access__dev m-0 font-data text-[11px] text-muted"
+        class="access__dev m-0 text-[12px] text-muted"
       >
-        Demo code: <strong>{{ accessCodes[0] }}</strong>
+        Demo code: <strong class="font-data">{{ accessCodes[0] }}</strong>
       </p>
 
       <!-- The first screen a member ever opens, so the credit is set quieter

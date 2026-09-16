@@ -129,7 +129,6 @@ export const emptyProfile = (): MemberProfile => ({
   // mode has no code document to carry one, and inventing a phone number that
   // looks real is worse than a blank field.
   whatsapp: '',
-  injuries: '',
   avatarUrl: '',
 })
 
@@ -545,6 +544,12 @@ export class LocalDataSource implements DataSource {
     const all = await this.listCheckIns()
     const submittedAt = trustedTimestamp()
     const weekNumber = weekOf(await this.weeks(), submittedAt)
+    if (all.some((c) => c.weekNumber === weekNumber)) {
+      throw new DataSourceError(
+        `Your week ${weekNumber} check-in is already in.`,
+        'check-in-submitted',
+      )
+    }
 
     const record: CheckIn = {
       ...input,
@@ -554,7 +559,7 @@ export class LocalDataSource implements DataSource {
       submittedAt,
       rewardPoints: rewardValues.checkIn,
     }
-    const next = [record, ...all.filter((c) => c.weekNumber !== weekNumber)]
+    const next = [record, ...all]
     storage.write(KEY.checkIns, next)
     await this.recountStats({ checkIns: next })
     return record

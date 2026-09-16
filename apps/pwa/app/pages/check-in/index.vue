@@ -1,6 +1,17 @@
 <script setup lang="ts">
 // 21 · Weekly Check-in
-definePageMeta({ layout: 'app' })
+definePageMeta({
+  layout: 'app',
+  // One check-in a week, and a sent one is final. Once this week's is in, the
+  // form has nothing to offer, so the route shows what was sent instead. In
+  // middleware rather than on mount so the form never paints first; the store
+  // is hydrated before any navigation runs.
+  middleware: () => {
+    if (useAppStore().currentCheckIn.value) {
+      return navigateTo('/check-in/saved', { replace: true })
+    }
+  },
+})
 
 import { trainingFeelOptions } from '~/data/onboarding'
 import type { TrainingFeel } from '~/data/types'
@@ -8,23 +19,17 @@ import type { TrainingFeel } from '~/data/types'
 const router = useRouter()
 const store = useAppStore()
 
-const existing = computed(() => store.currentCheckIn.value)
-
-// Prefill from a previous submission for this week, otherwise from what we
-// already know: the sessions they've actually logged.
-const workoutsDone = ref(existing.value?.workoutsDone ?? store.sessionsThisWeek.value.length)
-const nutritionPct = ref(existing.value?.nutritionPct ?? 80)
-// A rating saved on the old 1–10 scale has no cell to light up on this one, so
-// anything above 5 is asked again rather than resubmitted as-is.
-const prevEnergy = existing.value?.energy ?? null
-const energy = ref<number | null>(prevEnergy !== null && prevEnergy <= 5 ? prevEnergy : null)
-const trainingFeel = ref<TrainingFeel | null>(existing.value?.trainingFeel ?? null)
+// Prefilled from what we already know: the sessions they've actually logged.
+const workoutsDone = ref(store.sessionsThisWeek.value.length)
+const nutritionPct = ref(80)
+const energy = ref<number | null>(null)
+const trainingFeel = ref<TrainingFeel | null>(null)
 const showFeel = ref(false)
 const feelLabel = computed(
   () => trainingFeelOptions.find((o) => o.id === trainingFeel.value)?.label ?? 'Choose one',
 )
-const pain = ref(existing.value?.pain ?? '')
-const note = ref(existing.value?.note ?? '')
+const pain = ref('')
+const note = ref('')
 
 const canSubmit = computed(() => energy.value !== null && trainingFeel.value !== null)
 
@@ -34,13 +39,14 @@ const canSubmit = computed(() => energy.value !== null && trainingFeel.value !==
   Every field below feeds one document, and they are all read in the same tick
   the request is built. A stepper that still moves, or a textarea that still
   takes keys, after that read means the member is editing a check-in that has
-  already gone — and this is the one form in the app that can be submitted
-  twice for the same week, so a second press while the first is open writes the
-  week twice.
+  already gone — and a sent check-in is final, so there is no second press to
+  put it right.
 
   `saving` only goes back to false when something throws. On the way through,
   /check-in/saved replaces this screen, and unfreezing first would hand the form
-  back for a frame.
+  back for a frame. The same goes for a refusal because the week is already in:
+  the store has pulled that check-in down by then, so the member is shown it
+  rather than a form that can only be refused again.
 */
 const saving = ref(false)
 const error = ref('')
@@ -59,6 +65,10 @@ const submit = async () => {
     })
     await router.replace('/check-in/saved')
   } catch (cause) {
+    if (store.currentCheckIn.value) {
+      await router.replace('/check-in/saved')
+      return
+    }
     error.value =
       cause instanceof Error
         ? cause.message
@@ -139,10 +149,14 @@ const submit = async () => {
            `@submit.prevent` already calls `submit`, and a button carrying both
            ran it twice on every click. -->
       <AppButton type="submit" :disabled="!canSubmit || saving">
-        {{ saving ? 'Submitting…' : existing ? 'Update check-in' : 'Submit check-in' }}
+        {{ saving ? 'Submitting…' : 'Submit check-in' }}
       </AppButton>
-      <p v-if="!canSubmit" class="checkin__hint m-0 text-center text-[12px] text-muted">
-        Rate your energy and how training felt to submit.
+      <p class="checkin__hint m-0 text-center text-[12px] text-muted">
+        {{
+          canSubmit
+            ? 'You can’t change a check-in once it’s sent.'
+            : 'Rate your energy and how training felt to submit.'
+        }}
       </p>
     </form>
 

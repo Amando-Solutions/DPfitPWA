@@ -24,7 +24,7 @@ const VARIANTS: Record<NonNullable<typeof props.variant>, string> = {
     :class="VARIANTS[variant]"
   >
     <AppIcon v-if="icon" :name="icon" :size="14" :stroke="2.2" />
-    <span v-if="value !== undefined" class="data">{{ value }}</span>
+    <span v-if="value !== undefined" class="tabular-nums">{{ value }}</span>
     <span v-if="label" class="text-[11px]">{{ label }}</span>
   </div>
 </template>

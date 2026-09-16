@@ -55,10 +55,15 @@ const next = async () => {
     @continue="next"
   >
     <AppCard variant="raised" class="form-card flex flex-col gap-4">
-      <TextField v-model="displayName" label="Display name" placeholder="Ada" />
+      <div>
+        <TextField v-model="displayName" label="Display name" placeholder="Ada" />
+        <!-- Fixed once setup finishes, by `firestore.rules`. Said here because
+             this is the last screen that can change it. -->
+        <p class="form-card__hint mt-2.5 mx-0 mb-0 text-[12.5px] text-muted">You can’t change this after setup.</p>
+      </div>
       <TextField v-model.number="age" label="Age" type="number" placeholder="26" />
       <div>
-        <span class="form-card__label block font-eyebrow uppercase tracking-[1px] text-[10px] font-bold text-muted mb-2.5">Sex</span>
+        <span class="form-card__label block text-[13px] text-soft mb-1.5">Sex</span>
         <SegmentedTabs v-model="sex" :tabs="sexOptions" />
         <p class="form-card__hint mt-2.5 mx-0 mb-0 text-[12.5px] text-muted">Used only to size your calorie baseline.</p>
       </div>

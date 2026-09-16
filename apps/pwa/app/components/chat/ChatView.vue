@@ -1733,7 +1733,7 @@ const TOOL =
             >
               <span class="h-px flex-1 bg-rose-ring" />
               <span
-                class="data shrink-0 rounded-pill bg-rose-soft px-2.5 py-1 text-[9.5px] font-bold tracking-[0.5px] text-rose uppercase"
+                class="shrink-0 rounded-pill bg-rose-soft px-2.5 py-1 text-[11.5px] font-semibold text-rose tabular-nums"
               >
                 {{ unreadLabel }}
               </span>
@@ -1829,7 +1829,7 @@ const TOOL =
                   <div class="flex min-w-0 flex-col gap-1">
                     <span
                       v-if="!m.isSelf && startsRun"
-                      class="font-eyebrow text-[8.5px] font-bold uppercase tracking-[0.5px]"
+                      class="text-[11.5px] font-semibold"
                       :class="m.isCoach ? 'text-orange-text' : 'text-muted'"
                     >
                       {{ m.authorName }}
@@ -1933,7 +1933,7 @@ const TOOL =
                           <span class="min-w-0 flex-1 truncate text-[13px] font-semibold">
                             {{ doc.name }}
                           </span>
-                          <span class="data shrink-0 text-[10px] opacity-65">
+                          <span class="shrink-0 text-[11px] opacity-65 tabular-nums">
                             {{ formatBytes(doc.bytes) }}
                           </span>
                         </a>
@@ -2003,7 +2003,7 @@ const TOOL =
                       <!-- One time per run, closing it out under everything else. -->
                       <span
                         v-if="endsRun"
-                        class="data text-[9px] text-muted"
+                        class="text-[10.5px] text-muted tabular-nums"
                         :class="m.isSelf ? 'self-start' : 'self-end'"
                       >
                         {{ time }}
@@ -2078,7 +2078,7 @@ const TOOL =
         >
           <span class="text-[17px] leading-none font-bold">@</span>
           <span
-            class="data absolute -top-1 -right-1 grid h-4.5 min-w-4.5 place-items-center rounded-pill bg-rose-fill px-1 text-[10px] font-bold text-on-rose"
+            class="absolute -top-1 -right-1 grid h-4.5 min-w-4.5 place-items-center rounded-pill bg-rose-fill px-1 text-[10px] font-bold text-on-rose tabular-nums"
           >
             {{ unseenMentions.length }}
           </span>
@@ -2095,7 +2095,7 @@ const TOOL =
           <AppIcon name="chevronDown" :size="20" :stroke="2.2" />
           <span
             v-if="newBelow"
-            class="data absolute -top-1 -right-1 grid h-4.5 min-w-4.5 place-items-center rounded-pill bg-rose-fill px-1 text-[10px] font-bold text-on-rose"
+            class="absolute -top-1 -right-1 grid h-4.5 min-w-4.5 place-items-center rounded-pill bg-rose-fill px-1 text-[10px] font-bold text-on-rose tabular-nums"
           >
             {{ newBelow }}
           </span>
@@ -2246,7 +2246,7 @@ const TOOL =
             <span class="truncate text-[11px] font-semibold">
               {{ item.name }}
             </span>
-            <span class="data text-[9px] text-muted">
+            <span class="text-[10.5px] text-muted tabular-nums">
               {{ formatBytes(item.bytes) }}
             </span>
           </div>

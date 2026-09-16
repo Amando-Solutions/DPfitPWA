@@ -84,6 +84,32 @@ Functions and denying those paths to clients outright:
 
 `FirestoreDataSource` is shaped so each becomes a one-line `httpsCallable`.
 
+## Answered once, at setup
+
+`profile.displayName` and `profile.heightCm` are asked for in setup and fixed
+from the moment it finishes. The profile screen shows them as text rather than
+fields, but that is presentation: the lock is the `members` update rule, which
+refuses a change to either unless the document is still `onboarding`.
+
+Three other rules exist to keep that from being worked around, and none of them
+is optional:
+
+- **`status` may only go `onboarding` → `active`.** Writing `onboarding` back
+  would otherwise reopen both fields.
+- **A member cannot delete their own member document.** They could redeem their
+  code again — `redeemAccessCode` rebuilds a missing document for the uid that
+  already holds the seat — and the rebuild lands in `onboarding`. That is why
+  `reset()` no longer deletes anything; erasure is an Admin SDK job.
+- **Every copy of the name is checked against the profile.** The leaderboard
+  row, a chat message's `authorName` and a typing marker each carry one, and a
+  copy the caller chose freely is a rename by another route. The rule derives
+  the expected value with `shownName`, matching the client's
+  `displayName || fallback` exactly — change one and you must change the other.
+
+The leaderboard row is read with `getAfter`, because redemption writes it in the
+same transaction that creates the member document, and it may also keep the name
+it already holds: `deleteSession` merges only the count.
+
 ## Indexes
 
 `firestore.indexes.json` is JSON and cannot carry comments, so the reasoning

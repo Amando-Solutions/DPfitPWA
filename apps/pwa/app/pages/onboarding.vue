@@ -23,7 +23,7 @@ const skip = () => router.push('/access-code')
   <div class="onb flex-1 flex flex-col pt-(--screen-pad-top) px-5 pb-4.5 [&_.fade-enter-active]:transition-opacity [&_.fade-enter-active]:duration-250 [&_.fade-enter-active]:ease-[ease] [&_.fade-leave-active]:transition-opacity [&_.fade-leave-active]:duration-250 [&_.fade-leave-active]:ease-[ease] [&_.fade-enter-from]:opacity-0 [&_.fade-leave-to]:opacity-0 lg:pt-7 lg:px-7 lg:pb-6">
     <header class="onb__top h-10.5 flex items-center justify-between shrink-0">
       <BrandLogo :size="34" class="text-ink" label="DP Fitness" />
-      <button class="onb__skip pt-2 pr-0 pb-2 pl-3 font-data text-[10px] tracking-[1.2px] text-muted" @click="skip">SKIP</button>
+      <button class="onb__skip pt-2 pr-0 pb-2 pl-3 text-[13px] font-semibold text-muted" @click="skip">Skip</button>
     </header>
 
     <div class="onb__body flex-1 min-h-0 flex flex-col pt-4">
@@ -45,7 +45,7 @@ const skip = () => router.push('/access-code')
       <div class="onb__copy flex-1 min-h-0 flex flex-col justify-center py-0 px-0.5 lg:py-7 lg:px-0.5">
         <Transition name="fade" mode="out-in">
           <div :key="current.id">
-            <p class="onb__eyebrow m-0 font-eyebrow font-bold text-[11.5px] tracking-[1.265px] uppercase text-rose">{{ current.eyebrow }}</p>
+            <p class="onb__eyebrow m-0 font-semibold text-[14px] text-rose">{{ current.eyebrow }}</p>
             <h1 class="onb__title mt-2.5 mx-0 mb-0 font-display font-black text-[44px] leading-[1.08] tracking-[-1.98px] text-(--onboard-title) [@media(max-height:_720px)]:text-[36px] [@media(max-height:_720px)]:tracking-[-1.4px]">{{ current.title }}</h1>
           </div>
         </Transition>

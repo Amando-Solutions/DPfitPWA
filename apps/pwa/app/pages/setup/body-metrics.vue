@@ -196,8 +196,9 @@ const FIELD_LABEL = 'text-[13px] text-soft'
       </div>
 
       <p class="m-0 rounded-2xl bg-sunken p-[13px_15px] text-[12.5px] leading-normal text-soft">
-        These two numbers set your calorie and protein targets. Update them any time
-        from Profile &amp; Settings, and your daily fuel recalculates itself.
+        These two numbers set your calorie and protein targets. Your weight can be
+        updated any time from Profile &amp; Settings, and your daily fuel recalculates
+        itself. Your height is fixed once you finish setup, so check it now.
       </p>
     </AppCard>
   </SetupStepShell>

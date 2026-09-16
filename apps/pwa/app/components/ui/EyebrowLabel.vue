@@ -1,7 +1,12 @@
 <script setup lang="ts">
-// Small uppercase label above a heading. `tone` replaces what used to be a
-// free-form `color` string, so every eyebrow lands on a themed token and
-// follows light/dark without a per-call-site override.
+// Small label above a heading. `tone` replaces what used to be a free-form
+// `color` string, so every eyebrow lands on a themed token and follows
+// light/dark without a per-call-site override.
+//
+// Sentence case in the body face. This was uppercase Chivo Mono, and because
+// every top-level screen opens with one, it was the reason the monospace read
+// as the app's voice rather than an accent. The colour already marks it as a
+// label; the weight is enough to lift it off the title's shoulder.
 const props = withDefaults(
   defineProps<{
     tone?: 'rose' | 'rose-on-inverse' | 'muted' | 'soft' | 'inherit'
@@ -21,7 +26,7 @@ const TONES: Record<NonNullable<typeof props.tone>, string> = {
 
 <template>
   <span
-    class="inline-block font-eyebrow text-[10.5px] font-bold uppercase tracking-[1px]"
+    class="inline-block text-[12.5px] font-semibold"
     :class="TONES[tone]"
   >
     <slot />

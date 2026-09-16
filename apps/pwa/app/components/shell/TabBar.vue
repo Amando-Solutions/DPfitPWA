@@ -46,7 +46,7 @@ const hasDot = (key: string): boolean => {
               <AppIcon :name="tab.icon" :size="23" />
             </span>
           </span>
-          <span class="tabbar__label font-data text-[8.5px] leading-none tracking-[0.51px] uppercase">{{ tab.label }}</span>
+          <span class="tabbar__label text-[10.5px] leading-none font-medium">{{ tab.label }}</span>
         </template>
         <template v-else>
           <span class="tabbar__icon relative grid place-items-center group-aria-[current=page]:text-rose-on-inverse">
@@ -64,7 +64,7 @@ const hasDot = (key: string): boolean => {
               class="tabbar__dot absolute -top-px -right-0.5 size-1.75 rounded-full border-[1.5px] border-inverse bg-rose-fill"
             />
           </span>
-          <span class="tabbar__label font-data text-[8.5px] leading-none tracking-[0.51px] uppercase">{{ tab.label }}</span>
+          <span class="tabbar__label text-[10.5px] leading-none font-medium">{{ tab.label }}</span>
         </template>
       </NuxtLink>
     </nav>

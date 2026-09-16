@@ -367,13 +367,13 @@ const STAT_VALUE =
                 {{
                   store.checkInDue.value
                     ? 'How the week went and how training felt. Two minutes.'
-                    : 'Submitted for this week. You can still update it.'
+                    : 'Submitted for this week. Your coach has it.'
                 }}
               </p>
             </div>
           </div>
           <AppButton to="/check-in" class="checkin__cta mt-3.25">
-            {{ store.checkInDue.value ? 'Check in now' : 'Update check-in' }}
+            {{ store.checkInDue.value ? 'Check in now' : 'View check-in' }}
           </AppButton>
         </div>
       </section>

@@ -114,7 +114,7 @@ const ctaLabel = computed(() => {
     <NuxtLink to="/notifications" class="sidenav__inbox lg:flex lg:items-center lg:gap-3 lg:py-2.5 lg:px-3 lg:mb-1.5 lg:rounded-md lg:text-muted lg:text-[13px] lg:font-semibold lg:hover:bg-fill-subtle lg:hover:text-ink">
       <AppIcon name="bell" :size="18" :stroke="2" />
       <span>Inbox</span>
-      <span v-if="store.unreadNotifications.value" class="sidenav__count data lg:ml-auto lg:min-w-5 lg:py-0.5 lg:px-1.5 lg:rounded-pill lg:bg-rose-fill lg:text-on-rose lg:text-[10px] lg:font-bold lg:text-center">
+      <span v-if="store.unreadNotifications.value" class="sidenav__count tabular-nums lg:ml-auto lg:min-w-5 lg:py-0.5 lg:px-1.5 lg:rounded-pill lg:bg-rose-fill lg:text-on-rose lg:text-[10px] lg:font-bold lg:text-center">
         {{ store.unreadNotifications.value }}
       </span>
     </NuxtLink>
@@ -130,7 +130,7 @@ const ctaLabel = computed(() => {
       </Avatar>
       <span class="sidenav__member-text lg:flex lg:flex-col lg:gap-0.5 lg:min-w-0">
         <span class="sidenav__member-name lg:text-[13.5px] lg:font-bold lg:text-ink lg:whitespace-nowrap lg:overflow-hidden lg:text-ellipsis">{{ store.displayName.value }}</span>
-        <span class="sidenav__member-meta lg:font-eyebrow lg:uppercase lg:tracking-[0.5px] lg:text-[8.5px] lg:font-bold lg:text-muted">
+        <span class="sidenav__member-meta lg:text-[11.5px] lg:text-muted">
           {{ store.clock.value.label }}
         </span>
       </span>

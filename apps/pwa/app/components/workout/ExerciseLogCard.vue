@@ -284,11 +284,11 @@ const NO_SPINNER =
     </button>
 
     <div class="mt-3">
-      <div :class="ROW" class="border-fill-muted text-[11.5px] text-muted uppercase">
+      <div :class="ROW" class="border-fill-muted text-center text-[11.5px] text-muted uppercase">
         <span>Set</span>
         <span :class="PREV">Previous</span>
-        <span class="text-right">{{ unitLabel(unit) }}</span>
-        <span class="text-right">Reps</span>
+        <span>{{ unitLabel(unit) }}</span>
+        <span>Reps</span>
         <span class="grid place-items-center">
           <AppIcon name="check" :size="13" :stroke="2.2" />
         </span>

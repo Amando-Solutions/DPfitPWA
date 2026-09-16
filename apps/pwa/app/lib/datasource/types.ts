@@ -273,6 +273,11 @@ export interface DataSource {
 
   // --- Check-ins --------------------- `members/{uid}/checkIns/week-{n}` ----
   listCheckIns(): Promise<CheckIn[]>
+  /**
+   * One a week, and final once sent. A second submission for a week that
+   * already has one is refused with `check-in-submitted` — it does not
+   * overwrite, and it does not pay out twice.
+   */
   saveCheckIn(input: CheckInInput): Promise<CheckIn>
 
   // --- Progress photos ------------------- `members/{uid}/photos/{id}` -----
@@ -590,6 +595,8 @@ export class DataSourceError extends Error {
       | 'edit-window-closed'
       /** An edit aimed at somebody else's message. */
       | 'not-author'
+      /** This week's check-in is already in, and a sent one is never rewritten. */
+      | 'check-in-submitted'
       /** The link was opened on a device that never requested it. */
       | 'needs-email'
       | 'expired-link'

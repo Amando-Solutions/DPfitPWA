@@ -73,6 +73,20 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys();
     }
 
+    /**
+     * The name a member goes by in front of the cohort, derived the way every
+     * client writer derives it: `profile.displayName || fallback`.
+     *
+     * The display name is fixed after setup (see `members` below), and this is
+     * what makes that true everywhere the name is *seen*. The leaderboard row,
+     * a chat message and a typing marker each carry a copy, and a copy the
+     * caller chose freely would be a rename by another route.
+     */
+    function shownName(member, fallback) {
+      let name = member.get('profile', {}).get('displayName', null);
+      return name == null || name == '' ? fallback : name;
+    }
+
     // --- Access codes ------------------------------------------------------
     // `accessCodes/{code}` — keyed by the code itself.
     match /accessCodes/{code} {
@@ -208,10 +222,24 @@ service cloud.firestore {
         // too, and on a delete `request.resource` is null, so the `keys()`
         // check errors and denies — which would have made a member unable to
         // remove their own row and broken `reset()`.
+        //
+        // The name is the member's own, never one the caller picked. Read with
+        // `getAfter`, because redemption writes this row in the same
+        // transaction that creates the member document, and `get` would not
+        // see it yet. A row may also keep the name it already has: that is how
+        // `deleteSession` writes, merging only the count, and it must not fail
+        // on a row whose name went stale before this rule existed.
         allow create, update: if isCoach() || (
           isSelf(memberId)
           && request.resource.data.keys().hasOnly(
                ['name', 'avatarUrl', 'sessions', 'updatedAt'])
+          && (
+            request.resource.data.get('name', null) == shownName(
+              getAfter(/databases/$(database)/documents/members/$(memberId)).data,
+              'Member')
+            || (resource != null
+                && request.resource.data.get('name', null) == resource.data.get('name', null))
+          )
         );
         allow delete: if isCoach() || isSelf(memberId);
       }
@@ -236,6 +264,9 @@ service cloud.firestore {
           allow create: if inCohort(cohortId)
             && myThread()
             && request.resource.data.authorUid == request.auth.uid
+            // Posted under the member's own name. The edit rule below never lets
+            // `authorName` move, so this is the only check it needs.
+            && request.resource.data.authorName == shownName(me(), 'You')
             // Only the coach's messages get the coach's styling.
             && request.resource.data.isCoach == false
             // A new message starts with no reactions. Counts are only ever
@@ -321,6 +352,7 @@ service cloud.firestore {
             && inCohort(cohortId)
             && myThread()
             && request.resource.data.keys().hasOnly(['name', 'at'])
+            && request.resource.data.name == shownName(me(), 'Someone')
           );
 
           allow delete: if isCoach() || (isSelf(typistId) && inCohort(cohortId));
@@ -356,16 +388,46 @@ service cloud.firestore {
         && request.resource.data.accessCode == resource.data.accessCode
         && request.resource.data.joinedAt == resource.data.joinedAt
         && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.programId == resource.data.programId;
+        && request.resource.data.programId == resource.data.programId
+        // The one status move a member makes for themselves is finishing
+        // setup, in `completeSetup`. Writing `onboarding` back would reopen the
+        // two fields locked below; every other move is the console's.
+        && (request.resource.data.status == resource.data.status
+            || (resource.data.status == 'onboarding'
+                && request.resource.data.status == 'active'))
+        // Display name and height are answered at setup and fixed after it.
+        // Read with `get` so a document from before either field existed
+        // still takes other updates: a missing key is null on both sides.
+        && (resource.data.status == 'onboarding' || (
+          request.resource.data.get('profile', {}).get('displayName', null)
+            == resource.data.get('profile', {}).get('displayName', null)
+          && request.resource.data.get('profile', {}).get('heightCm', null)
+            == resource.data.get('profile', {}).get('heightCm', null)
+        ));
 
-      allow delete: if isSelf(uid) || isCoach();
+      // Coach only. A member who could delete their own document could redeem
+      // their code again, which rebuilds it in `onboarding` and hands back the
+      // setup screens the lock above exists to close. The client's `reset()`
+      // is the one writer this refuses, and nothing in the app calls it.
+      allow delete: if isCoach();
 
       // Everything below a member belongs to that member alone. One rule
-      // rather than eight: sessions, check-ins, photos, badges, the active
-      // session, notification read state and lifecycle events all share the
-      // same answer, and listing them separately invites one to drift.
+      // rather than eight: sessions, photos, badges, the active session,
+      // notification read state and lifecycle events all share the same
+      // answer, and listing them separately invites one to drift.
+      //
+      // Check-ins are carved out by name rather than overridden below, because
+      // rules are additive: a narrower block cannot take away what this one
+      // grants, so this one has to not grant it.
       match /{collection}/{docId} {
-        allow read, write: if isSelf(uid);
+        allow read, write: if isSelf(uid) && collection != 'checkIns';
+      }
+
+      // A week's check-in is sent once and stays as sent. The week is the
+      // document id, so a second submission for the same week is an update,
+      // and there is no update — nor a delete to clear the way for one.
+      match /checkIns/{weekId} {
+        allow read, create: if isSelf(uid);
       }
     }
   }

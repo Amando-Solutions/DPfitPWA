@@ -334,7 +334,6 @@ const emptyProfile = (): MemberProfile => ({
   goal: '',
   trainingDaysPerWeek: 4,
   whatsapp: '',
-  injuries: '',
   avatarUrl: '',
 })
 
@@ -1198,20 +1197,28 @@ export class FirestoreDataSource implements DataSource {
 
     const db = firebaseDb()
     // The week is the document id, so one check-in per week is enforced by the
-    // key rather than by a query, and a resubmit is a natural overwrite.
+    // key rather than by a query. A sent check-in is final, and the rules
+    // refuse the overwrite regardless. The read is here for the refusal: a
+    // member who already sent this week, from this device or another, gets the
+    // sentence rather than a raw `permission-denied`. Inside the transaction
+    // because two devices can both find the week empty in the same moment.
     const id = `week-${weekNumber}`
     const ref = doc(db, 'members', member.id, 'checkIns', id)
-    const existed = (await getDoc(ref)).exists()
 
-    const batch = writeBatch(db)
-    batch.set(ref, record)
-    batch.update(doc(db, 'members', member.id), {
-      // A resubmit replaces the earlier answer rather than paying out twice.
-      'stats.checkInsSubmitted': increment(existed ? 0 : 1),
-      'stats.points': increment(existed ? 0 : record.rewardPoints),
-      updatedAt: serverTimestamp(),
+    await runTransaction(db, async (tx) => {
+      if ((await tx.get(ref)).exists()) {
+        throw new DataSourceError(
+          `Your week ${weekNumber} check-in is already in.`,
+          'check-in-submitted',
+        )
+      }
+      tx.set(ref, record)
+      tx.update(doc(db, 'members', member.id), {
+        'stats.checkInsSubmitted': increment(1),
+        'stats.points': increment(record.rewardPoints),
+        updatedAt: serverTimestamp(),
+      })
     })
-    await batch.commit()
 
     this.memberCache = null
     return { id, ...record }
@@ -2050,22 +2057,20 @@ export class FirestoreDataSource implements DataSource {
   }
 
   /**
-   * Best effort, and deliberately not advertised as more than that.
+   * Signs out, and no longer claims to do more than that.
    *
-   * A client cannot delete a document's subcollections — recursive delete lives
-   * in the Admin SDK — so this clears what it can address and signs out. A real
-   * erasure request has to run server-side; the `members/{uid}` document going
-   * away is what a cleanup job keys off.
+   * This used to delete the member document and the leaderboard row. The rules
+   * now refuse the first: a member who can delete their own document can redeem
+   * their code again, and the rebuilt document comes back in `onboarding` with
+   * the display name and height that setup fixes open for a second answer. So
+   * the batch would fail as a whole, taking the sign-out with it.
+   *
+   * Deleting the board row alone is not the smaller version of this — it leaves
+   * a member who is still in the cohort invisible to everyone in it. A real
+   * erasure request runs server-side on the Admin SDK, which is also the only
+   * thing that can reach the subcollections a client could never address.
    */
   async reset(): Promise<void> {
-    const member = await this.getMember()
-    if (member) {
-      const db = firebaseDb()
-      const batch = writeBatch(db)
-      batch.delete(doc(db, 'members', member.id))
-      batch.delete(this.leaderboardRef(member.cohortId, member.id))
-      await batch.commit()
-    }
     await this.signOut()
   }
 
