@@ -1,13 +1,11 @@
 <script setup lang="ts">
-// 04 · Access Code (idle) + 05 · Access Code Error
+// 04 · Access Code (idle) + 05 · Access Code Error, then Create Account
 definePageMeta({ layout: 'default' })
 
-import { accessCodes } from '~/data/program'
-import { DataSourceError } from '~/lib/datasource'
+import { DataSourceError, MIN_PASSWORD_LENGTH } from '~/lib/datasource'
 import { storage } from '~/lib/storage'
 import { FIRST_SETUP_STEP } from '~/middleware/auth.global'
 
-const route = useRoute()
 const router = useRouter()
 const store = useAppStore()
 const install = useInstallApp()
@@ -24,90 +22,111 @@ const supportEmail = useRuntimeConfig().public.supportEmail as string
 const supportHref = `mailto:${supportEmail}?subject=${encodeURIComponent('DP Fitness — access code help')}`
 
 /**
- * Getting in takes two separate things, and this screen is both of them.
+ * The only way an account gets made.
  *
- *   1. Proving the inbox is yours — Google, or a sign-in link. No password.
- *   2. Proving you paid — the access code, which binds you to a cohort.
+ * The code comes first, before there is anybody to sign in: it is what was
+ * paid for, so it is checked — real, unused, in date — before the member is
+ * asked for anything else. Then an email and a password make the account, and
+ * the email has to be the one the code was sent to. The code is redeemed on the
+ * new account in the same tap, and setup follows.
  *
- * They are genuinely separate: somebody can hold a valid Firebase session and
- * still not be a member of anything, which is exactly the state between step
- * one and step two. So the screen shows whichever half is still outstanding
- * rather than assuming a member arrives with both.
+ * Nothing in that leaves the app, which is the point of the order. The email
+ * link this replaced proved the address by sending the member away to their
+ * inbox, and on iOS the link came back to Safari rather than the home-screen app
+ * that asked. The code already came through that inbox, so holding it and
+ * naming the address it went to is the proof now.
  *
- * Step one has two doors and they are not equally good. Google settles inside
- * one gesture and hands over a name and a picture on the way through, so it
- * leads; the link is the fallback for anyone whose purchase email is not a
- * Google account. Both end in the same place, and nothing after this screen
- * asks which was used.
+ * Two steps are for somebody signed in already, which a sign-up can leave
+ * behind:
  *
- * On device there is no inbox to prove anything against, so the link collapses
- * into submitting the address and the `sent` phase never appears. The screen
- * reads `store.instantSignIn` to know that in advance — a button offering to
- * email a link that will not be emailed is worse than no button.
- *
- * `blocked` is the fourth answer and the one that was missing. A session with
- * an unreadable member document is not a session with no membership, and it
- * used to render as the code prompt: a member of eight weeks asked for a code
- * they redeemed on day one, told it had already been used when they found it,
- * and shown no sign-in control to escape with, because they were signed in the
- * whole time. It asks them to try the read again instead.
+ *   - `redeem`: an account with no membership. The sign-up made the account and
+ *     was cut off before the code was spent, or the account predates this flow.
+ *     The code is redeemed for the session there is.
+ *   - `blocked`: an account whose membership could not be read. Not the same as
+ *     not having one, and never answered with the code prompt — a member of
+ *     eight weeks would be asked for a code they redeemed on day one. It retries
+ *     the read instead.
  */
-const phase = computed<'email' | 'sent' | 'code' | 'blocked'>(() => {
+const step = ref<'code' | 'account'>('code')
+
+/**
+ * Which action is in flight, so the labels can say what is happening.
+ *
+ * One ref rather than a flag per button: only one of these can be running at a
+ * time, and the others have to be disabled while it is.
+ */
+const busy = ref<'' | 'code' | 'account' | 'redeem' | 'retry' | 'switch'>('')
+
+const phase = computed<'code' | 'account' | 'redeem' | 'blocked'>(() => {
+  // Held for the whole of a sign-up. It signs in halfway through, and without
+  // this the form the member is watching would turn into the redeem step before
+  // it had finished.
+  if (busy.value === 'account') return 'account'
   if (store.gate.value === 'unknown') return 'blocked'
-  if (store.authUser.value) return 'code'
-  return linkSent.value ? 'sent' : 'email'
+  if (store.authUser.value) return 'redeem'
+  return step.value
 })
 
-/**
- * Links the home-screen app has to be handed back by hand.
- *
- * On iOS a link tapped in an email opens in Safari, never in the installed app,
- * and Safari's storage is not the app's — so the link signs Safari in and the
- * app goes on waiting for it. What does carry across is the clipboard. The app
- * takes the link pasted, and finishes with the address it parked when it asked.
- */
-const pasteLink = install.onIosHomeScreen
-
-/**
- * The address a link went to, kept only where it has to be pasted back.
- *
- * Fetching it means leaving for the email app, and iOS is free to discard a
- * home-screen app it has put in the background. A `ref` alone would come back
- * from that as the email step, with no field to paste into. Account-scoped, so
- * sign-out drops it with everything else.
- */
-const LINK_SENT_KEY = 'auth-link-sent-to'
-const sentTo = pasteLink.value ? storage.read<string | null>(LINK_SENT_KEY, null) : null
-
-const email = ref(sentTo ?? '')
 const code = ref('')
-const error = ref('')
-const linkSent = ref(sentTo !== null)
-const link = ref('')
+/** The code as stored, once `checkAccessCode` has passed it. What sign-up spends. */
+const checkedCode = ref('')
+const email = ref('')
+const password = ref('')
+const confirm = ref('')
+
+type Field = 'code' | 'email' | 'password' | 'confirm' | 'form'
+
+/**
+ * What went wrong, and which field it belongs under.
+ *
+ * The account step has three fields and a failure means one of them — the
+ * wrong email, a password the provider refused, two passwords that differ — so
+ * the message goes where the fix is. `form` is for what no field can fix: the
+ * connection, a provider left switched off.
+ */
+const failure = ref<{ on: Field; message: string; code: DataSourceError['code'] } | null>(null)
+
+const errorOn = (field: Field) => (failure.value?.on === field ? failure.value.message : '')
+
+const fail = (on: Field, cause: unknown) => {
+  failure.value =
+    cause instanceof DataSourceError
+      ? { on, message: cause.message, code: cause.code }
+      : { on, message: 'Something went wrong. Try again.', code: 'unknown' }
+}
+
+/** Failures that are about the code rather than anything typed on the account step. */
+const CODE_FAILURES: DataSourceError['code'][] = ['invalid-code', 'code-claimed', 'code-expired']
+
+const accountFieldFor = (cause: unknown): Field => {
+  if (!(cause instanceof DataSourceError)) return 'form'
+  switch (cause.code) {
+    case 'invalid-email':
+    case 'code-wrong-email':
+    case 'account-exists':
+      return 'email'
+    case 'weak-password':
+    case 'invalid-credentials':
+      return 'password'
+    default:
+      return 'form'
+  }
+}
 
 /**
  * Install first, on iOS in the browser.
  *
- * Installing there means a second sign-in: the home-screen app keeps its own
- * storage, and nothing signed in to in Safari comes along. Asked for before
- * the first one, it is the only sign-in there is. The browser is still allowed
- * — somebody who would rather not install says so once, and this browser
- * remembers until it signs out.
- *
- * Kept out of the way of a link being opened: that page has credentials in its
- * query string to consume, and the install ask would only flash over them.
+ * Installing there means signing in a second time: the home-screen app keeps
+ * its own storage, and nothing signed in to in Safari comes along. Asked for
+ * before the account is made, the app is the only place it ever has to be
+ * signed in. The browser is still allowed — somebody who would rather not
+ * install says so once, and this browser remembers until it signs out.
  */
 const SIGN_IN_HERE_KEY = 'sign-in-here'
 const signInHere = ref(storage.read<boolean>(SIGN_IN_HERE_KEY, false))
-const openedFromLink = typeof route.query.oobCode === 'string'
 
 const installFirst = computed(
-  () =>
-    install.method.value === 'ios' &&
-    phase.value === 'email' &&
-    !confirmingEmail.value &&
-    !openedFromLink &&
-    !signInHere.value,
+  () => install.method.value === 'ios' && phase.value === 'code' && !signInHere.value,
 )
 
 const chooseSignInHere = () => {
@@ -118,17 +137,16 @@ const chooseSignInHere = () => {
 /**
  * Install alongside, everywhere else that can.
  *
- * An offer beside the sign-in rather than a step before it: outside iOS the
- * installed app shares the browser's storage, so a sign-in here is already a
- * sign-in there and the order costs nothing. iOS is left out because it has
- * `installFirst`, and a member who chose to sign in there instead has already
+ * An offer beside the code rather than a step before it: outside iOS the
+ * installed app shares the browser's storage, so an account signed in here is
+ * already signed in there and the order costs nothing. iOS is left out because
+ * it has `installFirst`, and a member who chose to carry on there has already
  * answered.
  */
 const offerInstall = computed(
   () =>
     (install.method.value === 'prompt' || install.method.value === 'manual') &&
-    phase.value === 'email' &&
-    !confirmingEmail.value,
+    phase.value === 'code',
 )
 
 const installing = ref(false)
@@ -144,226 +162,117 @@ const runInstall = async () => {
 }
 
 /**
- * Which action is in flight, so the labels can say what is happening.
+ * Where the member belongs once this screen has done its part.
  *
- * One ref rather than a flag per button: only one of these can be running at a
- * time, and the others have to be disabled while it is.
- */
-const busy = ref<'' | 'link' | 'google' | 'code' | 'retry' | 'switch'>('')
-
-/**
- * Opening the link on a *different* device from the one that asked for it.
+ * Re-running the gate by hand rather than trusting the step just taken: a
+ * sign-up reloads the account, and that read can fail on the way back — in
+ * which case pushing at a route the member is no longer cleared for only has
+ * middleware bounce them here again. Replaces rather than pushes, so Back does
+ * not return to a code that is now spent.
  *
- * Firebase parks the pending address in local storage when the link is
- * requested, so the same browser can finish silently. Another device has no
- * such record and the address has to be confirmed, which is the one genuinely
- * awkward corner of email-link auth and the reason this flag exists.
+ * Resolves `true` when it navigated, so the caller can leave the screen frozen
+ * on the way out rather than unfreezing it for a frame.
  */
-const confirmingEmail = ref(false)
-
-const message = (cause: unknown) =>
-  cause instanceof DataSourceError ? cause.message : 'Something went wrong. Try again.'
-
-/**
- * Where a freshly signed-in member actually belongs.
- *
- * Signing in on this screen does not navigate, so route middleware never gets
- * a say — and a returning member who signs in here has a member document
- * already and must not be asked for an access code they redeemed weeks ago and
- * no longer have. Re-running the gate by hand is what stops this screen
- * holding on to somebody it is already finished with.
- */
-const settle = async () => {
-  if (store.atTheDoor.value) return
+const settle = async (): Promise<boolean> => {
+  if (store.atTheDoor.value) return false
   await router.replace(store.gate.value === 'needs-setup' ? FIRST_SETUP_STEP : '/home')
+  return true
 }
 
 /**
  * Whatever the store had to say before this screen could ask.
  *
- * A Google sign-in that had to leave the page is already finished by the time
- * anything here runs — the store consumes it during hydration, before route
- * middleware — so all that is left of it is whatever went wrong.
- *
- * Watched rather than read once on mount, because one of them arrives while
- * the screen is open: a device signed out by a sign-in elsewhere is sent here,
- * and it may already be here, waiting on an access code.
+ * On this screen that is the account read failing — the `blocked` step, whose
+ * only useful sentence is why. Watched rather than read once on mount, because
+ * a retry from here produces a fresh one.
  */
 watch(
   () => store.startupError.value,
   (next) => {
     if (!next) return
-    error.value = next
+    failure.value = { on: 'form', message: next, code: 'unknown' }
     store.startupError.value = ''
   },
   { immediate: true },
 )
 
-/**
- * Finish sign-in if this page was opened from a link.
- *
- * Runs on mount rather than in middleware: the link lands on this route
- * carrying its credentials in the query string, and they have to be consumed
- * before anything else can decide where the member belongs.
- */
-onMounted(async () => {
-  const url = window.location.href
-  if (!(await store.isSignInLink(url))) return
-
-  busy.value = 'link'
-  try {
-    await store.completeSignInLink(url)
-    // The credentials are single-use and should not survive in history.
-    await router.replace({ path: route.path })
-    await settle()
-  } catch (cause) {
-    if (cause instanceof DataSourceError && cause.code === 'needs-email') {
-      confirmingEmail.value = true
-      error.value = ''
-    } else {
-      error.value = message(cause)
-    }
-  } finally {
-    busy.value = ''
-  }
-})
-
-const sendLink = async () => {
-  if (busy.value) return
-  busy.value = 'link'
-  error.value = ''
-  try {
-    // A user back means it signed in outright: `phase` is already `code`, and
-    // there is nothing to wait for. Otherwise a link is on its way.
-    linkSent.value = !(await store.sendSignInLink(email.value))
-    if (!linkSent.value) await settle()
-    else if (pasteLink.value) storage.write(LINK_SENT_KEY, email.value)
-  } catch (cause) {
-    error.value = message(cause)
-  } finally {
-    busy.value = ''
-  }
-}
-
-/** Back to the email step, forgetting the link that was waiting to be pasted. */
-const useDifferentEmail = () => {
-  linkSent.value = false
-  link.value = ''
-  storage.remove(LINK_SENT_KEY)
-}
-
-/**
- * Finish with a link pasted into the home-screen app.
- *
- * The address goes in explicitly rather than trusting the parked copy: it is
- * the one printed on this step, so it is the one the member is looking at.
- * Checked as a sign-in link first, because the likeliest wrong paste is some
- * other link from the same email, and Firebase's answer to that is not one a
- * member can act on.
- */
-const signInWithPastedLink = async () => {
-  if (busy.value) return
-  busy.value = 'link'
-  error.value = ''
-  try {
-    const pasted = link.value.trim()
-    if (!(await store.isSignInLink(pasted))) {
-      error.value = 'That isn’t the sign-in link. Copy the link from the email and paste it again.'
-      return
-    }
-    await store.completeSignInLink(pasted, email.value)
-    storage.remove(LINK_SENT_KEY)
-    await settle()
-  } catch (cause) {
-    error.value = message(cause)
-  } finally {
-    busy.value = ''
-  }
-}
-
-/**
- * The other half of the paste, on the Safari page the link opened in.
- *
- * Nothing on this page knows the member asked from the app — only that this
- * browser didn't ask — so it is offered next to confirming here, not instead
- * of it. The URL still carries the credentials at this point: they are only
- * cleared from it once a sign-in completes. Copying doesn't spend them.
- */
-const linkCopied = ref(false)
-const offerCopyLink = computed(() => confirmingEmail.value && install.method.value === 'ios')
-
-const copyLink = async () => {
-  try {
-    await navigator.clipboard.writeText(window.location.href)
-    linkCopied.value = true
-  } catch {
-    error.value =
-      'Couldn’t copy it. Go back to the email, press and hold the link, and tap Copy Link.'
-  }
-}
-
-/**
- * The Google door.
- *
- * `null` back means the data source could not use a popup and handed the whole
- * page over to a redirect instead. This document is on its way out; the flow
- * resumes on the load that comes back, so there is deliberately nothing to do
- * here — including turning the spinner off, which would only flash.
- *
- * Cancelling is swallowed. Somebody who closed the Google window meant to
- * close it and does not need the screen to tell them it closed.
- */
-const signInWithGoogle = async () => {
-  if (busy.value) return
-  busy.value = 'google'
-  error.value = ''
-  try {
-    const user = await store.signInWithGoogle()
-    if (!user) return
-    await settle()
-  } catch (cause) {
-    if (!(cause instanceof DataSourceError && cause.code === 'popup-cancelled')) {
-      error.value = message(cause)
-    }
-  } finally {
-    busy.value = ''
-  }
-}
-
-/** The other-device path: they retype the address, then the link completes. */
-const confirmEmail = async () => {
-  if (busy.value) return
-  busy.value = 'link'
-  error.value = ''
-  try {
-    await store.completeSignInLink(window.location.href, email.value)
-    confirmingEmail.value = false
-    await router.replace({ path: route.path })
-    await settle()
-  } catch (cause) {
-    error.value = message(cause)
-  } finally {
-    busy.value = ''
-  }
-}
-
-const redeem = async () => {
+/** Step one: is the code good for an account? A read, so nothing to freeze on the way out. */
+const checkCode = async () => {
   if (busy.value) return
   busy.value = 'code'
-  error.value = ''
+  failure.value = null
   try {
-    await store.redeemAccessCode(code.value)
-    // Through the gate rather than straight at the setup step. Redemption
-    // reloads the account, and that read can fail on the way back — in which
-    // case pushing at a route the member is no longer cleared for only has
-    // middleware bounce them here again. `settle` also replaces rather than
-    // pushes, so Back does not return to a code field that is now spent.
-    await settle()
+    checkedCode.value = await store.checkAccessCode(code.value)
+    step.value = 'account'
   } catch (cause) {
-    error.value = message(cause)
+    fail('code', cause)
   } finally {
     busy.value = ''
   }
+}
+
+/**
+ * Step two: make the account and spend the code on it.
+ *
+ * The two checks that need no round trip go first, so a mistyped confirmation
+ * does not cost one. Everything after them is the provider's to refuse.
+ *
+ * A failure about the code itself — claimed or expired since step one — goes
+ * back to step one, where the code can be changed. A failure after the account
+ * exists leaves the member signed in, and this screen becomes the redeem step
+ * with the code already filled in; see `store.createAccount`.
+ */
+const createAccount = async () => {
+  if (busy.value) return
+  failure.value = null
+  if (password.value.length < MIN_PASSWORD_LENGTH) {
+    failure.value = {
+      on: 'password',
+      message: `Use at least ${MIN_PASSWORD_LENGTH} characters.`,
+      code: 'weak-password',
+    }
+    return
+  }
+  if (confirm.value !== password.value) {
+    failure.value = { on: 'confirm', message: 'The passwords don’t match.', code: 'unknown' }
+    return
+  }
+
+  busy.value = 'account'
+  try {
+    await store.createAccount(checkedCode.value, email.value, password.value)
+    if (await settle()) return
+  } catch (cause) {
+    if (cause instanceof DataSourceError && CODE_FAILURES.includes(cause.code)) {
+      step.value = 'code'
+      fail('code', cause)
+    } else {
+      fail(accountFieldFor(cause), cause)
+    }
+  }
+  busy.value = ''
+}
+
+/** Back to step one for a different code. The address typed stays; the passwords do not. */
+const changeCode = () => {
+  step.value = 'code'
+  password.value = ''
+  confirm.value = ''
+  failure.value = null
+}
+
+/** Signed in without a membership: spend the code on the session there is. */
+const redeem = async () => {
+  if (busy.value) return
+  busy.value = 'redeem'
+  failure.value = null
+  try {
+    await store.redeemAccessCode(code.value)
+    if (await settle()) return
+  } catch (cause) {
+    fail('code', cause)
+  }
+  busy.value = ''
 }
 
 /**
@@ -376,101 +285,85 @@ const redeem = async () => {
  * "close the app and open it again", the workaround this state used to need.
  *
  * `hydrate` catches everything it can hit, so the failure comes back through
- * `startupError` instead of a rejection.
+ * `startupError` — which the watch above puts on the screen — instead of a
+ * rejection.
  */
 const retry = async () => {
   if (busy.value) return
   busy.value = 'retry'
-  error.value = ''
+  failure.value = null
   try {
     await store.hydrate(true)
-    if (store.startupError.value) {
-      error.value = store.startupError.value
-      store.startupError.value = ''
-    }
-    await settle()
-  } finally {
-    busy.value = ''
+    if (await settle()) return
+  } catch (cause) {
+    fail('form', cause)
   }
+  busy.value = ''
 }
 
 /**
- * Leave the session and go back to the sign-in half.
+ * Leave the session and go back to the start.
  *
- * The escape hatch, and the reason this screen was a trap without it. Every
- * state below `ready` that involves being signed in — the code prompt, an
- * unreadable account — used to render with no control that ends the session,
- * on the one screen a member in that state is allowed to reach. Signing in as
- * somebody else was impossible, because there was nothing on the page offering
- * to sign in: they already were. That matters most when the session is the
- * problem, which is the ordinary case here — a code issued to one address and
- * a browser signed in with another goes round for ever otherwise.
+ * The escape hatch on both signed-in steps. Without it they were a trap: the
+ * only screen a member in either state may reach, with nothing on it that ends
+ * the session — and the session is often the problem, as when a code issued to
+ * one address meets an account signed in with another.
  */
 const useAnotherAccount = async () => {
   if (busy.value) return
   busy.value = 'switch'
-  error.value = ''
+  failure.value = null
   try {
     await store.signOut()
     code.value = ''
-    email.value = ''
-    linkSent.value = false
-    confirmingEmail.value = false
+    checkedCode.value = ''
+    step.value = 'code'
   } catch (cause) {
-    error.value = message(cause)
+    fail('form', cause)
   } finally {
     busy.value = ''
   }
 }
 
 const submit = () => {
-  if (confirmingEmail.value) return confirmEmail()
   if (phase.value === 'blocked') return retry()
-  // Only the paste field submits from this step; elsewhere it has no form control.
-  if (phase.value === 'sent') return signInWithPastedLink()
-  return phase.value === 'code' ? redeem() : sendLink()
+  if (phase.value === 'redeem') return redeem()
+  return phase.value === 'account' ? createAccount() : checkCode()
 }
 
 /** What the one button is about to do, in the member's words. */
 const submitLabel = computed(() => {
   if (busy.value === 'retry') return 'Trying again…'
-  if (busy.value === 'link' || busy.value === 'code') return 'Checking…'
-  if (confirmingEmail.value) return 'Confirm'
+  if (busy.value === 'code' || busy.value === 'redeem') return 'Checking…'
+  if (busy.value === 'account') return 'Creating your account…'
   if (phase.value === 'blocked') return 'Try again'
-  if (phase.value === 'sent') return 'Sign in'
-  if (phase.value === 'code' || store.instantSignIn) return 'Continue'
-  return 'Email me a link'
+  if (phase.value === 'account') return 'Create account'
+  return 'Continue'
 })
 
 /**
- * The address the outstanding step is being asked of.
+ * The address the signed-in steps are being asked of.
  *
- * Printed on both signed-in steps, because the commonest way to be stuck on
- * either is to be signed in as the wrong person and have no way to see it. A
- * code issued to one address, typed into a browser holding a session for
- * another, fails with "issued to a different email address" and no way to find
- * out which — the screen never said whose session it was.
+ * Printed because the commonest way to be stuck on either is to be signed in as
+ * the wrong person and have no way to see it. A code issued to one address,
+ * typed into a session for another, fails with "issued to a different email
+ * address" and no way to find out which — unless the screen says whose session
+ * it is.
  */
 const signedInAs = computed(() => store.authUser.value?.email ?? '')
 
 /**
  * The step, named.
  *
- * There used to be a fixed marketing headline here — "Let's get your glow
- * back." over an eyebrow announcing the cohort — and between them they were
- * the largest thing on the screen. Neither told a member what to do, and both
- * were addressed to somebody deciding whether to buy, which is not who is
- * looking at this page: everybody here has already paid and is trying to get
- * in. The heading is now the question the screen is actually asking, so the
- * page says where you are in a flow that has four possible places to be.
+ * The heading is the question the screen is actually asking, so the page says
+ * where you are in a flow with four possible places to be. Everybody here has
+ * already paid; nothing on it is addressed to somebody deciding whether to buy.
  */
 const heading = computed(() => {
   if (installFirst.value) return 'Install the app first'
-  if (confirmingEmail.value) return 'Confirm your email'
   if (phase.value === 'blocked') return 'Couldn’t load your account'
-  if (phase.value === 'sent') return 'Check your inbox'
-  if (phase.value === 'code') return 'Enter your access code'
-  return 'Sign in'
+  if (phase.value === 'account') return 'Create your account'
+  return 'Enter your access code'
 })
 
 /**
@@ -478,46 +371,30 @@ const heading = computed(() => {
  *
  * Paired with `heading` rather than written into the template so the two can
  * never drift into repeating each other — the heading says *what step*, this
- * says the single fact that step needs and the buttons cannot state.
+ * says the single fact that step needs and the fields cannot state.
  */
 const standfirst = computed(() => {
   if (installFirst.value) {
-    return 'Then sign in from your Home Screen. A sign-in here won’t carry over to the app.'
-  }
-  if (confirmingEmail.value) {
-    // On iOS "a different device" is as likely to be the home-screen app on
-    // this same phone, whose links always land here.
-    return offerCopyLink.value
-      ? 'This link opened somewhere other than where you asked for it.'
-      : 'This link was opened on a different device from the one that asked for it.'
+    return 'Then set up your account from your Home Screen, so you only sign in once.'
   }
   if (phase.value === 'blocked') {
     // Deliberately does not say "you are not a member": nothing here knows
     // that. The read failed, and the two look identical from this side.
     return 'You’re signed in, but we couldn’t reach your account just now.'
   }
-  if (phase.value === 'sent') {
-    return pasteLink.value
-      ? 'Email links open in Safari, not in the app, so this one comes back by copy and paste.'
-      : 'The link signs you in — no password to remember.'
-  }
-  if (phase.value === 'code') return 'It was sent to you once your payment was confirmed.'
-  return 'Use the email you paid with.'
+  if (phase.value === 'account') return 'Use the email address your access code was sent to.'
+  return 'It was emailed to you once your payment was confirmed.'
 })
 
-/** Google has nothing to offer once the session exists, or mid-link-confirm. */
-const showGoogle = computed(
-  () => store.googleSignIn && phase.value === 'email' && !confirmingEmail.value,
-)
-
 /** The signed-in steps, which are the ones that need a way back out. */
-const showSwitchAccount = computed(
-  () => (phase.value === 'code' || phase.value === 'blocked') && !confirmingEmail.value,
-)
+const showSwitchAccount = computed(() => phase.value === 'redeem' || phase.value === 'blocked')
 
-// Clear the error as soon as the member edits either field.
-watch([code, email, link], () => {
-  if (error.value) error.value = ''
+/** The other door, for anybody who already has an account and came in this one. */
+const showSignInLink = computed(() => phase.value === 'code' || phase.value === 'account')
+
+// Clear the error as soon as the member edits any field.
+watch([code, email, password, confirm], () => {
+  if (failure.value) failure.value = null
 })
 </script>
 
@@ -543,6 +420,26 @@ watch([code, email, link], () => {
       </p>
     </div>
 
+    <!-- The install ask, in place of the code card rather than above it: the
+         point is that the account is made in the app, so the controls for one
+         here would only invite it. Nothing on the card installs — iOS keeps
+         that in the Share sheet — so its one control is the way past. -->
+    <AppCard
+      v-if="installFirst"
+      variant="raised"
+      class="access__card access__install flex flex-col gap-4 shadow-raised"
+    >
+      <InstallAppSteps method="ios" />
+
+      <p class="m-0 text-center text-[13px] leading-normal text-muted">
+        Already added it? Open DP Fitness from your Home Screen.
+      </p>
+
+      <AppButton variant="ghost" @click="chooseSignInHere">
+        Continue in the browser
+      </AppButton>
+    </AppCard>
+
     <!--
       A real form, so Enter submits.
 
@@ -553,177 +450,125 @@ watch([code, email, link], () => {
       has no `@click` of its own — the form's handler is the single path in, so
       a click and an Enter cannot both fire it.
     -->
-    <!-- The install ask, in place of the sign-in card rather than above it: the
-         point is that the sign-in happens in the app, so the controls for one
-         here would only invite it. Nothing on the card installs — iOS keeps
-         that in the Share sheet — so its one control is the way past. -->
-    <AppCard
-      v-if="installFirst"
-      variant="raised"
-      class="access__card access__install flex flex-col gap-4 shadow-raised"
-    >
-      <!-- A device signed out by a sign-in elsewhere lands here, and here the
-           elsewhere is most likely the app itself. The reason still prints. -->
-      <p v-if="error" class="m-0 text-xs font-semibold text-primary">{{ error }}</p>
-
-      <InstallAppSteps method="ios" />
-
-      <p class="m-0 text-center text-[13px] leading-normal text-muted">
-        Already added it? Open DP Fitness from your Home Screen.
-      </p>
-
-      <AppButton variant="ghost" @click="chooseSignInHere">
-        Sign in here instead
-      </AppButton>
-    </AppCard>
-
     <form v-else novalidate @submit.prevent="submit">
       <AppCard
         variant="raised"
         class="access__card flex flex-col gap-4 shadow-raised"
         :aria-busy="busy !== '' || undefined"
       >
-        <!-- First, because it is the shortest way through. One tap settles the
-             address, and it arrives carrying a name and a picture the setup form
-             would otherwise have to ask for. The field below is for anyone whose
-             purchase email is not a Google account. -->
-        <template v-if="showGoogle">
-          <AppButton
-            variant="secondary"
-            :disabled="busy !== ''"
-            @click="signInWithGoogle"
-          >
-            <!-- Buttons carry no icons, but this one is Google's mark rather
-                 than decoration: it is how people recognise the door. -->
-            <span class="inline-flex items-center gap-2">
-              <AppIcon name="google" :size="18" />
-              {{ busy === 'google' ? 'Opening Google…' : 'Continue with Google' }}
-            </span>
-          </AppButton>
-
-          <div class="access__or flex items-center gap-3" aria-hidden="true">
-            <span class="h-px flex-1 bg-hairline" />
-            <span class="text-[12px] font-semibold uppercase tracking-[1px] text-muted">or</span>
-            <span class="h-px flex-1 bg-hairline" />
-          </div>
-        </template>
-
         <!--
-          The field is frozen for as long as the request it started is open.
+          The fields are frozen for as long as the request they started is open.
 
           Every button on this card already goes dead while `busy` is set; the
-          box they read from did not, so an address or a code could still be
-          retyped after the value had been taken and sent. Whichever answer
-          came back then belonged to a string no longer on screen — and on the
-          code step, a redemption is one-shot, so the member would be looking
-          at a code that had just been spent on something they could no longer
-          see.
-
-          A wrapper rather than a `disabled` prop on TextField: only one arm of
-          this chain renders, so it is still a single item in the card's column
-          and the layout is unchanged.
+          boxes they read from did not, so a code or an address could still be
+          retyped after the value had been taken and sent. Whichever answer came
+          back then belonged to a string no longer on screen — and a redemption
+          is one-shot, so the member would be looking at a code that had just
+          been spent on something they could no longer see.
         -->
         <div
-          class="transition-opacity duration-150"
+          class="flex flex-col gap-4 transition-opacity duration-150"
           :class="busy !== '' && 'opacity-60'"
           :inert="busy !== ''"
         >
           <TextField
-            v-if="phase === 'code'"
+            v-if="phase === 'code' || phase === 'redeem'"
             v-model="code"
             label="Access code"
             placeholder="ENTER YOUR CODE"
+            autocomplete="off"
             mono
-            :error="error"
+            :error="errorOn('code')"
           />
-          <TextField
-            v-else-if="phase === 'email' || confirmingEmail"
-            v-model="email"
-            label="Email address"
-            type="email"
-            inputmode="email"
-            placeholder="you@example.com"
-            :error="error"
-          />
+
+          <template v-else-if="phase === 'account'">
+            <!-- The code that was checked, kept in view: it is what this
+                 account is being made from, and the address below has to be
+                 the one it was sent to. -->
+            <div class="access__code flex items-center justify-between gap-3 rounded-2xl bg-sunken px-4.25 py-3">
+              <div class="min-w-0">
+                <p class="m-0 text-[13px] text-soft">Access code</p>
+                <p class="m-0 mt-0.5 truncate font-data text-[15px] tracking-[1px] text-ink">
+                  {{ checkedCode }}
+                </p>
+              </div>
+              <button
+                type="button"
+                class="access__change shrink-0 pt-1 pb-1 text-[13px] font-bold text-primary"
+                @click="changeCode"
+              >
+                Change
+              </button>
+            </div>
+
+            <TextField
+              v-model="email"
+              label="Email address"
+              type="email"
+              inputmode="email"
+              autocomplete="email"
+              placeholder="you@example.com"
+              :error="errorOn('email')"
+            />
+            <TextField
+              v-model="password"
+              label="Password"
+              type="password"
+              autocomplete="new-password"
+              :placeholder="`At least ${MIN_PASSWORD_LENGTH} characters`"
+              :error="errorOn('password')"
+            />
+            <TextField
+              v-model="confirm"
+              label="Confirm password"
+              type="password"
+              autocomplete="new-password"
+              placeholder="Type it again"
+              :error="errorOn('confirm')"
+            />
+          </template>
+
           <!-- `blocked` has nothing to type. The read failed, so the only fact
                worth printing is why, and the only useful control is the retry
-               below. Carried here rather than on a field's `:error` because
-               there is no field on this step. -->
-          <p
-            v-else-if="phase === 'blocked'"
-            class="access__blocked m-0 text-[14px] leading-normal text-(--violet-45)"
-          >
-            {{ error || 'Check your connection, then try again. An ad blocker or privacy extension can block it too.' }}
-          </p>
-          <div v-else-if="pasteLink" class="access__paste flex flex-col gap-4">
-            <p class="access__sent m-0 text-[14px] leading-normal text-(--violet-45)">
-              We’ve sent a link to <strong>{{ email }}</strong>. Press and hold
-              it in the email, tap Copy Link, then paste it here.
-            </p>
-            <TextField
-              v-model="link"
-              label="Sign-in link"
-              placeholder="Paste the link here"
-              inputmode="url"
-              :error="error"
-            />
-          </div>
+               below. -->
           <p
             v-else
-            class="access__sent m-0 text-[14px] leading-normal text-(--violet-45)"
+            class="access__blocked m-0 text-[14px] leading-normal text-(--violet-45)"
           >
-            We’ve sent a link to <strong>{{ email }}</strong>. Open it on this
-            device and you’ll come straight back here.
+            {{ errorOn('form') || 'Check your connection, then try again. An ad blocker or privacy extension can block it too.' }}
           </p>
         </div>
 
-        <AppButton
-          v-if="phase !== 'sent' || confirmingEmail || pasteLink"
-          type="submit"
-          :disabled="busy !== ''"
+        <!-- Outside the frozen block, so it is read out when it arrives. Only
+             what no field can fix lands here; `blocked` prints its own above. -->
+        <p
+          v-if="errorOn('form') && phase !== 'blocked'"
+          role="alert"
+          class="access__error m-0 text-xs font-semibold text-primary"
         >
+          {{ errorOn('form') }}
+        </p>
+
+        <!-- The two failures whose fix is the other door, offered as a link
+             rather than only named in the message. -->
+        <NuxtLink
+          v-if="failure?.code === 'account-exists' || (failure?.code === 'code-claimed' && phase === 'code')"
+          to="/sign-in"
+          class="access__to-sign-in -mt-1 self-start text-[13px] font-bold text-primary"
+        >
+          Go to sign in
+        </NuxtLink>
+
+        <AppButton type="submit" :disabled="busy !== ''">
           {{ submitLabel }}
         </AppButton>
-        <AppButton
-          v-if="phase === 'sent' && !confirmingEmail"
-          variant="ghost"
-          :disabled="busy !== ''"
-          @click="useDifferentEmail"
-        >
-          Use a different email
-        </AppButton>
-
-        <!-- Beside confirming, never instead of it: this page can't tell the
-             app on this phone from a laptop that asked. -->
-        <div
-          v-if="offerCopyLink"
-          class="access__copy flex flex-col items-center gap-1 pt-0.5 text-center"
-        >
-          <p class="m-0 text-[13px] leading-normal text-muted">
-            {{
-              linkCopied
-                ? 'Copied. Open DP Fitness from your Home Screen and paste it there.'
-                : 'Asked for it from the app on your Home Screen?'
-            }}
-          </p>
-          <button
-            v-if="!linkCopied"
-            type="button"
-            class="access__copy-link pt-1 pb-1 text-[13px] font-bold text-primary disabled:opacity-50"
-            :disabled="busy !== ''"
-            @click="copyLink"
-          >
-            Copy the link for the app
-          </button>
-        </div>
 
         <!--
           The way out, on the two steps that have a session behind them.
 
           It names the address first. Both steps fail in the same silent way —
-          a code issued to one inbox typed into a browser signed in as another
-          — and the screen used to keep the one fact that explains it to
-          itself, while offering nothing that could end the session either.
+          a code issued to one inbox typed into a session for another — and the
+          screen used to keep the one fact that explains it to itself.
         -->
         <div
           v-if="showSwitchAccount"
@@ -744,7 +589,7 @@ watch([code, email, link], () => {
       </AppCard>
     </form>
 
-    <!-- Under the card, not in it: signing in is what this screen is for, and
+    <!-- Under the card, not in it: the code is what this screen is for, and
          the offer should not read as part of the form. `How to install` opens
          the same guide Home and More do, mounted below. -->
     <section
@@ -774,23 +619,24 @@ watch([code, email, link], () => {
       the card sits in the middle of the screen instead of against the bottom
       edge.
 
-      The two hints are conditional and usually absent — "Can't find your code?"
-      was answering a question nobody had yet on the screen that asks for an
-      email address, and the demo code shipped to real members on a real
-      deploy. The credit under them is the one thing here that always prints,
-      which is also why it is last: it is the floor of the screen, not a line
-      the member is being asked to read.
+      The hints are conditional. The credit under them is the one thing here
+      that always prints, which is also why it is last: it is the floor of the
+      screen, not a line the member is being asked to read.
     -->
     <div class="access__foot mt-auto flex flex-col gap-2.5 pt-5 text-center">
-      <p v-if="phase === 'code'" class="access__hint muted m-0 text-[13px]">
+      <p v-if="showSignInLink" class="access__hint m-0 text-[13px] text-muted">
+        Already have an account?
+        <NuxtLink to="/sign-in" class="access__link text-primary font-bold">Sign in</NuxtLink>
+      </p>
+      <p v-if="phase === 'code' || phase === 'redeem'" class="access__hint muted m-0 text-[13px]">
         Can’t find your code? Check spam<template v-if="supportEmail"> or
         <a :href="supportHref" class="access__link text-primary font-bold">contact support</a></template>.
       </p>
       <p
-        v-if="store.instantSignIn"
+        v-if="store.demoAccessCode && (phase === 'code' || phase === 'redeem')"
         class="access__dev m-0 text-[12px] text-muted"
       >
-        Demo code: <strong class="font-data">{{ accessCodes[0] }}</strong>
+        Demo code: <strong class="font-data">{{ store.demoAccessCode }}</strong>
       </p>
 
       <!-- The first screen a member ever opens, so the credit is set quieter
@@ -798,7 +644,7 @@ watch([code, email, link], () => {
       <!-- `self-center` rather than `items-center` on the column: an
            `inline-flex` child of a flex container is blockified, so without it
            the credit stretches the full width and sets itself hard left. Kept
-           on the child so the two hints above go on filling the column. -->
+           on the child so the hints above go on filling the column. -->
       <PoweredBy :size="12" class="access__credit mt-1 self-center text-(--violet-45)" />
     </div>
   </div>

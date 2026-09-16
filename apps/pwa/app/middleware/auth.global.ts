@@ -1,17 +1,18 @@
 /**
  * The flow gate.
  *
- *   no member          → the intro / access-code flow (the intro only once per device)
+ *   no member          → the door: the tour once per device, then `/access-code`
+ *                        to make an account or `/sign-in` to use one
  *   member, no setup   → the setup steps
- *   member, setup done → the app; the intro screens bounce to Home
+ *   member, setup done → the app; the door screens bounce to Home
  *
- * "No member" covers three different situations, because sign-in and cohort
- * membership came apart when auth became an email link: nobody signed in at
- * all, somebody signed in who has not redeemed a code yet, and somebody signed
- * in whose member document could not be read. All three belong on
- * `/access-code`, which shows whichever half is outstanding, so the routing
- * decision stays one branch — but they are three answers there, not one, and
- * the page has to be able to tell them apart. See `store.gate`.
+ * "No member" covers three different situations, because an account exists a
+ * moment before its code is redeemed: nobody signed in at all, somebody signed
+ * in whose code was never redeemed, and somebody signed in whose member document
+ * could not be read. The first may use either door. The other two are signed in
+ * already, so a sign-in screen has nothing for them, and they belong on
+ * `/access-code`, which redeems for the session or retries the read. Which door
+ * is `store.doorRoute`, so this file and `pages/index.vue` cannot disagree.
  *
  * `/` is exempt: it has no screen of its own. The boot splash in
  * `spa-loading-template.html` covers the first paint, and `pages/index.vue`
@@ -22,11 +23,11 @@
  */
 
 /** Reachable while signed out. */
-const PUBLIC_ROUTES = ['/onboarding', '/access-code']
+const PUBLIC_ROUTES = ['/onboarding', '/access-code', '/sign-in']
 
 /**
  * Where setup begins. Declared before the list rather than read back out of it:
- * `/access-code` sends a member here by name once they redeem, and an indexed
+ * the door screens send a member here by name once they are in, and an indexed
  * read is `string | undefined`, which is not a route.
  */
 export const FIRST_SETUP_STEP = '/setup/about-you'
@@ -53,15 +54,19 @@ export default defineNuxtRouteMiddleware((to) => {
   const isPublic = PUBLIC_ROUTES.includes(to.path)
   const isSetup = SETUP_ROUTES.includes(to.path)
 
-  // No member document — or no way to know there is one: only the intro flow
-  // is reachable, signed in or not. The tour only until it has been seen once:
-  // a device that has been through it goes to sign-in instead, whether it got
-  // here from a reload, a bookmark or Back.
+  // No member document — or no way to know there is one: only the door is
+  // reachable. The tour only until it has been seen once: a device that has
+  // been through it goes to its door instead, whether it got here from a
+  // reload, a bookmark or Back.
   if (store.atTheDoor.value) {
     if (to.path === '/onboarding' && store.isOnboarded.value) {
-      return navigateTo('/access-code', { replace: true })
+      return navigateTo(store.doorRoute.value, { replace: true })
     }
-    return isPublic ? undefined : navigateTo('/access-code')
+    // Signed in already: only the access-code screen has a next step for them.
+    if (store.gate.value !== 'needs-auth') {
+      return to.path === '/access-code' ? undefined : navigateTo('/access-code', { replace: true })
+    }
+    return isPublic ? undefined : navigateTo(store.doorRoute.value)
   }
 
   // A member whose profile isn't finished: keep them in setup.

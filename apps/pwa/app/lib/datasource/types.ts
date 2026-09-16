@@ -44,10 +44,10 @@ import type { ProcessedImage } from '~/lib/image'
  *
  * Three responsibilities live behind this seam that used not to:
  *
- *   - **Auth.** Passwordless, either way in. Google settles inside a single
- *     gesture; the email link is a two-step flow with a round trip through the
- *     member's inbox in the middle — except on device, where there is no inbox
- *     and `instantSignIn` says so.
+ *   - **Auth.** An account is made from an access code and nothing else: the
+ *     code is checked first, then an email and password create the account.
+ *     Coming back is the email and password again, or Google — which signs in
+ *     to an account but never makes one.
  *   - **Uploads.** Documents cap at 1 MiB, so anything binary goes to Cloud
  *     Storage first and the document holds the reference. Callers hand over a
  *     `ProcessedImage` and get back a `StoredImage`; where that actually lands
@@ -58,28 +58,18 @@ import type { ProcessedImage } from '~/lib/image'
  */
 export interface DataSource {
   // =========================================================================
-  // Auth — Firebase Auth: email link ("magic link") and Google
+  // Auth — Firebase Auth: email and password, and Google
   //
-  // No passwords anywhere in the system. Signing in and being a cohort member
-  // are separate facts: a valid `AuthUser` with no member document is somebody
-  // who opened their link but has not redeemed an access code yet, which is
-  // what `MemberGate` distinguishes.
+  // Nothing here leaves the app. Every step finishes in the window that started
+  // it, which is the point: the email link it replaces had to come back through
+  // an inbox, and on iOS a link tapped in an email opens in Safari, never in the
+  // home-screen app — so the app that asked was never the one signed in.
   //
-  // The two providers differ only in how long they take. Google settles inside
-  // one gesture; the email link leaves the app entirely and comes back through
-  // an inbox, possibly on another device. Everything after the `AuthUser` is
-  // identical, so nothing downstream asks which one was used.
+  // Signing in and being a cohort member are still separate facts. A valid
+  // `AuthUser` with no member document is an account whose code was never
+  // redeemed — a sign-up interrupted between its two halves, or an account from
+  // before this flow — which is what `MemberGate` distinguishes.
   // =========================================================================
-
-  /**
-   * Whether this implementation can sign a member in without an inbox.
-   *
-   * Only the on-device one can: it has no email to send, so it signs in on the
-   * spot instead. Screens read this to know which half of the flow they are
-   * about to run — whether the button says "email me a link" and is followed
-   * by a wait, or says "continue" and lands straight on the access code.
-   */
-  readonly instantSignIn: boolean
 
   /**
    * Whether Google is on offer at all.
@@ -93,7 +83,21 @@ export interface DataSource {
   readonly googleSignIn: boolean
 
   /**
-   * Sign in with Google.
+   * A code that redeems against this implementation, to print on the screen.
+   *
+   * Only the on-device one has such a thing: its codes are fixtures, and a
+   * developer should not have to go looking for one. `null` everywhere real
+   * codes are sold.
+   */
+  readonly demoAccessCode: string | null
+
+  /**
+   * Sign in to an existing account with Google.
+   *
+   * Never creates one. A Google account with no DP Fitness account behind it is
+   * refused with `no-account`, and the account Firebase made for it on the way
+   * through is deleted again — the only way to get an account is an access code,
+   * and a Google sign-in that could skip it would be a free seat.
    *
    * Resolves to the signed-in user on the popup path, which is the normal one.
    * Resolves to `null` when the implementation had to fall back to a full-page
@@ -112,33 +116,61 @@ export interface DataSource {
    * the load returning from a Google redirect, where the credentials arrive in
    * the URL and have to be consumed before route middleware can decide where
    * this member belongs. Throws the same user-facing errors `signInWithGoogle`
-   * does, because from the member's side it is the same attempt.
+   * does, `no-account` included, because from the member's side it is the same
+   * attempt.
    */
   resumeSignIn(): Promise<AuthUser | null>
 
   /**
-   * Email a sign-in link.
+   * Whether `code` can start a new account, asked before there is one.
    *
-   * Resolves to `null` once the link is away; the flow then continues when the
-   * member opens it, which may be minutes later and on another device. An
-   * implementation with `instantSignIn` set has no inbox to route through and
-   * resolves to the signed-in user instead, so the caller has nothing to wait
-   * for. Either way the *next* thing outstanding is the access code.
+   * Resolves to the code as it is stored — trimmed and upper-cased — so the
+   * caller carries that forward rather than what was typed. Throws
+   * `invalid-code`, `code-claimed` or `code-expired`, each with a sentence the
+   * member can act on.
+   *
+   * Says nothing about who the code was issued to. That is checked when the
+   * email is given, in `createAccount`, without handing the address back.
    */
-  sendSignInLink(email: string): Promise<AuthUser | null>
-
-  /** Whether `url` is a sign-in link this app issued. Cheap, synchronous-ish. */
-  isSignInLink(url: string): Promise<boolean>
+  checkAccessCode(code: string): Promise<string>
 
   /**
-   * Finish sign-in from an opened link.
+   * Create the account a code pays for, and sign in to it.
    *
-   * `email` is only needed when the link was opened on a different device from
-   * the one that requested it, where the pending address is not in storage to
-   * be read back. Throws `DataSourceError('needs-email')` in exactly that case,
-   * so the caller knows to ask rather than to show a failure.
+   * The code is checked again, and `email` has to be the address it was issued
+   * to — `code-wrong-email` otherwise, before any account exists. It does not
+   * redeem the code: that is `redeemAccessCode`, which needs the session this
+   * returns. Keeping them apart is what lets an interrupted sign-up finish.
+   *
+   * An address that already has an account is not necessarily a stranger's.
+   * The likeliest owner is this same member, whose last attempt created the
+   * account and was cut off before the code was redeemed — so the password is
+   * tried against it, and a match signs them back in to finish. Anything else is
+   * `account-exists`, and the way forward is signing in.
    */
-  completeSignInLink(url: string, email?: string): Promise<AuthUser>
+  createAccount(code: string, email: string, password: string): Promise<AuthUser>
+
+  /**
+   * Sign in with an email and password.
+   *
+   * A wrong password and an unknown address are the same `invalid-credentials`
+   * on purpose: telling them apart tells a stranger which addresses have
+   * accounts.
+   */
+  signInWithPassword(email: string, password: string): Promise<AuthUser>
+
+  /**
+   * Email a link that sets a new password.
+   *
+   * The link is finished on the provider's own page, in whatever browser opens
+   * it, and nothing comes back to the app — which is why this one survives iOS
+   * where the sign-in link did not. It is also how an account made with the old
+   * sign-in link gets a password at all.
+   *
+   * Resolves whether or not the address has an account, for the same reason
+   * `signInWithPassword` does not distinguish them.
+   */
+  sendPasswordReset(email: string): Promise<void>
 
   /** The signed-in Firebase user, before any member document is involved. */
   getAuthUser(): Promise<AuthUser | null>
@@ -591,6 +623,16 @@ export interface DataSource {
 // client that could name its own reward points could award itself any number.
 // =============================================================================
 
+/**
+ * The shortest password a new account may have.
+ *
+ * Firebase's own floor is six, and a project can raise it under Authentication
+ * → Settings → Password policy. Checked on the screen so the member hears it
+ * before a round trip; if the policy is ever set higher than this, the provider
+ * refuses with `weak-password` and the screen shows that instead.
+ */
+export const MIN_PASSWORD_LENGTH = 8
+
 /** Stops a live subscription. Idempotent — calling it twice is not an error. */
 export type Unsubscribe = () => void
 
@@ -642,14 +684,18 @@ export class DataSourceError extends Error {
       | 'not-author'
       /** This week's check-in is already in, and a sent one is never rewritten. */
       | 'check-in-submitted'
-      /** The link was opened on a device that never requested it. */
-      | 'needs-email'
-      | 'expired-link'
+      | 'invalid-email'
+      /** Too short, or refused by the project's password policy. */
+      | 'weak-password'
+      /** A wrong password or an unknown address — deliberately one answer. */
+      | 'invalid-credentials'
+      /** A Google account with no DP Fitness account behind it. See `signInWithGoogle`. */
+      | 'no-account'
       /** The member closed the provider window themselves. Not an error to shout about. */
       | 'popup-cancelled'
       /** The provider is not enabled for this project, or there is no provider at all. */
       | 'provider-disabled'
-      /** This address is already held by a different sign-in method. */
+      /** This address already has an account, and the way in is signing in. */
       | 'account-exists'
       | 'unknown' = 'unknown',
   ) {

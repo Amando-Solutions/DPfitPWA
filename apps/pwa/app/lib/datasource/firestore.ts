@@ -1,13 +1,16 @@
 import {
   GoogleAuthProvider,
+  createUserWithEmailAndPassword,
+  deleteUser,
+  getAdditionalUserInfo,
   getRedirectResult,
-  isSignInWithEmailLink,
-  sendSignInLinkToEmail,
-  signInWithEmailLink,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
   signInWithPopup,
   signInWithRedirect,
   signOut as firebaseSignOut,
   type User,
+  type UserCredential,
 } from 'firebase/auth'
 import {
   FieldPath,
@@ -114,9 +117,6 @@ import type {
   WorkoutDay,
 } from '~/data/types'
 
-/** Where the pending sign-in address is parked between the two halves of the flow. */
-const PENDING_EMAIL_KEY = 'auth-pending-email'
-
 /**
  * Set while a Google sign-in is away on a full-page redirect.
  *
@@ -130,11 +130,120 @@ const normaliseEmail = (email: string): string => email.trim().toLowerCase()
 /**
  * Enough of a check to catch a typo before it costs a round trip.
  *
- * Deliberately not a full RFC 5322 grammar: the only thing that can really
- * validate an address is sending to it, which is exactly what the next line
- * does. This just stops "sarah@" reaching the network.
+ * Deliberately not a full RFC 5322 grammar: the provider validates the address
+ * properly on the next line. This just stops "sarah@" reaching the network.
  */
 const isEmail = (value: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+
+/** A code as it is stored. The document id is exactly this. */
+const normaliseCode = (code: string): string => code.trim().toUpperCase()
+
+/**
+ * The provider's ways of saying "that email and password don't go together".
+ *
+ * Several, because it depends on the project: with email enumeration protection
+ * on — the default for new projects — every mismatch is `invalid-credential`,
+ * and without it a wrong password and an unknown address are reported apart.
+ */
+const CREDENTIAL_MISMATCH = new Set([
+  'auth/invalid-credential',
+  'auth/invalid-login-credentials',
+  'auth/wrong-password',
+  'auth/user-not-found',
+])
+
+const isCredentialMismatch = (cause: unknown): boolean =>
+  CREDENTIAL_MISMATCH.has((cause as { code?: string }).code ?? '')
+
+/**
+ * Whether a code's document allows a claim by `uid`, or why not.
+ *
+ * Shared by the check made before an account exists and the claim inside
+ * `redeemAccessCode`, so the screen that calls a code fine and the transaction
+ * that spends it cannot disagree about it. `uid` is who is asking, and `null`
+ * before sign-up, when nobody is. Resolves to whether the claim is a *reclaim*
+ * — see below — and throws a user-facing error for every other answer.
+ *
+ * Says nothing about `issuedToEmail`. Each caller compares that against the
+ * address it has on hand: the one typed at sign-up, the session's at redemption.
+ */
+const assessSeat = (
+  code: string,
+  data: DocumentData,
+  uid: string | null,
+): { reclaiming: boolean } => {
+  // Every field the claim rule reads has to exist before anything else is
+  // worth checking.
+  //
+  // A security rule that reads a field the document does not have does not
+  // evaluate to false — it errors, and an errored rule is a denied write. So
+  // `status`, `expiresAt` and `issuedToEmail` must be *present*, even where
+  // their value may be null. The friendly checks below are all written as
+  // `data.x && …`, which a missing field sails straight through, so without this
+  // a code typed by hand into the console passes every check in this file and
+  // then dies in the transaction with nothing but "permission-denied" — several
+  // layers below anything that could say which field was missing. See
+  // `AccessCodeDoc` for the full shape and `firestore.rules` for the rule this
+  // mirrors.
+  //
+  // `issuedToWhatsapp` is deliberately not in this list. The list exists because
+  // a *rule* that reads an absent field errors, and no rule reads that one — it
+  // is only copied into the profile at redemption, where `?? ''` handles its
+  // absence. Requiring it here would reject every code written before the field
+  // existed, in exchange for nothing.
+  const missing = (['status', 'expiresAt', 'issuedToEmail', 'cohortId'] as const).filter(
+    (field) => !(field in data),
+  )
+  if (missing.length) {
+    console.error(
+      `[datasource] accessCodes/${code} is missing: ${missing.join(', ')}. ` +
+        'The claim rule reads each of these, and a rule that reads an absent field ' +
+        'errors, which denies the write. `issuedToEmail` may be null but must exist.',
+    )
+    throw new DataSourceError('That code isn’t set up correctly. Contact support.', 'invalid-code')
+  }
+
+  if (data.status === 'revoked') {
+    throw new DataSourceError('That code has been revoked. Contact support.', 'invalid-code')
+  }
+
+  /**
+   * This account's own claim, with no member document behind it.
+   *
+   * The seat is already theirs — `claimedByUid` says so — so the document that
+   * seat pays for is gone: deleted, or never written because something failed
+   * between the two halves of a previous transaction. Every check below is about
+   * whether a *new* claim is allowed, and none of them apply to a seat that was
+   * bought and claimed months ago. Answering "that code has already been used"
+   * to the person who used it is the one reply that leaves them with nothing to
+   * do, on the one screen they are allowed to reach.
+   *
+   * Only possible with somebody signed in. Before sign-up there is no uid for
+   * the claim to name, and a claimed code is simply used.
+   */
+  const reclaiming = uid !== null && data.status === 'claimed' && data.claimedByUid === uid
+
+  if (data.status === 'claimed' && !reclaiming) {
+    throw new DataSourceError('That code has already been used.', 'code-claimed')
+  }
+  // Anything else is not a state the rule will claim from: it requires
+  // `status == 'unused'` exactly, so a typo denies the write in silence.
+  if (!reclaiming && data.status !== 'unused') {
+    console.error(
+      `[datasource] accessCodes/${code} has status "${data.status}". ` +
+        'The claim rule requires exactly "unused".',
+    )
+    throw new DataSourceError('That code isn’t set up correctly. Contact support.', 'invalid-code')
+  }
+  // Expiry is a deadline on redeeming, not on the membership it bought. A seat
+  // claimed inside the window stays claimed after it closes, so this is only
+  // asked of a code being claimed now.
+  if (!reclaiming && data.expiresAt.toMillis() < Date.now()) {
+    throw new DataSourceError('That code has expired. Contact support.', 'code-expired')
+  }
+
+  return { reclaiming }
+}
 
 /**
  * When this device signed in, as `firestore.rules` sees it: `auth_time` from
@@ -316,20 +425,20 @@ const normaliseDay = (
  * `providerData` is the authoritative list — an account can accumulate more
  * than one provider for the same address, and Firebase links them onto one
  * user rather than creating a second. Google is the interesting one because it
- * carries a name and an avatar; everything else here is the email link.
+ * carries a name and an avatar; everything else here is a password, including
+ * the accounts the old sign-in link made, which Firebase files the same way.
  */
 const providerOf = (user: User): AuthProvider =>
   user.providerData.some((p) => p.providerId === GoogleAuthProvider.PROVIDER_ID)
     ? 'google'
-    : 'email-link'
+    : 'password'
 
 const toAuthUser = (user: User): AuthUser => ({
   uid: user.uid,
   email: user.email ?? '',
   // A Google account has verified the address as a condition of existing, and
-  // an opened sign-in link has just proved the same thing. Firebase does not
-  // always mark the latter immediately, so it is treated as verified when the
-  // provider itself is the proof.
+  // Firebase does not always mark it so, so the provider itself is taken as the
+  // proof. A password account says what Firebase says.
   emailVerified: user.emailVerified || providerOf(user) === 'google',
   displayName: user.displayName ?? '',
   photoUrl: user.photoURL ?? '',
@@ -357,8 +466,8 @@ const emptyProfile = (): MemberProfile => ({
  *
  * Google hands over a name and a picture as part of signing in, and asking for
  * them again on the very next screen is asking somebody to retype what they
- * just agreed to share. The email link knows nothing but the address, so that
- * path starts empty and the setup form asks — which is what it is for.
+ * just agreed to share. A password sign-up knows nothing but the address, so
+ * that path starts empty and the setup form asks — which is what it is for.
  *
  * `whatsapp` arrives from a third place again: the access code, which carried
  * it from the landing form. It is passed in rather than read off `user`
@@ -447,29 +556,20 @@ export class FirestoreDataSource implements DataSource {
   private readonly typingWrittenAt = new Map<string, number>()
 
   // =========================================================================
-  // Auth — email link and Google
+  // Auth — email and password, and Google
   //
-  // Two doors, one destination. Google settles inside a single gesture and
-  // arrives carrying a name and an avatar; the link leaves the app entirely
-  // and comes back through an inbox, possibly on another device. Everything
-  // past `toAuthUser` treats them identically.
+  // An access code makes the account and nothing else can: the code is read
+  // before anybody is signed in, the email it was issued to is checked against
+  // the one typed, and only then does an account exist. Google signs in to an
+  // account that already does. Everything past `toAuthUser` treats the two
+  // identically.
   // =========================================================================
-  /**
-   * Where Firebase sends people back to.
-   *
-   * It has to be the screen that knows how to finish the flow: the link
-   * carries its credentials in the query string and they are consumed on
-   * arrival. See `pages/access-code.vue`.
-   */
-  private actionCodeSettings() {
-    return { url: `${window.location.origin}/access-code`, handleCodeInApp: true }
-  }
-
-  /** The inbox is the whole point: proving the address is theirs. */
-  readonly instantSignIn = false
 
   /** Enabled in the Firebase console under Authentication → Sign-in method. */
   readonly googleSignIn = true
+
+  /** Real codes are sold, not printed on the screen. */
+  readonly demoAccessCode = null
 
   // --- Google ---------------------------------------------------------------
 
@@ -491,8 +591,9 @@ export class FirestoreDataSource implements DataSource {
   private googleProvider(): GoogleAuthProvider {
     const provider = new GoogleAuthProvider()
     // Without this, a browser with one Google session signs that account in
-    // silently — which is wrong here, because the account has to be the one the
-    // access code was issued to and the member is the only one who knows that.
+    // silently — which is wrong here, because somebody with two Google accounts
+    // has a DP Fitness account behind at most one of them, and they are the only
+    // one who knows which.
     provider.setCustomParameters({ prompt: 'select_account' })
     return provider
   }
@@ -503,10 +604,9 @@ export class FirestoreDataSource implements DataSource {
 
     if (this.mustRedirect()) return this.startRedirect(provider)
 
+    let credential: UserCredential
     try {
-      const credential = await signInWithPopup(auth, provider)
-      this.memberCache = null
-      return toAuthUser(credential.user)
+      credential = await signInWithPopup(auth, provider)
     } catch (cause) {
       const code = (cause as { code?: string }).code ?? ''
       // The popup never opened: a blocker, or an environment that has no such
@@ -519,6 +619,7 @@ export class FirestoreDataSource implements DataSource {
       }
       throw this.authError(cause)
     }
+    return this.existingAccount(credential)
   }
 
   /**
@@ -553,76 +654,206 @@ export class FirestoreDataSource implements DataSource {
     }
 
     webStorage.remove(REDIRECT_PENDING_KEY)
-    if (credential) {
-      this.memberCache = null
-      return toAuthUser(credential.user)
-    }
+    if (credential) return this.existingAccount(credential)
     if (pending) {
       throw new DataSourceError('Google sign-in didn’t complete.', 'popup-cancelled')
     }
     return null
   }
 
-  // --- Email link -----------------------------------------------------------
-
-  async sendSignInLink(email: string): Promise<null> {
-    const normalised = normaliseEmail(email)
-    if (!isEmail(normalised)) {
-      throw new DataSourceError('Enter the email address you paid with.', 'invalid-code')
-    }
-    try {
-      await sendSignInLinkToEmail(firebaseAuth(), normalised, this.actionCodeSettings())
-    } catch (cause) {
-      throw this.authError(cause)
-    }
-    // Parked so the same browser can finish without asking again. Another
-    // device has no such record, which is what `needs-email` is for.
-    webStorage.write(PENDING_EMAIL_KEY, normalised)
-    return null
-  }
-
-  async isSignInLink(url: string): Promise<boolean> {
-    return isSignInWithEmailLink(firebaseAuth(), url)
-  }
-
-  async completeSignInLink(url: string, email?: string): Promise<AuthUser> {
-    const supplied = email === undefined ? null : normaliseEmail(email)
-    const known = supplied ?? webStorage.read<string | null>(PENDING_EMAIL_KEY, null)
-    if (!known) {
+  /**
+   * The account Google just signed in to, as long as it was there before.
+   *
+   * Firebase makes an account for any Google identity it has not seen, and
+   * nothing on the client stops it doing that for one provider but not another:
+   * the project's "Enable create (sign-up)" switch is all-or-nothing, and would
+   * take password sign-up with it. So the account is undone here instead, in the
+   * same gesture that made it. Nothing was written against it yet — no device
+   * claim, no member document — so deleting it leaves nothing behind.
+   *
+   * If the delete itself fails, the session is ended anyway and the refusal still
+   * stands. The account survives in that one case, and a second Google sign-in
+   * would find it no longer new; it still has no member document, so it lands on
+   * the access-code screen rather than in the app.
+   */
+  private async existingAccount(credential: UserCredential): Promise<AuthUser> {
+    if (getAdditionalUserInfo(credential)?.isNewUser) {
+      try {
+        await deleteUser(credential.user)
+      } catch (cause) {
+        console.error('[auth] could not delete the account a Google sign-in created', cause)
+        await firebaseSignOut(firebaseAuth()).catch(() => {})
+      }
       throw new DataSourceError(
-        'Confirm the email address this link was sent to.',
-        'needs-email',
+        'There’s no account for that Google address. New here? Start with your access code.',
+        'no-account',
+      )
+    }
+    this.memberCache = null
+    return toAuthUser(credential.user)
+  }
+
+  // --- Access code and password ---------------------------------------------
+
+  async checkAccessCode(code: string): Promise<string> {
+    return (await this.readSeat(code)).code
+  }
+
+  /**
+   * The code's document, checked as far as it can be before anyone signs in.
+   *
+   * This is the one read in the app made by nobody, and `firestore.rules`
+   * allows it for exactly that reason: the code is the secret, so whoever holds
+   * it may look it up by name.
+   */
+  private async readSeat(code: string): Promise<{ code: string; data: DocumentData }> {
+    const normalised = normaliseCode(code)
+    // A slash is a path separator to `doc()`, which throws on it rather than
+    // finding nothing — and no code has one.
+    if (!normalised || normalised.includes('/')) {
+      throw new DataSourceError(
+        normalised
+          ? 'That code isn’t valid. Check it against your confirmation email.'
+          : 'Enter the access code from your confirmation email.',
+        'invalid-code',
       )
     }
 
+    let snap
     try {
-      const credential = await signInWithEmailLink(firebaseAuth(), known, url)
-      webStorage.remove(PENDING_EMAIL_KEY)
+      snap = await getDoc(doc(firebaseDb(), 'accessCodes', normalised))
+    } catch (cause) {
+      const failure = (cause as { code?: string }).code
+      if (failure === 'permission-denied') {
+        console.error(
+          '[datasource] Firestore refused to read an access code for a visitor who is not ' +
+            'signed in. The check runs before an account exists, so `allow get` on ' +
+            '`accessCodes` must not require sign-in — deploy `firestore.rules`.',
+          cause,
+        )
+        throw new DataSourceError(
+          'We couldn’t check that code just now. Contact support.',
+          'unknown',
+        )
+      }
+      if (failure === 'unavailable') {
+        throw new DataSourceError(
+          'We couldn’t check that code. Check your connection and try again.',
+          'unknown',
+        )
+      }
+      throw this.readError(cause)
+    }
+
+    if (!snap.exists()) {
+      throw new DataSourceError(
+        'That code isn’t valid. Check it against your confirmation email.',
+        'invalid-code',
+      )
+    }
+    const data = snap.data()
+    assessSeat(normalised, data, null)
+    return { code: normalised, data }
+  }
+
+  async createAccount(code: string, email: string, password: string): Promise<AuthUser> {
+    const address = normaliseEmail(email)
+    if (!isEmail(address)) {
+      throw new DataSourceError(
+        'Enter the email address your access code was sent to.',
+        'invalid-email',
+      )
+    }
+
+    const { data } = await this.readSeat(code)
+
+    // Checked here as well as by the claim rule, and before the account rather
+    // than after it: the rule would refuse the redemption, but only once an
+    // account had been made for an address the code never paid for. A code with
+    // no address on it — issued by hand — makes an account for whoever holds it.
+    //
+    // The address is never handed back. A member who typed the wrong one is told
+    // so, not told which one it should have been.
+    if (data.issuedToEmail && normaliseEmail(data.issuedToEmail) !== address) {
+      throw new DataSourceError(
+        'That isn’t the email your access code was sent to. Use the one you registered with.',
+        'code-wrong-email',
+      )
+    }
+
+    let credential: UserCredential
+    try {
+      credential = await createUserWithEmailAndPassword(firebaseAuth(), address, password)
+    } catch (cause) {
+      if ((cause as { code?: string }).code !== 'auth/email-already-in-use') {
+        throw this.authError(cause)
+      }
+      credential = await this.resumeAccount(address, password)
+    }
+
+    this.memberCache = null
+    return toAuthUser(credential.user)
+  }
+
+  /**
+   * Back in to an account an earlier sign-up already made.
+   *
+   * The code above is still unused, so whoever made this account never finished
+   * redeeming it — and the password they just chose is the one they chose last
+   * time, if it was them. A match finishes the sign-up; a mismatch is somebody
+   * whose way in is the sign-in screen.
+   */
+  private async resumeAccount(email: string, password: string): Promise<UserCredential> {
+    try {
+      return await signInWithEmailAndPassword(firebaseAuth(), email, password)
+    } catch (cause) {
+      if (isCredentialMismatch(cause)) {
+        throw new DataSourceError(
+          'There’s already an account with this email. Sign in instead.',
+          'account-exists',
+        )
+      }
+      throw this.authError(cause)
+    }
+  }
+
+  async signInWithPassword(email: string, password: string): Promise<AuthUser> {
+    const address = normaliseEmail(email)
+    if (!isEmail(address)) {
+      throw new DataSourceError('Enter the email address you signed up with.', 'invalid-email')
+    }
+    if (!password) {
+      throw new DataSourceError('Enter your password.', 'invalid-credentials')
+    }
+    try {
+      const credential = await signInWithEmailAndPassword(firebaseAuth(), address, password)
       this.memberCache = null
       return toAuthUser(credential.user)
     } catch (cause) {
-      const code = (cause as { code?: string }).code
-      if (code === 'auth/invalid-action-code' || code === 'auth/expired-action-code') {
-        // Single-use and time-limited, and an already-consumed link reports the
-        // same way as an expired one. There is nothing to salvage either way.
-        webStorage.remove(PENDING_EMAIL_KEY)
-        throw new DataSourceError(
-          'That sign-in link has expired or has already been used. Ask for a new one.',
-          'expired-link',
-        )
-      }
-      // On *this* call `auth/invalid-email` means the address didn't match the
-      // one the link was issued to, not that it was malformed — the endpoint
-      // checks the pair. That happens with a stale parked address, or when the
-      // member confirms the wrong inbox on another device. Drop the bad record
-      // and ask, rather than failing at somebody who can still get this right.
-      if (code === 'auth/invalid-email') {
-        webStorage.remove(PENDING_EMAIL_KEY)
-        throw new DataSourceError(
-          'That link was sent to a different email address. Enter the one you asked from.',
-          'needs-email',
-        )
-      }
+      throw this.authError(cause)
+    }
+  }
+
+  /**
+   * Where the provider's reset page offers to send the member afterwards.
+   *
+   * On iOS that "continue" opens in Safari rather than the home-screen app, and
+   * nothing is lost: the reset has already happened on the provider's page, and
+   * the app only needs the new password typed into it.
+   */
+  async sendPasswordReset(email: string): Promise<void> {
+    const address = normaliseEmail(email)
+    if (!isEmail(address)) {
+      throw new DataSourceError('Enter the email address you signed up with.', 'invalid-email')
+    }
+    try {
+      await sendPasswordResetEmail(firebaseAuth(), address, {
+        url: `${window.location.origin}/sign-in`,
+      })
+    } catch (cause) {
+      // Only a project without email enumeration protection says this, and
+      // repeating it would tell a stranger the address has no account.
+      if ((cause as { code?: string }).code === 'auth/user-not-found') return
       throw this.authError(cause)
     }
   }
@@ -736,10 +967,12 @@ export class FirestoreDataSource implements DataSource {
    */
   async redeemAccessCode(code: string): Promise<Member> {
     const user = await this.requireUser()
-    const normalised = code.trim().toUpperCase()
-    if (!normalised) {
+    const normalised = normaliseCode(code)
+    if (!normalised || normalised.includes('/')) {
       throw new DataSourceError(
-        'Enter the access code from your confirmation email.',
+        normalised
+          ? 'That code isn’t valid or has already been used.'
+          : 'Enter the access code from your confirmation email.',
         'invalid-code',
       )
     }
@@ -747,6 +980,11 @@ export class FirestoreDataSource implements DataSource {
     const db = firebaseDb()
     const codeRef = doc(db, 'accessCodes', normalised)
     const memberRef = doc(db, 'members', user.uid)
+
+    // Recorded on the membership, and required there by the rules: it is what
+    // decides whether a later Google sign-in needs a verified address. Read off
+    // the token because that is the value the rules compare it with.
+    const joinedWith = (await user.getIdTokenResult()).signInProvider ?? ''
 
     const member = await runTransaction(db, async (tx) => {
       const [codeSnap, memberSnap] = await Promise.all([tx.get(codeRef), tx.get(memberRef)])
@@ -765,87 +1003,17 @@ export class FirestoreDataSource implements DataSource {
       }
       const codeData = codeSnap.data()
 
-      // Every field the claim rule reads has to exist before anything else is
-      // worth checking.
-      //
-      // A security rule that reads a field the document does not have does not
-      // evaluate to false — it errors, and an errored rule is a denied write.
-      // So `status`, `expiresAt` and `issuedToEmail` must be *present*, even
-      // where their value may be null. The friendly checks below are all
-      // written as `codeData.x && …`, which a missing field sails straight
-      // through, so without this a code typed by hand into the console passes
-      // every check in this file and then dies in the transaction with nothing
-      // but "permission-denied" — several layers below anything that could say
-      // which field was missing. See `AccessCodeDoc` for the full shape and
-      // `firestore.rules` for the rule this mirrors.
-      //
-      // `issuedToWhatsapp` is deliberately not in this list. The list exists
-      // because a *rule* that reads an absent field errors, and no rule reads
-      // that one — it is only copied into the profile below, where `?? ''`
-      // handles its absence. Requiring it here would reject every code written
-      // before the field existed, in exchange for nothing.
-      const missing = (['status', 'expiresAt', 'issuedToEmail', 'cohortId'] as const).filter(
-        (field) => !(field in codeData),
-      )
-      if (missing.length) {
-        console.error(
-          `[datasource] accessCodes/${normalised} is missing: ${missing.join(', ')}. ` +
-            'The claim rule reads each of these, and a rule that reads an absent field ' +
-            'errors, which denies the write. `issuedToEmail` may be null but must exist.',
-        )
-        throw new DataSourceError(
-          'That code isn’t set up correctly. Contact support.',
-          'invalid-code',
-        )
-      }
+      // A reclaim rebuilds the member document for a seat this uid already
+      // holds. Nothing is granted that the claim did not already grant: the code
+      // is not re-claimed, and the document is rebuilt for the uid it names.
+      const { reclaiming } = assessSeat(normalised, codeData, user.uid)
 
-      if (codeData.status === 'revoked') {
-        throw new DataSourceError('That code has been revoked. Contact support.', 'invalid-code')
-      }
-
-      /**
-       * This account's own claim, with no member document behind it.
-       *
-       * The seat is already theirs — `claimedByUid` says so — and the early
-       * return above did not fire, so the document that seat pays for is gone:
-       * deleted, or never written because something failed between the two
-       * halves of a previous transaction. Every check below is about whether a
-       * *new* claim is allowed, and none of them apply to a seat that was
-       * bought and claimed months ago. Answering "that code has already been
-       * used" to the person who used it is the one reply that leaves them with
-       * nothing to do, on the one screen they are allowed to reach.
-       *
-       * Nothing is granted here that the claim did not already grant: the code
-       * is not re-claimed, only the member document is rebuilt, and it is
-       * rebuilt for the uid the code already names.
-       */
-      const reclaiming = codeData.status === 'claimed' && codeData.claimedByUid === user.uid
-
-      if (codeData.status === 'claimed' && !reclaiming) {
-        throw new DataSourceError('That code has already been used.', 'code-claimed')
-      }
-      // Anything else is not a state the rule will claim from: it requires
-      // `status == 'unused'` exactly, so a typo denies the write in silence.
-      if (!reclaiming && codeData.status !== 'unused') {
-        console.error(
-          `[datasource] accessCodes/${normalised} has status "${codeData.status}". ` +
-            'The claim rule requires exactly "unused".',
-        )
-        throw new DataSourceError(
-          'That code isn’t set up correctly. Contact support.',
-          'invalid-code',
-        )
-      }
-      // Expiry is a deadline on redeeming, not on the membership it bought. A
-      // seat claimed inside the window stays claimed after it closes, so this
-      // is only asked of a code being claimed now.
-      if (!reclaiming && codeData.expiresAt.toMillis() < Date.now()) {
-        throw new DataSourceError('That code has expired. Contact support.', 'code-expired')
-      }
-      // A code issued against a purchase can only be redeemed by that buyer,
-      // which is the whole reason both ways in turn on an email address.
-      // Compared case-insensitively: the email-link path lowercases what the
-      // member typed, Google returns whatever case the account was created
+      // A code issued against a purchase can only be redeemed by that buyer.
+      // `createAccount` has already checked the address typed at sign-up; this
+      // is the session's, which is what the claim rule compares, and it can
+      // differ — a Google account, or an account from before sign-up began with
+      // the code. Compared case-insensitively: the password path lowercases what
+      // the member typed, Google returns whatever case the account was created
       // with, and an admin types the address into the console by hand. Three
       // sources, one address, and a capital letter must not cost a seat.
       if (
@@ -867,6 +1035,7 @@ export class FirestoreDataSource implements DataSource {
       const created: MemberDoc = {
         email: user.email ?? '',
         emailVerified: user.emailVerified,
+        joinedWith,
         status: 'onboarding',
         previousStatus: null,
         pauseReason: null,
@@ -914,8 +1083,8 @@ export class FirestoreDataSource implements DataSource {
       tx.set(
         this.leaderboardRef(codeData.cohortId, user.uid),
         {
-          // Google hands over a name at sign-in; the email-link path does not,
-          // and setup is where that member picks one. Same fallback the other
+          // Google hands over a name at sign-in; a password does not, and
+          // setup is where that member picks one. Same fallback the other
           // two writers use, so the board reads consistently whoever wrote last.
           name: created.profile.displayName || 'Member',
           avatarUrl: created.profile.avatarUrl || '',
@@ -2546,7 +2715,30 @@ export class FirestoreDataSource implements DataSource {
 
     switch (code) {
       case 'auth/invalid-email':
-        return new DataSourceError('That email address doesn’t look right.', 'invalid-code')
+        return new DataSourceError('That email address doesn’t look right.', 'invalid-email')
+
+      case 'auth/invalid-credential':
+      case 'auth/invalid-login-credentials':
+      case 'auth/wrong-password':
+      case 'auth/user-not-found':
+        return new DataSourceError(
+          'That email and password don’t match. Try again, or reset your password.',
+          'invalid-credentials',
+        )
+      case 'auth/missing-password':
+        return new DataSourceError('Enter your password.', 'invalid-credentials')
+      case 'auth/weak-password':
+      case 'auth/password-does-not-meet-requirements':
+        return new DataSourceError(
+          'Choose a stronger password — longer, with a mix of letters and numbers.',
+          'weak-password',
+        )
+      case 'auth/email-already-in-use':
+        return new DataSourceError(
+          'There’s already an account with this email. Sign in instead.',
+          'account-exists',
+        )
+
       case 'auth/too-many-requests':
         return new DataSourceError(
           'Too many attempts. Try again in a few minutes.',
@@ -2567,12 +2759,12 @@ export class FirestoreDataSource implements DataSource {
       case 'auth/user-cancelled':
         return new DataSourceError('Google sign-in was cancelled.', 'popup-cancelled')
 
-      // The address already belongs to a user created by the other provider.
-      // Firebase will link them, but only after this account proves itself —
-      // and the link they already have is the proof.
+      // A Google account whose address already has a password account, where
+      // Firebase will not link the two on Google's word alone — it does for
+      // Gmail addresses, and refuses for the rest. The password is the way in.
       case 'auth/account-exists-with-different-credential':
         return new DataSourceError(
-          'That email is already set up with a sign-in link. Use “Email me a link” instead.',
+          'That email signs in with a password. Use your email and password instead.',
           'account-exists',
         )
 
@@ -2588,22 +2780,19 @@ export class FirestoreDataSource implements DataSource {
         )
 
       // `ADMIN_ONLY_OPERATION` underneath, and it means one thing: the project
-      // will not let this call create an account. Worth naming the setting,
-      // because the failure lands *after* the provider has already succeeded —
-      // Google hands back a complete, verified identity and Firebase then
-      // refuses to make a user out of it — so it reads like a broken sign-in
-      // rather than a switch somebody turned off.
+      // will not let this call create or delete an account. Worth naming the
+      // setting, because it reads like a broken sign-up rather than a switch
+      // somebody turned off — and it is needed both ways: sign-up creates, and a
+      // Google sign-in with no account behind it deletes what it made.
       case 'auth/admin-restricted-operation':
         console.error(
-          '[auth] The project is refusing to create accounts from the client, so no ' +
-            'first-time member can sign in with any provider. Firebase console → ' +
-            'Authentication → Settings → User actions → tick "Enable create (sign-up)". ' +
-            'If only the email link fails, it is the other one: Sign-in method → ' +
-            'Email/Password → "Email link (passwordless sign-in)".',
+          '[auth] The project is refusing to create or delete accounts from the client, ' +
+            'so no access code can make an account. Firebase console → Authentication → ' +
+            'Settings → User actions → tick "Enable create (sign-up)" and "Enable delete".',
           cause,
         )
         return new DataSourceError(
-          'Sign-in isn’t available right now. Contact support.',
+          'Sign-up isn’t available right now. Contact support.',
           'provider-disabled',
         )
 

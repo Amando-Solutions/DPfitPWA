@@ -623,9 +623,25 @@ export interface MemberStats {
 export type MemberStatus = 'onboarding' | 'active' | 'paused' | 'completed'
 
 export interface MemberDoc extends UpdatedBy {
-  /** From Firebase Auth. The address the sign-in link was sent to. */
+  /**
+   * From Firebase Auth, at redemption: the address the access code was issued
+   * to. Fixed after that — `firestore.rules` refuses an account whose email no
+   * longer matches it, so an email change made through the Auth API cannot take
+   * the membership with it. Support changing a member's email changes both.
+   */
   email: string
   emailVerified: boolean
+  /**
+   * The sign-in the membership was made under, as the ID token names it:
+   * `password`, or `google.com` for an account from before access codes came
+   * first. Fixed once written.
+   *
+   * Absent on memberships made before the field existed, and the rules read that
+   * absence: those members may sign in with Google on any address, where a
+   * newer membership needs Firebase to have verified it. See `trustsSignIn` in
+   * `firestore.rules`.
+   */
+  joinedWith?: string
   status: MemberStatus
   /** What to return to on resume. Only set while `status === 'paused'`. */
   previousStatus: Exclude<MemberStatus, 'paused'> | null
@@ -1091,7 +1107,14 @@ export interface TypingPeer {
 // =============================================================================
 
 /** How this session proved the address. */
-export type AuthProvider = 'email-link' | 'google'
+/**
+ * How this session signed in.
+ *
+ * `password` covers every account the old sign-in link made, too: Firebase files
+ * the link and the password under the same provider, which is also why a
+ * password reset gives those accounts a password without touching anything else.
+ */
+export type AuthProvider = 'password' | 'google'
 
 /** The signed-in Firebase Auth user, before any member document is involved. */
 export interface AuthUser {
@@ -1101,8 +1124,8 @@ export interface AuthUser {
   /**
    * What the provider already knew about them.
    *
-   * Google hands over a name and an avatar; an email link hands over nothing
-   * but the address, so both are empty strings on that path. `redeemAccessCode`
+   * Google hands over a name and an avatar; an email and password hand over
+   * nothing but the address, so both are empty strings on that path. `redeemAccessCode`
    * seeds the new member's profile from these, which is the difference between
    * arriving at setup with your name already in the field and typing it again.
    */
@@ -1110,16 +1133,6 @@ export interface AuthUser {
   photoUrl: string
   provider: AuthProvider
 }
-
-export type SignInLinkStatus =
-  /** Nothing pending; show the email field. */
-  | 'idle'
-  /** Link sent, waiting for them to open it. */
-  | 'sent'
-  /** Opened on a different device, so the address has to be re-entered. */
-  | 'needs-email'
-  | 'expired'
-  | 'invalid'
 
 /**
  * `signIns/{uid}` — the account's most recent sign-in. One per account.
@@ -1147,9 +1160,11 @@ export interface SignInDoc {
  * The first three exist because auth and cohort membership are separate facts,
  * and the routing goes wrong in a different way for each:
  *
- *   `needs-auth`  nobody is signed in. The sign-in half of `/access-code`.
- *   `needs-code`  signed in, and the member document is *known* to be absent.
- *                 The code half.
+ *   `needs-auth`  nobody is signed in. `/access-code` to make an account,
+ *                 `/sign-in` to use one.
+ *   `needs-code`  signed in, and the member document is *known* to be absent:
+ *                 a sign-up cut off before its code was redeemed. `/access-code`,
+ *                 which redeems for the session already there.
  *   `unknown`     signed in, and the member document could not be read at all
  *                 — offline, blocked, or refused. Not the same as not having
  *                 one, and it must never be answered with the code prompt: a

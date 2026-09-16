@@ -144,6 +144,9 @@ const readMessage = (cause: unknown): string =>
 /** Whether the tour has been seen on this device. A device key: sign-out keeps it. */
 const ONBOARDED_KEY = `${DEVICE_PREFIX}onboarded`
 
+/** Whether any account has been signed in on this device. A device key, like the tour's. */
+const SIGNED_IN_BEFORE_KEY = `${DEVICE_PREFIX}signed-in-before`
+
 /** What a device signed out by a later sign-in is told, on the sign-in screen. */
 const SIGNED_IN_ELSEWHERE =
   'Your account was signed in on another device, so you’ve been signed out here.'
@@ -191,8 +194,8 @@ const buildStore = () => {
    * it — which runs in a plugin, before the app mounts, so it is not an error
    * message, it is a 500 page instead of an app.
    *
-   * `/access-code` picks this up on mount, which is the screen a member in
-   * either state is looking at anyway.
+   * `/sign-in` picks this up on mount, which is where `doorRoute` sends a
+   * visitor carrying one: both are about an account that already exists.
    */
   const startupError = ref('')
 
@@ -216,6 +219,19 @@ const buildStore = () => {
     isOnboarded.value = true
     storage.write(ONBOARDED_KEY, true)
   }
+
+  /**
+   * Whether this device has had an account signed in on it.
+   *
+   * What decides which door a signed-out visitor is shown. Somebody who has
+   * never signed in here is most likely new and holding a code; somebody who
+   * has, signed out or was signed out, and has an account to go back to. The
+   * tour flag cannot answer that — a member who closes the app halfway through
+   * sign-up has seen the tour and still has no account.
+   */
+  const signedInBefore = useState<boolean>('signed-in-before', () =>
+    storage.read<boolean>(SIGNED_IN_BEFORE_KEY, false),
+  )
 
   // --- Loading -------------------------------------------------------------
   const hydrate = async (force = false) => {
@@ -258,11 +274,17 @@ const buildStore = () => {
       return
     }
 
-    // Anybody signed in here is past the tour, however they got in: a sign-in
-    // link opened on a fresh device skips it, and members signed in from before
-    // the flag existed never set it. Recorded now, so signing out later does
-    // not send them back through it.
-    if (authUser) markOnboarded()
+    // Anybody signed in here is past the tour, however they got in: members
+    // signed in from before the flag existed never set it. Recorded now, so
+    // signing out later does not send them back through it — and so the door
+    // they are shown afterwards is the one for an account they already have.
+    if (authUser) {
+      markOnboarded()
+      if (!signedInBefore.value) {
+        signedInBefore.value = true
+        storage.write(SIGNED_IN_BEFORE_KEY, true)
+      }
+    }
 
     // One device at a time, settled before anything is read as this member.
     // The rules refuse every read from a device that has lost the account, and
@@ -466,9 +488,10 @@ const buildStore = () => {
   /**
    * How far through the door this visitor is.
    *
-   * Auth and cohort membership are separate facts now that sign-in is an email
-   * link, so "signed in" is no longer the same question as "has an account
-   * here". Route middleware branches on this rather than re-deriving it.
+   * Auth and cohort membership are separate facts — an account exists a moment
+   * before its code is redeemed, and a sign-up cut off in that moment stays
+   * there — so "signed in" is not the same question as "has an account here".
+   * Route middleware branches on this rather than re-deriving it.
    *
    * The three states before `needs-setup` are the ones worth keeping apart. A
    * missing member document used to mean all three at once, so a signed-in
@@ -490,6 +513,21 @@ const buildStore = () => {
     () =>
       gate.value === 'needs-auth' || gate.value === 'needs-code' || gate.value === 'unknown',
   )
+
+  /**
+   * The screen a visitor at the door belongs on.
+   *
+   * Signed in without a readable membership, only `/access-code` has anything
+   * for them: it redeems a code for the session they have, or retries the read.
+   * Signed out, it is a guess between two doors, each with a link to the other:
+   * `/sign-in` for a device that has had an account on it, or for a load that
+   * has something to say about one — signed out by another device, a Google
+   * sign-in refused — and `/access-code` for everybody new.
+   */
+  const doorRoute = computed(() => {
+    if (gate.value === 'needs-code' || gate.value === 'unknown') return '/access-code'
+    return signedInBefore.value || startupError.value ? '/sign-in' : '/access-code'
+  })
 
   const displayName = computed(() => profile.value?.displayName?.trim() || 'there')
 
@@ -1179,37 +1217,21 @@ const buildStore = () => {
     })
 
   // --- Actions: auth -------------------------------------------------------
-  /**
-   * Start sign-in for `email`.
-   *
-   * Normally that means emailing a link and resolving to `null`: the flow
-   * resumes when they open it, which may be minutes later and on a different
-   * device. On device there is no inbox, so the data source signs them in on
-   * the spot and hands back the user — the same state `completeSignInLink`
-   * would have reached, so it re-hydrates for the same reason.
-   */
-  const sendSignInLink = async (email: string) => {
-    const user = await data.sendSignInLink(email)
-    if (user) await hydrate(true)
-    return user
-  }
-
-  /** Whether `sendSignInLink` signs in outright instead of emailing a link. */
-  const instantSignIn = data.instantSignIn
-
   /** Whether the Google button has anything behind it. */
   const googleSignIn = data.googleSignIn
 
+  /** A code to print on the screen, where the data source has one. */
+  const demoAccessCode = data.demoAccessCode
+
   /**
-   * Sign in with Google.
+   * Sign in with Google, to an account that already exists.
    *
    * Resolves to `null` when the data source had to hand the page over to a
    * full-page redirect: there is no user yet and this document is about to
    * stop existing, so there is nothing to hydrate and nothing for the caller
-   * to do. The other branch is a popup that came back with a user, which is
-   * the same state `completeSignInLink` reaches and re-hydrates for the same
-   * reason — the member document and everything derived from it belong to
-   * whoever just signed in, and none of it was loaded for them.
+   * to do. The other branch is a popup that came back with a user, and the
+   * member document and everything derived from it belong to whoever just
+   * signed in, none of it loaded for them — so it re-hydrates.
    */
   const signInWithGoogle = async () => {
     startupError.value = ''
@@ -1218,20 +1240,39 @@ const buildStore = () => {
     return user
   }
 
-  const isSignInLink = (url: string) => data.isSignInLink(url)
+  /** Is this code good for a new account? Resolves to the code as stored. */
+  const checkAccessCode = (code: string) => data.checkAccessCode(code)
 
   /**
-   * Finish sign-in from an opened link.
+   * Make the account a code pays for, and redeem the code on it.
    *
-   * Re-hydrates rather than just setting `authUser`: the member document, their
-   * logs and everything derived from them all belong to whoever just signed in,
-   * and none of it was loaded for them.
+   * Two steps with a load between them, because the redemption is refused to
+   * a session that has not claimed this device yet — and `hydrate` is what
+   * claims it. The load also answers whether there is anything left to redeem:
+   * an account from an earlier, interrupted sign-up may have got further than
+   * this one knows.
+   *
+   * If the redemption fails, the account stays. The member is then signed in
+   * without a membership, which is `needs-code`, and the access-code screen
+   * redeems for exactly that session when they try again — deleting the account
+   * would only make them choose a password a second time.
    */
-  const completeSignInLink = async (url: string, email?: string) => {
-    const user = await data.completeSignInLink(url, email)
+  const createAccount = async (code: string, email: string, password: string) => {
+    startupError.value = ''
+    await data.createAccount(code, email, password)
+    await hydrate(true)
+    if (gate.value === 'needs-code') await redeemAccessCode(code)
+  }
+
+  /** Sign in with an email and password, and load whoever that is. */
+  const signInWithPassword = async (email: string, password: string) => {
+    startupError.value = ''
+    const user = await data.signInWithPassword(email, password)
     await hydrate(true)
     return user
   }
+
+  const sendPasswordReset = (email: string) => data.sendPasswordReset(email)
 
   // --- Actions: membership -------------------------------------------------
   /**
@@ -1294,7 +1335,7 @@ const buildStore = () => {
     }
     // After the sign-out, because `hydrate` clears it on the way in.
     startupError.value = SIGNED_IN_ELSEWHERE
-    await nuxtApp.runWithContext(() => navigateTo('/access-code', { replace: true }))
+    await nuxtApp.runWithContext(() => navigateTo('/sign-in', { replace: true }))
   }
 
   watch(
@@ -1671,6 +1712,7 @@ const buildStore = () => {
     isSetupComplete,
     gate,
     atTheDoor,
+    doorRoute,
     isOnboarded: computed(() => isOnboarded.value),
     markOnboarded,
     displayName,
@@ -1711,13 +1753,14 @@ const buildStore = () => {
     tick,
     refreshClock,
     refreshCohortMemberCount,
-    instantSignIn,
     googleSignIn,
+    demoAccessCode,
     signInWithGoogle,
     startupError,
-    sendSignInLink,
-    isSignInLink,
-    completeSignInLink,
+    checkAccessCode,
+    createAccount,
+    signInWithPassword,
+    sendPasswordReset,
     redeemAccessCode,
     saveProfile,
     completeSetup,

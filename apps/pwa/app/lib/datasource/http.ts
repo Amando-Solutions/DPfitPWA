@@ -147,9 +147,6 @@ export class HttpDataSource implements DataSource {
   }
 
   // --- Auth ----------------------------------------------------------------
-  /** A backend sends a real email, so the wait for it is real too. */
-  readonly instantSignIn = false
-
   /**
    * Off, because Google sign-in is a client-SDK flow and this implementation
    * has no client SDK behind it.
@@ -160,6 +157,8 @@ export class HttpDataSource implements DataSource {
    * implementation, which is the one that has it.
    */
   readonly googleSignIn = false
+
+  readonly demoAccessCode = null
 
   async signInWithGoogle(): Promise<never> {
     throw new DataSourceError(
@@ -172,17 +171,25 @@ export class HttpDataSource implements DataSource {
     return null
   }
 
-  async sendSignInLink(email: string) {
-    await this.send('/auth/sign-in-link', 'POST', { email })
-    return null
+  async checkAccessCode(code: string) {
+    const { code: normalised } = await this.send<{ code: string }>(
+      '/auth/access-code/check',
+      'POST',
+      { code },
+    )
+    return normalised
   }
 
-  async isSignInLink(url: string) {
-    return new URL(url, this.baseURL).searchParams.has('oobCode')
+  createAccount(code: string, email: string, password: string) {
+    return this.send<AuthUser>('/auth/account', 'POST', { code, email, password })
   }
 
-  completeSignInLink(url: string, email?: string) {
-    return this.send<AuthUser>('/auth/session', 'POST', { url, email })
+  signInWithPassword(email: string, password: string) {
+    return this.send<AuthUser>('/auth/session', 'POST', { email, password })
+  }
+
+  async sendPasswordReset(email: string) {
+    await this.send('/auth/password-reset', 'POST', { email })
   }
 
   getAuthUser() {

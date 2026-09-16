@@ -124,7 +124,8 @@ once-a-day rule of its own.
 
 | State | Where they can go |
 | --- | --- |
-| No member | `/onboarding`, `/access-code` |
+| Signed out | `/onboarding`, `/access-code` (make an account), `/sign-in` (use one) |
+| Signed in, no member | `/access-code`, which redeems for that session |
 | Member, setup unfinished | the four `/setup/*` steps |
 | Member, setup done | the app; intro screens bounce to `/home` |
 

@@ -17,6 +17,12 @@ withDefaults(
      * phone would still raise the wrong keyboard.
      */
     inputmode?: 'text' | 'decimal' | 'numeric' | 'tel' | 'email' | 'url' | 'search'
+    /**
+     * Forwarded for the same reason. It is what a password manager reads: iOS
+     * offers a strong password on `new-password` and fills a saved one on
+     * `current-password`, and neither happens against the label.
+     */
+    autocomplete?: string
     /** For a field whose visible label sits outside the component. */
     ariaLabel?: string
   }>(),
@@ -56,6 +62,7 @@ defineEmits<{
         :class="mono && 'font-data tracking-[1px]'"
         :type="type"
         :inputmode="inputmode"
+        :autocomplete="autocomplete"
         :aria-label="ariaLabel"
         :value="modelValue ?? ''"
         :placeholder="placeholder"

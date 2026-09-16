@@ -96,13 +96,101 @@ service cloud.firestore {
     }
 
     /**
-     * Signed in, on the device the account most recently signed in on.
+     * The caller's member document, or `null` before they have one.
+     *
+     * One `get`, of the same document `me()` reads: a request that calls both
+     * is billed for one read.
+     */
+    function membership() {
+      return get(/databases/$(database)/documents/members/$(request.auth.uid));
+    }
+
+    /**
+     * Whether the account still has the email its membership was made with.
+     *
+     * A code is claimed only by an account under the address it was issued to,
+     * and that is what makes a code in the wrong hands recoverable: whoever used
+     * it made the account under the buyer's address, so the buyer's password
+     * reset takes it back. The app offers no way to change an email, but
+     * Firebase lets any signed-in account change its own through the public
+     * API — and an account moved to another address is out of that reset's
+     * reach.
+     *
+     * Rules cannot stop that change; Auth is not governed by them. They can make
+     * it worthless. The address is fixed on the member document (see `members`
+     * below), and an account whose email no longer matches it is refused
+     * everything a member can do.
+     *
+     * No member document yet passes, because nothing is bound: the claim and
+     * the document it creates check the address against the code directly. Nor
+     * does a document with no email on it, which creation cannot produce, so a
+     * stray one is not a member locked out. Case is folded, as everywhere an
+     * address is compared.
+     *
+     * Support changing a member's email on the Admin SDK has to change
+     * `members/{uid}.email` with it, or the member is locked out.
+     */
+    function keepsMemberEmail(member) {
+      let bound = member == null ? '' : member.data.get('email', '');
+      return bound == ''
+        || bound.lower() == request.auth.token.get('email', '').lower();
+    }
+
+    /**
+     * Whether this sign-in may act for the account.
+     *
+     * A password or an email link is trusted as it is. Google is different,
+     * because it can be *added* to an account afterwards: anybody signed in can
+     * link their own Google account through the public API, and a password
+     * reset does not unlink it. Whoever made an account with somebody else's
+     * code could link Google, and keep a way in after the buyer reset the
+     * password and took the account back.
+     *
+     * So a Google sign-in counts when Firebase has verified the account's
+     * address — as it has for a Gmail member signing in with their own Google
+     * account, and has not for an account made with a password under somebody
+     * else's address — or when the membership was made before password sign-up
+     * existed. Those have no `joinedWith`: every membership since records the
+     * sign-in it was made under, and nothing can remove it. They need the
+     * exemption because Firebase only takes Google's word for Gmail addresses,
+     * so a member who joined with Google on a work address was never verified.
+     *
+     * Before there is a membership, a Google sign-in needs the verified address:
+     * otherwise a linked Google account could redeem the code itself.
+     */
+    function trustsSignIn(member) {
+      return request.auth.token.firebase.sign_in_provider != 'google.com'
+        || request.auth.token.get('email_verified', false) == true
+        || (member != null && !('joinedWith' in member.data));
+    }
+
+    /**
+     * Signed in, on the device the account most recently signed in on, under
+     * the email its membership was made with, by a sign-in the account trusts.
      *
      * Every member rule starts here, so a device that has lost the account to
-     * a later sign-in is refused everything but finding that out.
+     * a later sign-in is refused everything but finding that out, and an
+     * account that has changed its email or been reached through a linked
+     * Google account is refused everything.
      */
     function signedIn() {
-      return request.auth != null && onLatestSignIn();
+      return request.auth != null && onLatestSignIn() && inGoodStanding(membership());
+    }
+
+    /** Split out so the member document is only read once somebody is signed in. */
+    function inGoodStanding(member) {
+      return keepsMemberEmail(member) && trustsSignIn(member);
+    }
+
+    /**
+     * A member: all of `signedIn()`, and a member document behind it.
+     *
+     * An account alone is not a purchase. Anybody can make one with a single
+     * request to Firebase's sign-up API, which takes the public key in the app's
+     * own JavaScript and no access code; the membership is what the code buys.
+     */
+    function isMember() {
+      return signedIn() && membership() != null;
     }
 
     function isSelf(uid) {
@@ -288,7 +376,7 @@ service cloud.firestore {
         && request.time < resource.data.expiresAt
         // A code issued against a purchase is redeemable only by that buyer.
         // Compared case-insensitively, and it has to be: the address reaches
-        // this rule from three different places — lowercased by the email-link
+        // this rule from three different places — lowercased by the sign-up
         // form, in whatever case the account was created with from Google, and
         // typed by hand into the console when the code was issued. An exact
         // match would cost a member their seat over a capital letter, and the
@@ -320,7 +408,13 @@ service cloud.firestore {
       // The first stops a device naming a sign-in it did not make; the second
       // stops an older device taking the account back. Signing in again is
       // the only way back, and that makes it the latest.
+      //
+      // And only by a sign-in the account trusts. A Google account linked to
+      // somebody else's membership could otherwise sign that member out of
+      // every device, over and over, even though `signedIn()` gives it
+      // nothing to read.
       allow create, update: if request.auth != null && request.auth.uid == uid
+        && trustsSignIn(membership())
         && request.resource.data.keys().hasOnly(['authTime', 'signedInAt'])
         && request.resource.data.authTime == request.auth.token.auth_time
         && request.resource.data.signedInAt == request.time
@@ -335,7 +429,15 @@ service cloud.firestore {
       // `get` but never `list`. The code IS the secret, so looking one up by
       // name is the intended operation; enumerating the collection would hand
       // over every unredeemed seat in the business.
-      allow get: if isAdmin() || signedIn();
+      //
+      // Not gated on sign-in, because the code comes before the account: it is
+      // checked — real, unused, in date — before there is anybody to sign in,
+      // and the address it was issued to is compared before an account is made
+      // for it. What that exposes is this one document to whoever already holds
+      // its code: the buyer's own address and number, to the buyer. A generated
+      // code is 40 random bits, so holding one means having been sent it.
+      // Everything that *spends* a code is still signed in, below.
+      allow get: if true;
       allow list: if isAdmin();
 
       allow create: if isAdmin() && isValidCodeCreate(code);
@@ -512,9 +614,10 @@ service cloud.firestore {
     }
 
     match /programs/{programId} {
-      // [MERGE] Authored content. Every signed-in member reads it — the PWA
-      // loads the program and its workout days on every session.
-      allow read: if isAdmin() || signedIn();
+      // [MERGE] Authored content. Members read it — the PWA loads the program
+      // and its workout days on every session — and an account without a
+      // membership does not: see `isMember`.
+      allow read: if isAdmin() || isMember();
 
       allow create: if isAdmin() && isValidProgramCreate(programId);
       allow update: if isAdmin()
@@ -528,7 +631,7 @@ service cloud.firestore {
         && resource.data.workoutDayCount == 0;
 
       match /workoutDays/{dayId} {
-        allow read: if isAdmin() || signedIn();
+        allow read: if isAdmin() || isMember();
 
         allow create: if isAdmin()
           && programData(programId).status == 'draft'
@@ -819,6 +922,9 @@ service cloud.firestore {
       return request.resource.data.status == 'onboarding'
         && request.resource.data.accessCode is string
         && request.resource.data.email == request.auth.token.email
+        // The sign-in it was made under, which is what `trustsSignIn` reads.
+        // Required, so no new membership can pass for one from before it.
+        && request.resource.data.joinedWith == request.auth.token.firebase.sign_in_provider
         // Points cannot be conjured at sign-up.
         && request.resource.data.stats.points == 0
         && request.resource.data.stats.sessionsQualified == 0
@@ -830,7 +936,11 @@ service cloud.firestore {
 
     /**
      * Immutable once set: these define who the member is and what they paid
-     * for, and a self-service change to any of them is an attack.
+     * for, and a self-service change to any of them is an attack. `email`
+     * among them, because it is what `keepsMemberEmail` holds the account to —
+     * an account that could rewrite it could follow its own email change. And
+     * `joinedWith`, whose absence is what exempts a membership from
+     * `trustsSignIn`: deleting it would buy the exemption.
      *
      * The one status transition a member makes for themselves is finishing
      * setup — `completeSetup()` writes `status: 'active'`. Everything else on
@@ -843,7 +953,9 @@ service cloud.firestore {
      * updates: a missing key is null on both sides.
      */
     function isValidMemberSelfUpdate() {
-      return request.resource.data.cohortId == resource.data.cohortId
+      return request.resource.data.get('email', null) == resource.data.get('email', null)
+        && request.resource.data.get('joinedWith', null) == resource.data.get('joinedWith', null)
+        && request.resource.data.cohortId == resource.data.cohortId
         && request.resource.data.accessCode == resource.data.accessCode
         && request.resource.data.joinedAt == resource.data.joinedAt
         && request.resource.data.createdAt == resource.data.createdAt

@@ -86,25 +86,6 @@ const uid = (prefix: string) =>
   `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
 
 /**
- * The fake sign-in link this implementation understands.
- *
- * Nothing issues one any more — `sendSignInLink` signs in on the spot, because
- * mock mode has no inbox to route a link through and waiting on an email that
- * will never arrive is not a flow anybody can develop against. The parsing
- * stays so the opened-link path can still be rehearsed by hand: visit
- * `/access-code?mockSignIn=you@example.com` in a browser that never asked for
- * it and you get the other-device branch, which is the one genuinely awkward
- * corner of email-link auth.
- */
-const emailFromLink = (url: string): string | null => {
-  try {
-    return new URL(url, 'http://localhost').searchParams.get('mockSignIn')
-  } catch {
-    return null
-  }
-}
-
-/**
  * The account the mock Google button signs in as.
  *
  * A fixed identity rather than a random one, so a developer who signs out and
@@ -221,37 +202,25 @@ export class LocalDataSource implements DataSource {
 
   // =========================================================================
   // Auth
+  //
+  // There is no provider here and no account list, only the one signed-in user
+  // this browser's storage holds. So nothing below can refuse an address for
+  // not having an account, or a password for being wrong: every way in lands on
+  // the screen after it, which is what developing those screens needs.
   // =========================================================================
-
-  /** No inbox here, so the round trip through one is skipped. See below. */
-  readonly instantSignIn = true
-
-  /**
-   * Sign in, there and then.
-   *
-   * There is no email to send: this implementation is the whole backend, so a
-   * link it "sent" could only be one it also read back, and the wait in the
-   * middle would be theatre. The address is taken at face value — proving the
-   * inbox is yours is exactly the part a mock cannot do — and the member lands
-   * on the access-code half of the screen, which is the step that still means
-   * something on device.
-   */
-  async sendSignInLink(email: string): Promise<AuthUser> {
-    const normalised = email.trim().toLowerCase()
-    if (!normalised.includes('@')) {
-      throw new DataSourceError('Enter the email address you paid with.', 'invalid-code')
-    }
-    return this.signIn(normalised, 'email-link')
-  }
 
   /**
    * Offered on device too, so the button is never missing while developing.
    *
    * It cannot talk to Google — there is no Firebase here — so it stands in a
    * plausible Google account instead. The point of drawing it is that the
-   * screen either side of the button is the real one.
+   * screen either side of the button is the real one. Unlike the real one it
+   * cannot tell a new account from an old one, so it never refuses.
    */
   readonly googleSignIn = true
+
+  /** The fixture every mock redemption accepts, printed so nobody has to look. */
+  readonly demoAccessCode = accessCodes[0] ?? null
 
   async signInWithGoogle(): Promise<AuthUser> {
     return this.signIn(MOCK_GOOGLE.email, 'google', MOCK_GOOGLE)
@@ -265,32 +234,45 @@ export class LocalDataSource implements DataSource {
     return null
   }
 
-  async isSignInLink(url: string): Promise<boolean> {
-    return emailFromLink(url) !== null
-  }
-
-  async completeSignInLink(url: string, email?: string): Promise<AuthUser> {
-    const fromLink = emailFromLink(url)
-    if (!fromLink) throw new DataSourceError('That sign-in link is not valid.', 'expired-link')
-
-    // Nothing parks a pending address here, because nothing here sends a link:
-    // a hand-crafted one is by definition opened on a device that never asked
-    // for it, which is the case the caller has to confirm.
-    const known = email?.trim().toLowerCase()
-    if (!known) {
+  async checkAccessCode(code: string): Promise<string> {
+    const normalised = code.trim().toUpperCase()
+    if (!normalised) {
+      throw new DataSourceError('Enter the access code from your confirmation email.', 'invalid-code')
+    }
+    if (!accessCodes.includes(normalised)) {
       throw new DataSourceError(
-        'Confirm the email address this link was sent to.',
-        'needs-email',
+        'That code isn’t valid. Check it against your confirmation email.',
+        'invalid-code',
       )
     }
+    return normalised
+  }
 
-    return this.signIn(known)
+  /** Fixture codes carry no address, so any email makes the account. */
+  async createAccount(code: string, email: string): Promise<AuthUser> {
+    await this.checkAccessCode(code)
+    return this.signIn(this.address(email, 'Enter the email address your access code was sent to.'))
+  }
+
+  async signInWithPassword(email: string): Promise<AuthUser> {
+    return this.signIn(this.address(email, 'Enter the email address you signed up with.'))
+  }
+
+  /** No inbox to send to. The screen's "check your email" step is still the real one. */
+  async sendPasswordReset(email: string): Promise<void> {
+    this.address(email, 'Enter the email address you signed up with.')
+  }
+
+  private address(email: string, prompt: string): string {
+    const normalised = email.trim().toLowerCase()
+    if (!normalised.includes('@')) throw new DataSourceError(prompt, 'invalid-email')
+    return normalised
   }
 
   /** The signed-in state every route in above converges on. */
   private signIn(
     email: string,
-    provider: AuthProvider = 'email-link',
+    provider: AuthProvider = 'password',
     profile: { displayName?: string; photoUrl?: string } = {},
   ): AuthUser {
     const user: AuthUser = {
@@ -346,6 +328,8 @@ export class LocalDataSource implements DataSource {
       id: user.uid,
       email: user.email,
       emailVerified: user.emailVerified,
+      // Named the way the ID token names it, as the Firestore path records it.
+      joinedWith: user.provider === 'google' ? 'google.com' : 'password',
       status: 'onboarding',
       previousStatus: null,
       pauseReason: null,

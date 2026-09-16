@@ -69,7 +69,7 @@ const signOut = async () => {
   signingOut.value = true
   try {
     await store.signOut()
-    await router.push('/access-code')
+    await router.push('/sign-in')
   } catch {
     signingOut.value = false
   }

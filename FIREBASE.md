@@ -243,37 +243,109 @@ yet.
 
 ## Enabling sign-in
 
-There are two ways in and no password on either. Both have to be turned on in
-the console before the app can offer them — a provider that is merely coded for
-answers `auth/operation-not-allowed`, which `authError` reports as "that
-sign-in method isn't available right now".
+An account is made from an access code and nothing else. The member enters the
+code first — it is read before anyone is signed in, and must be real, unused and
+in date — then an email and password, and the email must be the code's
+`issuedToEmail`. The code is redeemed on the new account in the same tap.
+Signing back in is the email and password, or Google. Google never makes an
+account: one it has not seen is deleted again and sent to the code.
 
-**Email link (magic link)**
+Nothing in either flow leaves the app, which is why it replaced the email link:
+on iOS a link tapped in an email opens in Safari, never in the home-screen app
+that asked for it.
 
-1. Authentication → Sign-in method → **Email/Password**, enable it, then enable
-   **Email link (passwordless sign-in)** underneath.
-2. The redirect target is `${origin}/access-code` — see `actionCodeSettings` in
-   `app/lib/datasource/firestore.ts`. That route knows how to finish the flow,
-   including the case where the link is opened on a different device from the
-   one that requested it, which is the branch that has to ask for the address
-   again because nothing was parked in *that* browser's storage.
+Each provider has to be turned on in the console before the app can use it — a
+provider that is merely coded for answers `auth/operation-not-allowed`, which
+`authError` reports as "that sign-in method isn't available right now".
+
+**Email and password**
+
+1. Authentication → Sign-in method → **Email/Password**, enable it. **Email link
+   (passwordless sign-in)** underneath can be left off; nothing uses it now.
+2. Authentication → Settings → User actions: **Enable create (sign-up)** and
+   **Enable delete** both ticked. Sign-up creates; a refused Google sign-in
+   deletes the account Firebase made on the way through.
+3. Members whose accounts were made with the old sign-in link have no password.
+   **Forgot password?** on `/sign-in` sets their first one: the reset finishes
+   on Firebase's own page and nothing has to come back to the app.
 
 **Google**
 
-3. Authentication → Sign-in method → **Google**, enable it, and set the
+4. Authentication → Sign-in method → **Google**, enable it, and set the
    project support email.
-4. Nothing else. `signInWithGoogle` opens a popup, and falls back to a
+5. Nothing else. `signInWithGoogle` opens a popup, and falls back to a
    full-page redirect when the popup is blocked or cannot exist. The redirect
    finishes in `resumeSignIn`, which the store calls once per load *before*
    route middleware runs — a load returning from Google carries its credentials
    in the URL, and if they are not consumed first the middleware sees nobody
    signed in and bounces a member who just signed in back to the door.
 
+A Google account and a password account with the same address are one account
+when the address is Gmail: Firebase links them. For any other address Firebase
+refuses the Google sign-in, and the member is told to use their password.
+
 **Both**
 
-5. Authentication → Settings → **Authorised domains**: add every domain the app
-   is served from. Neither flow completes from an unlisted origin; `localhost`
-   is listed by default.
+6. Authentication → Settings → **Authorised domains**: add every domain the app
+   is served from. Google does not complete from an unlisted origin, and the
+   password-reset email's link back to `/sign-in` is refused; `localhost` is
+   listed by default.
+
+**The rules**
+
+7. Deploy the app and the rules together — `firebase deploy --only
+   firestore,storage` right after the app goes out. Each needs the other: the
+   new app checks a code signed out, which the old rules refuse ("we couldn't
+   check that code"), and the new rules require `joinedWith` on a new
+   membership, which the old app does not write, so a code redeemed from a
+   stale tab is refused until it reloads.
+8. The first deploy of `storage.rules` asks to let Storage read Firestore.
+   Accept it. Storage checks membership against `members/{uid}`, and without
+   the permission every member upload is refused.
+
+### What the rules hold a member to
+
+An account is not a membership. Anybody can create one with a single request to
+Firebase's sign-up API, using the public key in the app's JavaScript, without
+an access code — so the rules never treat "signed in" as "paid". Every member
+rule, in Firestore and in Storage, asks for all of:
+
+- **A member document.** The program, its artwork, the cohort and chat are for
+  members only, not for every account.
+- **The email the membership was made with.** `members/{uid}.email` is fixed,
+  and an account whose Firebase email no longer matches it is refused
+  everything. The app has no email change, but the Auth API allows one; this
+  makes it worthless. Anybody changing a member's email on the Admin SDK has to
+  change the document too, or the member is locked out.
+- **A sign-in the account trusts.** A Google sign-in needs Firebase to have
+  verified the account's address — unless the membership predates
+  `joinedWith`, whose absence marks one. Google can be linked to any account
+  through the Auth API, and a password reset does not unlink it; this stops a
+  linked Google account being a way back in. Firebase only takes Google's word
+  for Gmail addresses, which is why older Google members are exempt: one who
+  joined on a work address was never verified.
+
+The staging bucket is the exception in Storage. Storage rules can only read the
+`(default)` database, and staging's members live in `staging`, so the staging
+bucket asks only that the caller is signed in.
+
+### Recovering a seat
+
+If somebody other than the buyer made the account with the buyer's code, the
+account is still under the buyer's address. From the admin app, on the Admin
+SDK:
+
+1. If its Firebase email was changed, set it back to `members/{uid}.email`.
+   Firebase also emails the old address a link to undo the change, which does
+   the same.
+2. Unlink any provider the buyer did not add:
+   `updateUser(uid, { providersToUnlink: ['google.com'] })`.
+3. Revoke sessions with `revokeRefreshTokens(uid)`.
+4. The buyer uses **Forgot password?** on `/sign-in`.
+
+On their own, a password reset and a new sign-in are enough when neither step 1
+nor step 2 applies: the reset ends the other sessions, and the one-device rule
+signs the other device out.
 
 ### `authDomain` and the installed app
 
