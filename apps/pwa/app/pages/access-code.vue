@@ -4,11 +4,13 @@ definePageMeta({ layout: 'default' })
 
 import { accessCodes } from '~/data/program'
 import { DataSourceError } from '~/lib/datasource'
+import { storage } from '~/lib/storage'
 import { FIRST_SETUP_STEP } from '~/middleware/auth.global'
 
 const route = useRoute()
 const router = useRouter()
 const store = useAppStore()
+const install = useInstallApp()
 
 /**
  * Where "contact support" goes. The address is the one on the purchase
@@ -56,10 +58,62 @@ const phase = computed<'email' | 'sent' | 'code' | 'blocked'>(() => {
   return linkSent.value ? 'sent' : 'email'
 })
 
-const email = ref('')
+/**
+ * Links the home-screen app has to be handed back by hand.
+ *
+ * On iOS a link tapped in an email opens in Safari, never in the installed app,
+ * and Safari's storage is not the app's — so the link signs Safari in and the
+ * app goes on waiting for it. What does carry across is the clipboard. The app
+ * takes the link pasted, and finishes with the address it parked when it asked.
+ */
+const pasteLink = install.onIosHomeScreen
+
+/**
+ * The address a link went to, kept only where it has to be pasted back.
+ *
+ * Fetching it means leaving for the email app, and iOS is free to discard a
+ * home-screen app it has put in the background. A `ref` alone would come back
+ * from that as the email step, with no field to paste into. Account-scoped, so
+ * sign-out drops it with everything else.
+ */
+const LINK_SENT_KEY = 'auth-link-sent-to'
+const sentTo = pasteLink.value ? storage.read<string | null>(LINK_SENT_KEY, null) : null
+
+const email = ref(sentTo ?? '')
 const code = ref('')
 const error = ref('')
-const linkSent = ref(false)
+const linkSent = ref(sentTo !== null)
+const link = ref('')
+
+/**
+ * Install first, on iOS in the browser.
+ *
+ * Installing there means a second sign-in: the home-screen app keeps its own
+ * storage, and nothing signed in to in Safari comes along. Asked for before
+ * the first one, it is the only sign-in there is. The browser is still allowed
+ * — somebody who would rather not install says so once, and this browser
+ * remembers until it signs out.
+ *
+ * Kept out of the way of a link being opened: that page has credentials in its
+ * query string to consume, and the install ask would only flash over them.
+ */
+const SIGN_IN_HERE_KEY = 'sign-in-here'
+const signInHere = ref(storage.read<boolean>(SIGN_IN_HERE_KEY, false))
+const openedFromLink = typeof route.query.oobCode === 'string'
+
+const installFirst = computed(
+  () =>
+    install.method.value === 'ios' &&
+    phase.value === 'email' &&
+    !confirmingEmail.value &&
+    !openedFromLink &&
+    !signInHere.value,
+)
+
+const chooseSignInHere = () => {
+  signInHere.value = true
+  storage.write(SIGN_IN_HERE_KEY, true)
+}
 
 /**
  * Which action is in flight, so the labels can say what is happening.
@@ -155,10 +209,68 @@ const sendLink = async () => {
     // there is nothing to wait for. Otherwise a link is on its way.
     linkSent.value = !(await store.sendSignInLink(email.value))
     if (!linkSent.value) await settle()
+    else if (pasteLink.value) storage.write(LINK_SENT_KEY, email.value)
   } catch (cause) {
     error.value = message(cause)
   } finally {
     busy.value = ''
+  }
+}
+
+/** Back to the email step, forgetting the link that was waiting to be pasted. */
+const useDifferentEmail = () => {
+  linkSent.value = false
+  link.value = ''
+  storage.remove(LINK_SENT_KEY)
+}
+
+/**
+ * Finish with a link pasted into the home-screen app.
+ *
+ * The address goes in explicitly rather than trusting the parked copy: it is
+ * the one printed on this step, so it is the one the member is looking at.
+ * Checked as a sign-in link first, because the likeliest wrong paste is some
+ * other link from the same email, and Firebase's answer to that is not one a
+ * member can act on.
+ */
+const signInWithPastedLink = async () => {
+  if (busy.value) return
+  busy.value = 'link'
+  error.value = ''
+  try {
+    const pasted = link.value.trim()
+    if (!(await store.isSignInLink(pasted))) {
+      error.value = 'That isn’t the sign-in link. Copy the link from the email and paste it again.'
+      return
+    }
+    await store.completeSignInLink(pasted, email.value)
+    storage.remove(LINK_SENT_KEY)
+    await settle()
+  } catch (cause) {
+    error.value = message(cause)
+  } finally {
+    busy.value = ''
+  }
+}
+
+/**
+ * The other half of the paste, on the Safari page the link opened in.
+ *
+ * Nothing on this page knows the member asked from the app — only that this
+ * browser didn't ask — so it is offered next to confirming here, not instead
+ * of it. The URL still carries the credentials at this point: they are only
+ * cleared from it once a sign-in completes. Copying doesn't spend them.
+ */
+const linkCopied = ref(false)
+const offerCopyLink = computed(() => confirmingEmail.value && install.method.value === 'ios')
+
+const copyLink = async () => {
+  try {
+    await navigator.clipboard.writeText(window.location.href)
+    linkCopied.value = true
+  } catch {
+    error.value =
+      'Couldn’t copy it. Go back to the email, press and hold the link, and tap Copy Link.'
   }
 }
 
@@ -286,6 +398,8 @@ const useAnotherAccount = async () => {
 const submit = () => {
   if (confirmingEmail.value) return confirmEmail()
   if (phase.value === 'blocked') return retry()
+  // Only the paste field submits from this step; elsewhere it has no form control.
+  if (phase.value === 'sent') return signInWithPastedLink()
   return phase.value === 'code' ? redeem() : sendLink()
 }
 
@@ -293,7 +407,9 @@ const submit = () => {
 const submitLabel = computed(() => {
   if (busy.value === 'retry') return 'Trying again…'
   if (busy.value === 'link' || busy.value === 'code') return 'Checking…'
+  if (confirmingEmail.value) return 'Confirm'
   if (phase.value === 'blocked') return 'Try again'
+  if (phase.value === 'sent') return 'Sign in'
   if (phase.value === 'code' || store.instantSignIn) return 'Continue'
   return 'Email me a link'
 })
@@ -321,6 +437,7 @@ const signedInAs = computed(() => store.authUser.value?.email ?? '')
  * page says where you are in a flow that has four possible places to be.
  */
 const heading = computed(() => {
+  if (installFirst.value) return 'Install the app first'
   if (confirmingEmail.value) return 'Confirm your email'
   if (phase.value === 'blocked') return 'Couldn’t load your account'
   if (phase.value === 'sent') return 'Check your inbox'
@@ -336,15 +453,26 @@ const heading = computed(() => {
  * says the single fact that step needs and the buttons cannot state.
  */
 const standfirst = computed(() => {
+  if (installFirst.value) {
+    return 'Then sign in from your Home Screen. A sign-in here won’t carry over to the app.'
+  }
   if (confirmingEmail.value) {
-    return 'This link was opened on a different device from the one that asked for it.'
+    // On iOS "a different device" is as likely to be the home-screen app on
+    // this same phone, whose links always land here.
+    return offerCopyLink.value
+      ? 'This link opened somewhere other than where you asked for it.'
+      : 'This link was opened on a different device from the one that asked for it.'
   }
   if (phase.value === 'blocked') {
     // Deliberately does not say "you are not a member": nothing here knows
     // that. The read failed, and the two look identical from this side.
     return 'You’re signed in, but we couldn’t reach your account just now.'
   }
-  if (phase.value === 'sent') return 'The link signs you in — no password to remember.'
+  if (phase.value === 'sent') {
+    return pasteLink.value
+      ? 'Email links open in Safari, not in the app, so this one comes back by copy and paste.'
+      : 'The link signs you in — no password to remember.'
+  }
   if (phase.value === 'code') return 'It was sent to you once your payment was confirmed.'
   return 'Use the email you paid with.'
 })
@@ -360,7 +488,7 @@ const showSwitchAccount = computed(
 )
 
 // Clear the error as soon as the member edits either field.
-watch([code, email], () => {
+watch([code, email, link], () => {
   if (error.value) error.value = ''
 })
 </script>
@@ -397,7 +525,31 @@ watch([code, email], () => {
       has no `@click` of its own — the form's handler is the single path in, so
       a click and an Enter cannot both fire it.
     -->
-    <form novalidate @submit.prevent="submit">
+    <!-- The install ask, in place of the sign-in card rather than above it: the
+         point is that the sign-in happens in the app, so the controls for one
+         here would only invite it. Nothing on the card installs — iOS keeps
+         that in the Share sheet — so its one control is the way past. -->
+    <AppCard
+      v-if="installFirst"
+      variant="raised"
+      class="access__card access__install flex flex-col gap-4 shadow-raised"
+    >
+      <!-- A device signed out by a sign-in elsewhere lands here, and here the
+           elsewhere is most likely the app itself. The reason still prints. -->
+      <p v-if="error" class="m-0 text-xs font-semibold text-primary">{{ error }}</p>
+
+      <InstallAppSteps method="ios" />
+
+      <p class="m-0 text-center text-[13px] leading-normal text-muted">
+        Already added it? Open DP Fitness from your Home Screen.
+      </p>
+
+      <AppButton variant="ghost" @click="chooseSignInHere">
+        Sign in here instead
+      </AppButton>
+    </AppCard>
+
+    <form v-else novalidate @submit.prevent="submit">
       <AppCard
         variant="raised"
         class="access__card flex flex-col gap-4 shadow-raised"
@@ -475,6 +627,19 @@ watch([code, email], () => {
           >
             {{ error || 'Check your connection, then try again. An ad blocker or privacy extension can block it too.' }}
           </p>
+          <div v-else-if="pasteLink" class="access__paste flex flex-col gap-4">
+            <p class="access__sent m-0 text-[14px] leading-normal text-(--violet-45)">
+              We’ve sent a link to <strong>{{ email }}</strong>. Press and hold
+              it in the email, tap Copy Link, then paste it here.
+            </p>
+            <TextField
+              v-model="link"
+              label="Sign-in link"
+              placeholder="Paste the link here"
+              inputmode="url"
+              :error="error"
+            />
+          </div>
           <p
             v-else
             class="access__sent m-0 text-[14px] leading-normal text-(--violet-45)"
@@ -485,15 +650,44 @@ watch([code, email], () => {
         </div>
 
         <AppButton
-          v-if="phase !== 'sent' || confirmingEmail"
+          v-if="phase !== 'sent' || confirmingEmail || pasteLink"
           type="submit"
           :disabled="busy !== ''"
         >
           {{ submitLabel }}
         </AppButton>
-        <AppButton v-else variant="ghost" :disabled="busy !== ''" @click="linkSent = false">
+        <AppButton
+          v-if="phase === 'sent' && !confirmingEmail"
+          variant="ghost"
+          :disabled="busy !== ''"
+          @click="useDifferentEmail"
+        >
           Use a different email
         </AppButton>
+
+        <!-- Beside confirming, never instead of it: this page can't tell the
+             app on this phone from a laptop that asked. -->
+        <div
+          v-if="offerCopyLink"
+          class="access__copy flex flex-col items-center gap-1 pt-0.5 text-center"
+        >
+          <p class="m-0 text-[13px] leading-normal text-muted">
+            {{
+              linkCopied
+                ? 'Copied. Open DP Fitness from your Home Screen and paste it there.'
+                : 'Asked for it from the app on your Home Screen?'
+            }}
+          </p>
+          <button
+            v-if="!linkCopied"
+            type="button"
+            class="access__copy-link pt-1 pb-1 text-[13px] font-bold text-primary disabled:opacity-50"
+            :disabled="busy !== ''"
+            @click="copyLink"
+          >
+            Copy the link for the app
+          </button>
+        </div>
 
         <!--
           The way out, on the two steps that have a session behind them.

@@ -284,8 +284,27 @@ export const addressedUidsOf = (
  */
 export const chatNotificationId = (messageId: string): string => `chat-${messageId}`
 
+/**
+ * The inbox id for the reactions on one of the member's own messages.
+ *
+ * Under the same `chat-` prefix as `chatNotificationId`, and unable to collide
+ * with it: a message id is an auto id, which has no `-` in it.
+ */
+export const chatReactionsNotificationId = (messageId: string): string =>
+  `chat-${messageId}-reactions`
+
 /** How much of the message the inbox line carries. */
 const NOTIFICATION_EXCERPT_CHARS = 120
+
+/** The inbox's one-line stand-in for a message. */
+const excerptOf = (message: Message): string => {
+  const text = message.text.trim()
+  const [first] = message.attachments ?? []
+  if (!text) return first?.kind === 'image' ? 'Photo' : 'Attachment'
+  return text.length > NOTIFICATION_EXCERPT_CHARS
+    ? `${text.slice(0, NOTIFICATION_EXCERPT_CHARS).trimEnd()}…`
+    : text
+}
 
 /**
  * A message aimed at `viewerUid`, in the inbox's own shape.
@@ -297,26 +316,68 @@ const NOTIFICATION_EXCERPT_CHARS = 120
 export const chatNotificationFor = (message: Message, viewerUid: string): Notification => {
   const replied = message.replyTo?.authorUid === viewerUid
   const name = message.authorName || 'Someone'
-  const text = message.text.trim()
-  const [first] = message.attachments ?? []
-  const body = text
-    ? text.length > NOTIFICATION_EXCERPT_CHARS
-      ? `${text.slice(0, NOTIFICATION_EXCERPT_CHARS).trimEnd()}…`
-      : text
-    : first?.kind === 'image'
-      ? 'Photo'
-      : 'Attachment'
 
   return {
     id: chatNotificationId(message.id),
     type: message.isCoach ? 'coach' : 'community',
     title: replied ? `${name} replied to you` : `${name} mentioned you`,
-    body,
+    body: excerptOf(message),
     publishedAt: message.sentAt,
     icon: replied ? 'reply' : 'chat',
     pinned: false,
     createdAt: message.sentAt,
     createdByUid: message.authorUid,
+    createdByEmail: '',
+  }
+}
+
+/**
+ * The reactions on the viewer's own message, as one inbox line, or `null` when
+ * nobody else is reacting to it any more.
+ *
+ * One line per message however many people react, named by the newest: "Tomi",
+ * "Tomi and Ada", "Tomi and 4 others". Dated by that newest reaction too, which
+ * is what lets the line come back unread when somebody else joins in — see
+ * `reopens` on the inbox's items in `useAppStore`.
+ *
+ * The emojis are the message's chips as they stand, so they are what the member
+ * finds when they tap through, including any they left on it themselves.
+ */
+export const reactionsNotificationFor = (
+  message: Message,
+  viewerUid: string,
+): Notification | null => {
+  const reactors = Object.entries(message.reactors ?? {})
+    // `at` is null in a snapshot of a write still pending its server time.
+    .filter(([uid, r]) => uid !== viewerUid && typeof r?.at?.toMillis === 'function')
+    .map(([uid, r]) => ({ uid, name: r.name || 'Someone', at: r.at }))
+    .sort((a, b) => b.at.toMillis() - a.at.toMillis())
+
+  const [newest, next] = reactors
+  if (!newest) return null
+
+  const who = !next
+    ? newest.name
+    : reactors.length === 2
+      ? `${newest.name} and ${next.name}`
+      : `${newest.name} and ${reactors.length - 1} others`
+
+  const emojis = Object.entries(message.reactionCounts ?? {})
+    .filter(([, count]) => count > 0)
+    .sort(([, a], [, b]) => b - a)
+    .map(([emoji]) => emoji)
+    .join('')
+
+  return {
+    id: chatReactionsNotificationId(message.id),
+    type: 'community',
+    title: `${who} reacted to your message`,
+    body: emojis ? `${emojis} · ${excerptOf(message)}` : excerptOf(message),
+    publishedAt: newest.at,
+    icon: 'heart',
+    pinned: false,
+    createdAt: newest.at,
+    createdByUid: newest.uid,
     createdByEmail: '',
   }
 }

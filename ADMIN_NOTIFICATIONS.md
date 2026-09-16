@@ -2,13 +2,14 @@
 
 The member app (`apps/pwa`) has an in-app inbox behind a bell icon. This
 document covers the parts of it that depend on the admin console. There are
-three pieces of work:
+four pieces of work:
 
 1. [Create a notification whenever an announcement is posted](#1-create-a-notification-when-posting-an-announcement)
 2. [Set `addressedUids` on every chat message the coach sends](#2-set-addresseduids-on-coach-chat-messages)
 3. [Merge the rules and index changes before deploying](#3-rules-and-index-coordinate-before-deploying)
+4. [Record the coach in `reactors` when the coach reacts](#4-record-the-coach-in-reactors-when-reacting)
 
-A [checklist](#checklist) at the end summarises all three.
+A [checklist](#checklist) at the end summarises all four.
 
 ---
 
@@ -20,6 +21,7 @@ The member app watches two things live, for as long as the app is open:
 |---|---|
 | `cohorts/{cohortId}/notifications` | Every document, as written by the console. |
 | `cohorts/{cohortId}/threads/cohort/messages` | Messages whose `addressedUids` contains the member: they were @mentioned, or someone replied to them. |
+| `cohorts/{cohortId}/threads/cohort/messages` | The member's own messages that have a `reactedAt`: someone else reacted. One line per message, however many people reacted. |
 
 A new document appears in the inbox and lights the bell within a second or two.
 
@@ -160,6 +162,7 @@ Path: `cohorts/{cohortId}/threads/cohort/messages/{autoId}`
 | `mentions` | array | `{ uid, name }` for each person @mentioned. See below. |
 | **`addressedUids`** | string[] | **New.** Everyone this message is aimed at. See below. |
 | `reactionCounts` | map | `{}` on send. Rules reject anything else. |
+| `reactors`, `reactedAt` | | **Leave both out on send.** Rules reject a message that has either. See section 4. |
 
 ### Computing `addressedUids`
 
@@ -294,13 +297,25 @@ were deployed as-is:
    `reactionCounts`, so every member edit would be refused. Copy the `update`
    rule from `firestore.rules`, which includes the `addressedUids` change above.
 
-### The new index
+### Reactions: what changed in `firestore.rules`
 
-`firestore.indexes.json` has a new composite index:
+In the same `messages` match:
+
+- **create:** a new message may not have `reactors` or `reactedAt`.
+- **update (reaction):** the reaction branch now allows
+  `['reactionCounts', 'reactors', 'reactedAt']` and calls a new function,
+  `movesOnlyOwnReactor()`, declared at the top of the `messages` block. Copy
+  both.
+
+### The new indexes
+
+`firestore.indexes.json` has two new composite indexes and one field override:
 
 | Collection | Fields |
 |---|---|
 | `messages` (collection scope) | `addressedUids` array-contains, `sentAt` descending |
+| `messages` (collection scope) | `authorUid` ascending, `reactedAt` descending |
+| `messages.reactors` | field override: not indexed |
 
 If the console deploys indexes from its own index file, add this index there.
 When deploying indexes, the Firebase CLI offers to delete any index that isn't
@@ -329,6 +344,63 @@ SDK, which bypasses rules; the fields in section 2 are still required either way
 
 ---
 
+## 4. Record the coach in `reactors` when reacting
+
+Members are told when someone reacts to one of their cohort messages. The
+inbox reads two fields on the message, not the `reactions` subcollection, so
+**a coach reaction that updates only `reactionCounts` notifies nobody.**
+
+### The fields
+
+| Field | Type | Notes |
+|---|---|---|
+| `reactors` | map | uid → `{ name, at }`, one entry for each person other than the author who has at least one reaction on the message. `at` is a Timestamp. |
+| `reactedAt` | Timestamp | When someone last went from no reaction to some. |
+
+### When to write them
+
+Write them in the same transaction as `reactionCounts` and the coach's
+`reactions/{coachUid}` document. Decide from the coach's emojis before and after
+the toggle:
+
+| Coach's emojis | Author is the coach? | Also write |
+|---|---|---|
+| none → some | no | `reactors.{coachUid}` = `{ name: coach.name, at: serverTimestamp() }`, and `reactedAt` = `serverTimestamp()` |
+| some → none | no | delete `reactors.{coachUid}` |
+| some → some, or the coach wrote the message | | nothing |
+
+```ts
+import { FieldPath, deleteField, increment, serverTimestamp } from 'firebase/firestore'
+
+// Inside the transaction, after reading the message and the coach's reactions doc.
+const listed = coach.uid in (message.reactors ?? {})
+const reacting = nextEmojis.length > 0
+const reactor =
+  message.authorUid === coach.uid || listed === reacting
+    ? []
+    : reacting
+      ? [new FieldPath('reactors', coach.uid), { name: coach.name, at: serverTimestamp() },
+         'reactedAt', serverTimestamp()]
+      : [new FieldPath('reactors', coach.uid), deleteField()]
+
+tx.update(messageRef, new FieldPath('reactionCounts', emoji), countChange, ...reactor)
+```
+
+### Things to know
+
+- **Only a new reactor dates the message.** A second emoji, or one taken back,
+  leaves `reactedAt` alone, so the member is not notified again.
+- **Never set `reactedAt` to `null`.** Leave it out instead. The inbox query
+  orders by it, and a `null` would put a message nobody reacted to in the inbox.
+- **Under the member rules**, the entry must be the caller's own uid, with the
+  caller's display name and `at` equal to the server time. The coach passes
+  those checks through `isCoach()`, so nothing enforces them for the console.
+  Use the name members see on the coach's messages.
+- **Reactions from before this change** have no entry. Nobody is notified
+  about them, and a later new reaction counts only the people recorded since.
+
+---
+
 ## Checklist
 
 - [ ] Posting an announcement also creates a `notifications` document, in the
@@ -350,5 +422,12 @@ SDK, which bypasses rules; the fields in section 2 are still required either way
       proposed file's admin branch deployed. Today's rules refuse
       `isCoach: true` from the client SDK.
 - [ ] The console's index file includes the `addressedUids` + `sentAt` index.
+- [ ] Coach reactions in the cohort thread add or remove `reactors.{coachUid}`
+      and set `reactedAt` when the coach starts reacting, in the same
+      transaction as `reactionCounts`.
+- [ ] The merged rules include `movesOnlyOwnReactor()` and the create checks on
+      `reactors` and `reactedAt`.
+- [ ] The console's index file includes the `authorUid` + `reactedAt` index and
+      the `reactors` field override.
 - [ ] The rules and index are deployed, and the index has finished building,
       before the member app is released.

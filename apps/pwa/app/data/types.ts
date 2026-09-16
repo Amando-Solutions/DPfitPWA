@@ -989,6 +989,36 @@ export interface MessageDoc {
    * `reactions` subcollection below.
    */
   reactionCounts: Record<string, number>
+  /**
+   * Everyone other than the author with a reaction on this message, keyed by
+   * uid. What the author's inbox says: "Tomi and 4 others reacted".
+   *
+   * A second record of who reacted, next to the `reactions` subcollection,
+   * because the inbox reads the author's own messages and cannot afford a read
+   * per reactor behind each one. Keyed by uid rather than listed, so the rules
+   * can hold a member to their own entry with a map diff.
+   *
+   * Absent until somebody reacts, and on every message reacted to only before
+   * it existed.
+   */
+  reactors?: Record<string, MessageReactor>
+  /**
+   * When somebody last started reacting to this message, author aside.
+   *
+   * Moves when a member goes from no reaction to some, and at no other time: a
+   * second emoji, or a reaction taken back, is not news for the author. Absent
+   * until then, which is what keeps unreacted messages out of the query the
+   * inbox runs on it.
+   */
+  reactedAt?: Timestamp
+}
+
+/** One member's entry in `MessageDoc.reactors`. */
+export interface MessageReactor {
+  /** Their name as the cohort sees it, when they reacted. */
+  name: string
+  /** When they went from no reaction to some. */
+  at: Timestamp
 }
 
 export type Message = WithId<MessageDoc>

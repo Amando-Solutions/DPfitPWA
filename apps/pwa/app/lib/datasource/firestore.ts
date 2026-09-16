@@ -1488,6 +1488,47 @@ export class FirestoreDataSource implements DataSource {
     }
   }
 
+  /**
+   * One query over the cohort thread: this member's messages, by `reactedAt`.
+   *
+   * Ordering on `reactedAt` is also the filter, since Firestore leaves out any
+   * document without the field, and that is every message nobody else has
+   * reacted to. Needs the `authorUid` + `reactedAt` index in
+   * `firestore.indexes.json`; until it has built, the inbox has no reactions in
+   * it and nothing else is affected. Only the cohort thread, for the reason
+   * given on `watchAddressedMessages`.
+   */
+  async watchReactedMessages(
+    onMessages: (messages: Message[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
+    const member = await this.requireMember()
+    const ref = await this.messagesRef('cohort')
+
+    let stopped = false
+
+    const stop = onSnapshot(
+      query(
+        ref,
+        where('authorUid', '==', member.id),
+        orderBy('reactedAt', 'desc'),
+        limit(50),
+      ),
+      (snap) => {
+        if (stopped) return
+        onMessages(snap.docs.map((d) => withId<Message>(d)))
+      },
+      (error) => {
+        if (!stopped) onError?.(error)
+      },
+    )
+
+    return () => {
+      stopped = true
+      stop()
+    }
+  }
+
   async listNotificationReads(): Promise<Record<string, Timestamp>> {
     const member = await this.requireMember()
     const snap = await getDocs(
@@ -1986,10 +2027,36 @@ export class FirestoreDataSource implements DataSource {
         const stored = withId<Message>(messageSnap)
         const counts = stored.reactionCounts ?? {}
         const after = (counts[emoji] ?? 0) + (on ? -1 : 1)
-        // A zero count is an absent key, not a stored zero: otherwise every
-        // emoji anyone ever tried accumulates on the document forever.
-        if (after <= 0) tx.update(messageRef, path, deleteField())
-        else tx.update(messageRef, path, increment(on ? -1 : 1))
+
+        // Who is reacting, for the author's inbox: an entry for this member
+        // when they go from no reaction to some, and out again when they go
+        // back to none. Every other toggle leaves it, and `reactedAt`, alone,
+        // so a second emoji does not tell the author again. Never the author's
+        // own — nobody needs telling they reacted to themselves.
+        const listed = member.id in (stored.reactors ?? {})
+        const reacting = next.length > 0
+        const reactor: unknown[] =
+          stored.authorUid === member.id || listed === reacting
+            ? []
+            : reacting
+              ? [
+                  new FieldPath('reactors', member.id),
+                  { name: member.profile.displayName || 'Someone', at: serverTimestamp() },
+                  'reactedAt',
+                  serverTimestamp(),
+                ]
+              : [new FieldPath('reactors', member.id), deleteField()]
+
+        // One update rather than one per field, so the rules judge the write
+        // as a whole. A zero count is an absent key, not a stored zero:
+        // otherwise every emoji anyone ever tried accumulates on the document
+        // forever.
+        tx.update(
+          messageRef,
+          path,
+          after <= 0 ? deleteField() : increment(on ? -1 : 1),
+          ...reactor,
+        )
 
         // The message as this write leaves it, assembled from the read the
         // transaction already had to make. It used to be re-read afterwards,
@@ -2201,8 +2268,12 @@ export class FirestoreDataSource implements DataSource {
       .filter(([, count]) => count > 0)
       .map(([emoji, count]) => ({ emoji, count, mine: mine.includes(emoji) }))
 
+    // Who reacted is for the author's inbox, not the thread, and the thread is
+    // kept on disk. See `lib/chat-cache.ts`.
+    const { reactors: _reactors, reactedAt: _reactedAt, ...rest } = message
+
     return {
-      ...message,
+      ...rest,
       // Every message sent before replies existed is missing the field
       // entirely, and `v-if="m.replyTo"` on an absent key is fine while
       // `replyTo.authorName` on one is not. Normalised on the way out so the

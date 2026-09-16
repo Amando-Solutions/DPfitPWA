@@ -17,7 +17,7 @@ one. Read them before changing anything in `app/lib/datasource/firestore.ts`.
 | `cohorts/{id}/announcements/{id}` | The card deck behind the inbox. Longer-form, and carries a call to action. |
 | `cohorts/{id}/leaderboard/{uid}` | Name, avatar, qualifying-session count. A projection — see below. |
 | `cohorts/{id}/threads/{threadId}/messages/{id}` | `cohort` is the group thread; every other `threadId` is a member uid, meaning that member's private thread with the coach. |
-| `…/messages/{id}/reactions/{uid}` | Who reacted, one document per reactor. |
+| `…/messages/{id}/reactions/{uid}` | Who reacted, one document per reactor. The message also carries `reactors` (uid → name and time, author excluded) and `reactedAt`, which is what the author's inbox reads. |
 | `programs/{programId}` | Authored plan, versioned. Carries `qualifyingSetPercent` and the whole reward economy — the badge ladder, the rank ladder and every point value. |
 | `programs/{id}/weeks/{weekId}` | One week of the block: its number, title and dates. `week-1`, `week-2`, … — see **The schedule**. |
 | `programs/{id}/weeks/{weekId}/days/{dayId}` | One training day in that week, with the date it falls on. |
@@ -123,6 +123,10 @@ lives here.
   inbox's mentions and replies: cohort chat messages aimed at the member, newest
   first. Until it has built, that listener fails with `failed-precondition` and
   the inbox shows the coach's notifications only.
+- **`messages` composite (`authorUid` asc, `reactedAt` desc)** — the inbox's
+  reactions: the member's own messages others have reacted to, most recently
+  reacted to first. Same failure mode: until it has built, the inbox has no
+  reactions in it and nothing else is affected.
 - **`sessions.exercises` unindexed** — a session log embeds every set of every
   exercise. Nothing queries inside that array, and indexing it costs an index
   write per element on every save.
@@ -130,6 +134,9 @@ lives here.
   rewritten every time a set is tapped.
 - **`messages.reactionCounts` unindexed** — a map keyed by emoji, which grows
   without bound and is only ever read, never queried.
+- **`messages.reactors` unindexed** — a map keyed by uid, so indexing it adds
+  index entries for every member who reacts. The inbox queries `reactedAt`,
+  never this.
 
 Everything else the app queries (`completedAt`, `takenAt`, `weekNumber`,
 `sentAt`, `sessions`) is a single-field sort that Firestore indexes

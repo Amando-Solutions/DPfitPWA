@@ -76,7 +76,7 @@ const accentFor = (type: string) => (type === 'coach' ? 'secondary' : 'primary')
     <ScreenIntro
       eyebrow="Inbox"
       title="Notifications"
-      subtitle="Announcements, mentions and replies."
+      subtitle="Announcements, mentions, replies and reactions."
       class="inbox__header mb-3"
     >
       <template v-if="receiptFailed && hasUnread" #actions>
@@ -101,7 +101,7 @@ const accentFor = (type: string) => (type === 'coach' ? 'secondary' : 'primary')
         v-if="!store.notifications.value.length"
         class="inbox__empty m-0 py-6 text-center text-[13.5px] text-soft lg:col-span-2"
       >
-        Nothing yet. Mentions, replies and announcements from your coach land here.
+        Nothing yet. Mentions, replies, reactions and your coach's announcements land here.
       </p>
 
       <component

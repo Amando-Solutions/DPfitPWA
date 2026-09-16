@@ -11,7 +11,7 @@ import {
   planWeekOf,
   weekAt,
 } from '~/lib/domain/challenge'
-import { chatNotificationFor, chatNotificationId } from '~/lib/chat'
+import { chatNotificationFor, chatNotificationId, reactionsNotificationFor } from '~/lib/chat'
 import { nutritionTargetsFor } from '~/lib/domain/nutrition'
 import {
   finalPhotoOf,
@@ -810,8 +810,8 @@ const buildStore = () => {
 
   // --- Inbox ---------------------------------------------------------------
   //
-  // Two sources, both live: the coach's notifications, and cohort chat messages
-  // aimed at this member. Held outside `state` for the reason given on
+  // Three sources, all live: the coach's notifications, cohort chat messages
+  // aimed at this member, and this member's own messages others reacted to. Held outside `state` for the reason given on
   // `AppState`: they belong to a subscription, not to a load. The announcement
   // deck rides on the same listeners without being a source; see
   // `announcementFeed`.
@@ -821,6 +821,9 @@ const buildStore = () => {
 
   /** Cohort chat messages that name or answer this member. See `addressedUidsOf`. */
   const addressed = ref<Message[]>([])
+
+  /** This member's cohort chat messages others have reacted to. See `MessageDoc.reactors`. */
+  const reacted = ref<Message[]>([])
 
   let stopInbox: Array<() => void> = []
 
@@ -868,6 +871,16 @@ const buildStore = () => {
             (error) => console.error('[inbox] the mentions listener stopped', error),
           ),
       ],
+      [
+        'reactions',
+        () =>
+          data.watchReactedMessages(
+            (next) => {
+              reacted.value = next
+            },
+            (error) => console.error('[inbox] the reactions listener stopped', error),
+          ),
+      ],
     ]
 
     for (const [what, subscribe] of subscriptions) {
@@ -898,6 +911,7 @@ const buildStore = () => {
       broadcasts.value = []
       announcementFeed.value = []
       addressed.value = []
+      reacted.value = []
       if (memberId) void watchInbox(memberId)
     },
     { immediate: true },
@@ -959,8 +973,14 @@ const buildStore = () => {
    * every tick rather than stored, because "2h ago" written into a document is
    * wrong within the hour.
    *
-   * Mentions and replies are never pinned, so they sit in date order among the
-   * coach's unpinned notifications. Each one links to its message.
+   * Mentions, replies and reactions are never pinned, so they sit in date order
+   * among the coach's unpinned notifications. Each one links to its message.
+   *
+   * Reactions are the one line that can be read and then unread again. It is
+   * one line per message however many people react, so it has to light the
+   * bell again when somebody new does: it counts as read only while this
+   * member's read stamp is later than the newest reaction. Everything else is
+   * read once and stays read, even when the coach edits it.
    *
    * Announcements are not a source. Publishing one is not the same act as
    * notifying the cohort about it, so the admin writes a notification alongside
@@ -968,23 +988,33 @@ const buildStore = () => {
    */
   const notifications = computed<NotificationView[]>(() => {
     const viewerUid = state.value.member?.id ?? ''
-    const items: Array<Notification & { to: string | null }> = [
-      ...broadcasts.value.map((n) => ({ ...n, to: null })),
+    const items: Array<Notification & { to: string | null; reopens: boolean }> = [
+      ...broadcasts.value.map((n) => ({ ...n, to: null, reopens: false })),
       ...addressed.value.map((m) => ({
         ...chatNotificationFor(m, viewerUid),
         to: `/chat?message=${encodeURIComponent(m.id)}`,
+        reopens: false,
       })),
+      ...reacted.value.flatMap((m) => {
+        const n = reactionsNotificationFor(m, viewerUid)
+        return n ? [{ ...n, to: `/chat?message=${encodeURIComponent(m.id)}`, reopens: true }] : []
+      }),
     ]
     return items
       .sort((a, b) => {
         if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
         return b.publishedAt.toMillis() - a.publishedAt.toMillis()
       })
-      .map((n) => ({
-        ...n,
-        read: state.value.notificationReads[n.id] !== undefined,
-        timeLabel: relativeLabel(n.publishedAt, now.value),
-      }))
+      .map(({ reopens, ...n }) => {
+        const readAt = state.value.notificationReads[n.id]
+        return {
+          ...n,
+          read:
+            readAt !== undefined &&
+            (!reopens || readAt.toMillis() >= n.publishedAt.toMillis()),
+          timeLabel: relativeLabel(n.publishedAt, now.value),
+        }
+      })
   })
 
   const unreadNotifications = computed(
@@ -1482,15 +1512,28 @@ const buildStore = () => {
     }
   }
 
-  /** Everything in the inbox that is still unread, in one write. */
+  /**
+   * Everything in the inbox that is still unread, in one write.
+   *
+   * The new stamps win over any already held, since a line that has come back
+   * unread already has one — see `notifications`. And each is at least as late
+   * as the line it marks: the server stamps its own time, but this copy is the
+   * device's reckoning of it, and one a few milliseconds behind a reaction
+   * would leave that line unread, and the inbox marking it read again forever.
+   */
   const markAllNotificationsRead = async () => {
-    const ids = notifications.value.filter((n) => !n.read).map((n) => n.id)
-    if (!ids.length) return
-    await data.markNotificationsRead(ids)
+    const unread = notifications.value.filter((n) => !n.read)
+    if (!unread.length) return
+    await data.markNotificationsRead(unread.map((n) => n.id))
     const now = trustedTimestamp()
     state.value.notificationReads = {
-      ...Object.fromEntries(ids.map((id) => [id, now])),
       ...state.value.notificationReads,
+      ...Object.fromEntries(
+        unread.map((n) => [
+          n.id,
+          n.publishedAt.toMillis() > now.toMillis() ? n.publishedAt : now,
+        ]),
+      ),
     }
   }
 

@@ -342,6 +342,18 @@ export class HttpDataSource implements DataSource {
     )
   }
 
+  /** Polled on the badge's timer. The member's messages others have reacted to. */
+  watchReactedMessages(
+    onMessages: (messages: Message[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
+    return this.poll(
+      () => this.get<Message[]>('/me/reacted-messages'),
+      onMessages,
+      onError,
+    )
+  }
+
   /**
    * Read on `LATEST_POLL_MS`, for the listeners that sit behind every screen.
    *

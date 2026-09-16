@@ -639,13 +639,35 @@ export class LocalDataSource implements DataSource {
     })
   }
 
+  /**
+   * The cohort thread, filtered to the member's messages others reacted to.
+   *
+   * Nobody else reacts on device, so this is empty unless the seed says
+   * otherwise. Kept to the same shape as the query it stands in for.
+   */
+  async watchReactedMessages(
+    onMessages: (messages: Message[]) => void,
+  ): Promise<Unsubscribe> {
+    const viewer = (await this.getAuthUser())?.uid ?? 'me'
+    return this.watchMessages('cohort', (messages) => {
+      onMessages(
+        messages
+          .filter((m) => m.authorUid === viewer && m.reactedAt)
+          .sort((a, b) => b.reactedAt!.toMillis() - a.reactedAt!.toMillis())
+          .slice(0, 50),
+      )
+    })
+  }
+
   async listNotificationReads(): Promise<Record<string, Timestamp>> {
     return storage.read<Record<string, Timestamp>>(KEY.notificationReads, {})
   }
 
+  // Marking read again moves the stamp forward rather than keeping the first
+  // one. A line that comes back unread — reactions, when somebody new joins in
+  // — is only read again once the stamp is later than it.
   async markNotificationRead(id: string): Promise<void> {
     const reads = await this.listNotificationReads()
-    if (reads[id]) return
     storage.write(KEY.notificationReads, { ...reads, [id]: trustedTimestamp() })
   }
 
@@ -654,8 +676,8 @@ export class LocalDataSource implements DataSource {
     const now = trustedTimestamp()
     const reads = await this.listNotificationReads()
     storage.write(KEY.notificationReads, {
-      ...Object.fromEntries(ids.map((id) => [id, now])),
       ...reads,
+      ...Object.fromEntries(ids.map((id) => [id, now])),
     })
   }
 

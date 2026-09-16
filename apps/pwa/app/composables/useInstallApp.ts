@@ -105,6 +105,16 @@ export const useInstallApp = () => {
 
   const canInstall = computed(() => method.value !== null)
 
+  /**
+   * Running as the iOS home-screen app.
+   *
+   * The one installed context that is cut off from the browser twice over: it
+   * keeps its own storage, so a sign-in in Safari is not a sign-in here, and
+   * links tapped in other apps open in Safari rather than coming back here —
+   * sign-in links included.
+   */
+  const onIosHomeScreen = computed(() => ios.value && installed.value)
+
   /** One tap where the browser allows it, directions where it does not. */
   const ctaLabel = computed(() =>
     method.value === 'prompt' ? 'Install app' : 'How to install',
@@ -147,6 +157,7 @@ export const useInstallApp = () => {
     ctaLabel,
     canInstall,
     isInstalled,
+    onIosHomeScreen,
     showCard,
     guideOpen,
     install,

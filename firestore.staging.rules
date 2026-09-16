@@ -370,6 +370,37 @@ service cloud.firestore {
         }
 
         match /messages/{messageId} {
+          /**
+           * Whether a reaction moves `reactors` and `reactedAt` the one way it
+           * may: the caller's own entry and nobody else's.
+           *
+           * Joining — no entry before, one after — is the only move that dates
+           * the message, and it has to be made under the member's own name and
+           * at `request.time`, since the entry is what the author's inbox
+           * reads out ("Tomi reacted to your message") and a name or a time the
+           * caller chose would be words put in someone else's mouth. Leaving
+           * deletes the entry and dates nothing. Every other reaction touches
+           * neither field, which is also what a build from before they existed
+           * sends. The author never joins their own message.
+           *
+           * Keyed by uid so this is one map diff rather than a walk over a list,
+           * which rules cannot do.
+           */
+          function movesOnlyOwnReactor() {
+            let uid = request.auth.uid;
+            let before = resource.data.get('reactors', {});
+            let after = request.resource.data.get('reactors', {});
+            let joined = !(uid in before) && uid in after;
+            return after is map
+              && after.diff(before).affectedKeys().hasOnly([uid])
+              && (joined
+                ? uid != resource.data.authorUid
+                  && after[uid] == {'name': shownName(me(), 'Someone'), 'at': request.time}
+                  && request.resource.data.reactedAt == request.time
+                : request.resource.data.get('reactedAt', null) == resource.data.get('reactedAt', null)
+                  && (!(uid in after) || after[uid] == before[uid]));
+          }
+
           allow read: if isCoach() || (inCohort(cohortId) && myThread());
 
           allow create: if inCohort(cohortId)
@@ -381,8 +412,11 @@ service cloud.firestore {
             // Only the coach's messages get the coach's styling.
             && request.resource.data.isCoach == false
             // A new message starts with no reactions. Counts are only ever
-            // moved by the increment below.
+            // moved by the increment below, and who reacted only ever by
+            // `movesOnlyOwnReactor`.
             && request.resource.data.reactionCounts.size() == 0
+            && !('reactors' in request.resource.data)
+            && !('reactedAt' in request.resource.data)
             // Who it is aimed at, which is what puts it in their inbox. A list
             // when present; absent is still accepted, because a phone on a
             // build from before the field existed is still sending messages.
@@ -397,8 +431,9 @@ service cloud.firestore {
 
           // Two writes may touch a sent message, and nothing else may.
           //
-          // The first is the reaction tally, moved one emoji at a time by
-          // anyone who can read the thread.
+          // The first is a reaction: the tally, moved one emoji at a time by
+          // anyone who can read the thread, and with it the caller's own entry
+          // in who reacted — see `movesOnlyOwnReactor`.
           //
           // The second is the author correcting their own words, for fifteen
           // minutes and then never again — the window in `EDIT_WINDOW_MS`,
@@ -418,7 +453,8 @@ service cloud.firestore {
           allow update: if isCoach() || (
             inCohort(cohortId) && myThread()
             && (
-              changed().hasOnly(['reactionCounts'])
+              (changed().hasOnly(['reactionCounts', 'reactors', 'reactedAt'])
+                && movesOnlyOwnReactor())
               || (
                 changed().hasOnly(['text', 'editedAt', 'mentions', 'addressedUids'])
                 && resource.data.authorUid == request.auth.uid

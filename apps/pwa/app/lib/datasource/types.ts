@@ -349,6 +349,21 @@ export interface DataSource {
     onError?: (error: unknown) => void,
   ): Promise<Unsubscribe>
 
+  /**
+   * This member's own cohort chat messages that others have reacted to, live,
+   * most recently reacted to first.
+   *
+   * The inbox's reactions, one line per message — see `MessageDoc.reactors` and
+   * `reactedAt`. Read off the message rather than the reactions under it, so a
+   * message forty people react to is one document here, not forty.
+   *
+   * Capped at the newest 50. Same contract as `watchMessages`.
+   */
+  watchReactedMessages(
+    onMessages: (messages: Message[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe>
+
   /** Notification id → when this member read it. Absent means unread. */
   listNotificationReads(): Promise<Record<string, Timestamp>>
   markNotificationRead(id: string): Promise<void>
