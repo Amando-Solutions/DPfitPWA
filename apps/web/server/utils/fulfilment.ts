@@ -22,7 +22,7 @@
 // =============================================================================
 import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore'
 import { reachableOrigin } from '../emails/access-code'
-import { issueAccessCode, readCohort, type Registration } from './access-code'
+import { issueAccessCode, type Registration } from './access-code'
 import { sendAccessCodeEmail, type BrevoConfig } from './email'
 import type { ConfirmedSale, SaleEvent } from './selar'
 
@@ -61,8 +61,9 @@ export interface FulfilOptions {
  * such, rather than a seat quietly issued to the wrong person.
  *
  * One equality filter, settled in memory, for the same reason as
- * `existingCode`: it keeps the automatic single-field index sufficient and
- * avoids a composite index for a query that returns one or two documents.
+ * `existingCode` in `apps/functions`: it keeps the automatic single-field index
+ * sufficient and avoids a composite index for a query that returns one or two
+ * documents.
  */
 export const findRegistrationForSale = async (
   db: Firestore,
@@ -142,8 +143,8 @@ export const fulfilRegistration = async (
         timezone: data.timezone ?? '',
       } satisfies Registration,
       // Deliberately beside the registration rather than on it: `Registration`
-      // is what `issueAccessCode` writes onto the code document, and where the
-      // buyer's browser was is no business of the code.
+      // is what `issueAccessCode` sends to be written onto the code, and where
+      // the buyer's browser was is no business of the code.
       appUrl: data.appUrl ?? '',
     }
   })
@@ -156,12 +157,12 @@ export const fulfilRegistration = async (
   }
 
   // --- Minting -------------------------------------------------------------
-  // Outside the transaction because it reads the cohort and may retry on an id
-  // collision, neither of which belongs inside a lock. The write below is what
-  // closes the door: `code` is set with a precondition that it is still unset,
-  // so two callers racing here cannot both record a seat.
-  const cohort = await readCohort(db, options.cohortId)
-  const { code } = await issueAccessCode(db, claim.registration, cohort, {
+  // Outside the transaction because it is a call to `createAccessCode`,
+  // and a network round trip does not belong inside a lock. The write below is
+  // what closes the door: `code` is set with a precondition that it is still
+  // unset, so two callers racing here cannot both record a seat.
+  const { code, cohortId } = await issueAccessCode(claim.registration, {
+    cohortId: options.cohortId,
     ttlDays: options.ttlDays,
   })
 
@@ -171,7 +172,7 @@ export const fulfilRegistration = async (
     if (existing) return false
     tx.update(ref, {
       code,
-      cohortId: cohort.id,
+      cohortId,
       paymentStatus: 'paid',
       paymentChannel: sale.channel,
       // What Selar reported, kept beside the advertised `amountMinor` rather

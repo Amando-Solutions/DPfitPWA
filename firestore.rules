@@ -248,7 +248,12 @@ service cloud.firestore {
       allow get: if true;
       allow list: if isCoach();
 
-      allow create, delete: if isCoach();
+      // No client creates a code, a coach included. `apps/functions` mints
+      // every one on the Admin SDK, so the shape of a seat is decided in one
+      // place; a hand-written document is how codes that cannot be redeemed
+      // got into this collection before.
+      allow create: if false;
+      allow delete: if isCoach();
 
       allow update: if isCoach() || (
         signedIn()
@@ -336,7 +341,68 @@ service cloud.firestore {
 
       match /{sub=**} {
         allow read: if isCoach() || isMember();
+      }
+
+      // Weeks, guides, and the flat `workoutDays` a migration leaves behind.
+      // Two segments only, so a training day below a week is not matched here:
+      // rules grant if *any* matching statement allows, and a recursive
+      // wildcard with a write would let a day around the checks below.
+      match /{collection}/{docId} {
         allow write: if isCoach();
+      }
+
+      /**
+       * An exercise's demo video: absent, null, or an https URL.
+       *
+       * Absent is accepted because every day authored before the field
+       * existed has none, and a rule that reads a missing key errors, which
+       * would deny an unrelated edit to that day. https only, because the app
+       * plays it inline on the How to tab and a plain http source is blocked
+       * as mixed content on an https page.
+       */
+      function validExercise(exercise) {
+        return exercise is map
+          && (!('videoUrl' in exercise)
+              || exercise.videoUrl == null
+              || (exercise.videoUrl is string
+                  && exercise.videoUrl.size() <= 2048
+                  && exercise.videoUrl.matches('https://.+')));
+      }
+
+      /** Rules cannot loop, so each slot is checked by index up to the cap. */
+      function exerciseAt(exercises, i) {
+        return exercises.size() <= i || validExercise(exercises[i]);
+      }
+
+      // A training day, with each exercise's video checked on the way in.
+      //
+      // The cap of 20 is what makes the per-index check complete: an exercise
+      // past the last slot checked would go in unchecked.
+      match /weeks/{weekId}/days/{dayId} {
+        allow create, update: if isCoach()
+          && request.resource.data.exercises is list
+          && request.resource.data.exercises.size() <= 20
+          && exerciseAt(request.resource.data.exercises, 0)
+          && exerciseAt(request.resource.data.exercises, 1)
+          && exerciseAt(request.resource.data.exercises, 2)
+          && exerciseAt(request.resource.data.exercises, 3)
+          && exerciseAt(request.resource.data.exercises, 4)
+          && exerciseAt(request.resource.data.exercises, 5)
+          && exerciseAt(request.resource.data.exercises, 6)
+          && exerciseAt(request.resource.data.exercises, 7)
+          && exerciseAt(request.resource.data.exercises, 8)
+          && exerciseAt(request.resource.data.exercises, 9)
+          && exerciseAt(request.resource.data.exercises, 10)
+          && exerciseAt(request.resource.data.exercises, 11)
+          && exerciseAt(request.resource.data.exercises, 12)
+          && exerciseAt(request.resource.data.exercises, 13)
+          && exerciseAt(request.resource.data.exercises, 14)
+          && exerciseAt(request.resource.data.exercises, 15)
+          && exerciseAt(request.resource.data.exercises, 16)
+          && exerciseAt(request.resource.data.exercises, 17)
+          && exerciseAt(request.resource.data.exercises, 18)
+          && exerciseAt(request.resource.data.exercises, 19);
+        allow delete: if isCoach();
       }
     }
 

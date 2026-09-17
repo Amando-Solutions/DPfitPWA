@@ -1,0 +1,24 @@
+{
+  "name": "dp-fitness-functions",
+  "private": true,
+  "type": "module",
+  "description": "DP Fitness · Cloud Functions, including createAccessCode, the one writer of access codes",
+  "main": "lib/index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "serve": "bun run build && firebase emulators:start --only functions,firestore,auth"
+  },
+  "dependencies": {
+    "firebase-admin": "^14.3.0",
+    "firebase-functions": "^7.4.0",
+    "google-auth-library": "^10.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5.9.0"
+  }
+}

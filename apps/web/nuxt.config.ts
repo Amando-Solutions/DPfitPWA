@@ -75,16 +75,21 @@ export default defineNuxtConfig({
   runtimeConfig: {
     /**
      * Server-only, and note the missing `PUBLIC`. Everything under `public`
-     * below is compiled into the browser bundle; these are read by
-     * `server/api/register.post.ts` alone and never leave the server.
+     * below is compiled into the browser bundle; these are read by the
+     * `server/` routes alone and never leave the server.
      *
      * The service account is a project-level credential that bypasses every
-     * security rule, which is exactly why the access code is minted on the
-     * server: `firestore.rules` allows `create` on `accessCodes` only to a
-     * coach, and the visitor filling in the form is not signed in at all.
+     * security rule. It writes `registrations`, which no client may, and it
+     * is the identity `createAccessCode` in `apps/functions` accepts when
+     * this site asks for a buyer's access code.
      */
     firebaseServiceAccount: process.env.NUXT_FIREBASE_SERVICE_ACCOUNT || '',
     googleApplicationCredentials: process.env.GOOGLE_APPLICATION_CREDENTIALS || '',
+
+    // Where `createAccessCode` answers. Empty builds the deployed URL from
+    // the service account's project; set it to reach the emulator, e.g.
+    // http://127.0.0.1:5001/recomp-48b7b/africa-south1/createAccessCode
+    accessCodeFunctionUrl: process.env.NUXT_ACCESS_CODE_FUNCTION_URL || '',
 
     // Which database in the project. Empty is `(default)`. Set per environment
     // and never from NODE_ENV, which is `production` for any built bundle

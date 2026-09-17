@@ -248,7 +248,12 @@ service cloud.firestore {
       allow get: if true;
       allow list: if isCoach();
 
-      allow create, delete: if isCoach();
+      // No client creates a code, a coach included. `apps/functions` mints
+      // every one on the Admin SDK, so the shape of a seat is decided in one
+      // place; a hand-written document is how codes that cannot be redeemed
+      // got into this collection before.
+      allow create: if false;
+      allow delete: if isCoach();
 
       allow update: if isCoach() || (
         signedIn()

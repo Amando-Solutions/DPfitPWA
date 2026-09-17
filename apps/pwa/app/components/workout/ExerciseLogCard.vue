@@ -29,7 +29,10 @@ const props = withDefaults(
      * behind it at all, hence the default.
      */
     started?: boolean
-    /** Where the exercise name leads: its history and how-to. Plain text without one. */
+    /**
+     * Where the exercise name and the help icon lead: its history and how-to.
+     * Without one the name is plain text and the icon is not drawn.
+     */
     to?: string
   }>(),
   { unit: 'kg', started: true },
@@ -250,14 +253,26 @@ const NO_SPINNER =
         <template v-else>{{ name }}</template>
       </h3>
 
-      <button
-        v-if="!readonly"
-        class="-mr-1.5 grid size-8 shrink-0 place-items-center rounded-pill text-muted transition-colors hover:text-ink"
-        aria-label="Exercise options"
-        @click="menuOpen = true"
-      >
-        <AppIcon name="more" :size="18" :stroke="2.4" />
-      </button>
+      <!-- The name alone did not read as a link, so the history and how-to get
+           an icon of their own beside the options. -->
+      <div v-if="to || !readonly" class="-mr-1.5 flex shrink-0 items-center">
+        <NuxtLink
+          v-if="to"
+          :to="to"
+          class="grid size-8 place-items-center rounded-pill text-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring"
+          :aria-label="`${name}: history and how-to`"
+        >
+          <AppIcon name="help" :size="18" :stroke="2.2" />
+        </NuxtLink>
+        <button
+          v-if="!readonly"
+          class="grid size-8 place-items-center rounded-pill text-muted transition-colors hover:text-ink"
+          aria-label="Exercise options"
+          @click="menuOpen = true"
+        >
+          <AppIcon name="more" :size="18" :stroke="2.4" />
+        </button>
+      </div>
     </div>
 
     <button

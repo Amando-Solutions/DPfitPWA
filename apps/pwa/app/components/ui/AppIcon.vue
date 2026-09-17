@@ -103,6 +103,7 @@ const fallbacks: Record<string, string> = {
   send: '<path d="M4 12 20 4l-6 16-3-7-7-1Z"/>',
   reply: '<path d="M9 15 4 10l5-5"/><path d="M4 10h8a7 7 0 0 1 7 7v2"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
+  help: '<circle cx="12" cy="12" r="9"/><path d="M9.3 9.3a2.8 2.8 0 0 1 5.4 1c0 1.9-2.7 2.7-2.7 2.7M12 17h.01"/>',
   phone:
     '<path d="M5 4h4l1.5 4-2 1.5a11 11 0 0 0 6 6l1.5-2 4 1.5V19a2 2 0 0 1-2 2A16 16 0 0 1 4 6a2 2 0 0 1 1-2Z"/>',
   edit: '<path d="M4 20h4L18 10l-4-4L4 16v4Z"/><path d="M13.5 6.5l4 4"/>',

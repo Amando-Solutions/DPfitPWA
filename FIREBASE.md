@@ -150,6 +150,7 @@ firebase login
 firebase use --add                     # pick the project
 
 firebase deploy --only firestore:rules,firestore:indexes,storage
+firebase deploy --only functions        # see "Deploying the function" first
 ```
 
 Indexes build in the background; queries needing one fail until it is ready, and
@@ -169,9 +170,10 @@ loosened by accident:
 | `(default)` | `firestore.rules` |
 | `staging` | `firestore.staging.rules` |
 
-They differ today by one change: staging checks each exercise's `videoUrl`
-(see **The schedule**) and production does not yet. `npm run rules:diff` shows
-the divergence — no output means they match, and any output is the divergence.
+They are identical today. Production already ran staging's `videoUrl` check
+(see **The schedule**) before this file caught up with it on 2026-09-16, so
+publish from whichever file the database names rather than assuming which is
+ahead. `npm run rules:diff` shows any divergence.
 When you change something that should apply to both, change it in both; the
 diff is there to catch the half that gets forgotten.
 
@@ -413,32 +415,85 @@ most recently, and the others are signed out the next time they open the app.
 
 ## Where access codes come from
 
-Two places, and only one of them is a person.
+One function: `createAccessCode`, a callable in `apps/functions`, in
+`africa-south1` beside both databases. It is the only thing that writes
+`accessCodes` — `firestore.rules` denies `create` to every client, a coach
+included. There used to be two writers, and the admin console's wrote documents
+the member app could not redeem.
 
-**A paid registration issues one.** `apps/web/server/utils/fulfilment.ts` mints a
-code when Selar's sale notification arrives at `api/payment/webhook`, which is
-the only path there is — Selar has no API to ask, so the notification is the
-evidence; `apps/web/server/utils/access-code.ts` writes the document. It
-runs on the Admin SDK for the same reason this section exists at all — `allow
-create` on `accessCodes` is coach-only, and a visitor buying a seat is not
-signed in — and it gets the shape right by construction, reading `cohortName`
-and the program pin off the cohort document rather than copying them by hand.
-That is the path to prefer. Nothing issues a code before money moves.
+**One code per call, issued to one person.** There are no anonymous codes and no
+batches: every code carries the `issuedToEmail` that may redeem it.
 
-**The console, for anything else** — a comped seat, a replacement, a code issued
-against a bank transfer. The table below is what that document has to contain.
+```ts
+// data
+{
+  database?:  '(default)' | 'staging',   // defaults to (default)
+  cohortId:   string,
+  expiryDays: number,                     // whole days, 1–365
+  email:      string,                     // who may redeem it
+  whatsapp?:  string,                     // copied into their profile
+}
+// result
+{ code, reused, database, cohortId, cohortName, issuedToEmail, expiresAt }
+```
 
-## Creating an access code by hand
+Two callers, told apart in `apps/functions/src/callers.ts`:
 
-A code written by hand is the easiest document in the system to leave
-incomplete.
+| caller | authenticates with | audit trail names |
+|---|---|---|
+| the admin console | its Firebase ID token (the callable SDK sends it), carrying the `dpfitAdmin` claim | the admin |
+| `api/payment/webhook` in `apps/web` | a Google-signed ID token for `REGISTRATION_SERVICE_ACCOUNT`, in `X-Service-Token` | `system:web-registration` |
 
-Every field below must **exist**, including the ones whose value is null. A
-security rule that reads a field the document does not have errors rather than
-returning false, and an errored rule denies the write — so a code missing
-`expiresAt` or `issuedToEmail` fails the claim with a bare "permission denied",
-nowhere near anything that names the field. `redeemAccessCode` checks for them
-first and logs the missing names, but the document still has to be right.
+The landing site's token cannot go in `Authorization`: a callable verifies that
+header as a Firebase ID token and refuses anything else before the function
+runs.
+
+What the function settles so no caller has to:
+
+- **The cohort is read, not trusted.** A cohort that is missing, `archived`, or
+  has no `programId` is refused with `failed-precondition`, rather than turning
+  into a seat that fails at redemption. `draft` is allowed.
+- **`cohortName`, `programId` and `programVersion` come off the cohort.**
+- **One live code per person per cohort.** If the email already holds an
+  unused, unexpired code for that cohort, it comes back with `reused: true`
+  instead of a second one. That is what makes Zapier replaying a sale safe, and
+  it means a replacement for a live code starts with revoking it.
+
+From the admin console:
+
+```ts
+const createAccessCode = httpsCallable(getFunctions(app, 'africa-south1'), 'createAccessCode')
+const { data } = await createAccessCode({ database: 'staging', cohortId, expiryDays, email })
+```
+
+### Deploying the function
+
+```bash
+cp apps/functions/.env.example apps/functions/.env   # then set REGISTRATION_SERVICE_ACCOUNT
+bun run deploy:functions
+```
+
+`REGISTRATION_SERVICE_ACCOUNT` is the `client_email` of the key in
+`NUXT_FIREBASE_SERVICE_ACCOUNT`. Left unset, deploy asks for it. Cloud Functions
+needs the Blaze plan.
+
+**Order matters:** the function first, then `apps/web`, then the rules. The
+landing site's old build writes codes itself, so the rules cannot go before it
+is replaced — and they refuse the admin console's current direct write, so it
+stops issuing codes until it calls the function.
+
+## What a code contains
+
+The contract `createAccessCode` writes and `redeemAccessCode` and the claim rule
+read. It is `AccessCodeDoc` in `apps/pwa/app/data/types.ts`, restated in
+`access-codes.ts`; change them together.
+
+Every field must **exist**, including the ones whose value is null. A security
+rule that reads a field the document does not have errors rather than returning
+false, and an errored rule denies the write — so a code missing `expiresAt` or
+`issuedToEmail` fails the claim with a bare "permission denied", nowhere near
+anything that names the field. `redeemAccessCode` checks for them first and logs
+the missing names.
 
 `accessCodes/{THE-CODE}` — the document id *is* the code, uppercase:
 
@@ -448,8 +503,9 @@ first and logs the missing names, but the document still has to be right.
 | `batchId` | string | anything; groups codes issued together |
 | `cohortId` | string | must match the cohort, e.g. `cohort-01` |
 | `cohortName` | string | e.g. `Cohort 01` |
+| `programId` / `programVersion` | string / number | the cohort's program pin |
 | `expiresAt` | timestamp | **a future date** — the rule refuses a past one |
-| `issuedToEmail` | string or null | the purchase email, or null for a generic code |
+| `issuedToEmail` | string | who may redeem it — always set now; older codes may hold null, which anybody may redeem |
 | `issuedToWhatsapp` | string or null | the buyer's WhatsApp number, or null when none was asked for |
 | `status` | string | exactly `unused` |
 | `claimedByUid` | null | |
@@ -457,23 +513,24 @@ first and logs the missing names, but the document still has to be right.
 | `claimedAt` | null | |
 | `revokedAt` | null | |
 | `createdAt` / `updatedAt` | timestamp | now |
-| `createdByUid` / `updatedByUid` | string | your uid |
-| `createdByEmail` / `updatedByEmail` | string | your email |
+| `createdByUid` / `updatedByUid` | string | the admin's uid, or `system:web-registration` |
+| `createdByEmail` / `updatedByEmail` | string | the admin's email, or `system:web-registration` |
 
 `cohortId` has to match a real cohort: the member-create rule re-reads this
 document and refuses to write a member into a cohort the code does not name.
 
-`issuedToWhatsapp` is not checked by any rule, so leaving it off will not deny
-anything — but it is what seeds `MemberProfile.whatsapp` at redemption, and a
-code issued without it produces a member the coach has no number for. Set it to
-`null` if you genuinely did not collect one; `backfill-access-codes.mjs` fills
-it in for codes written before the field existed.
+`issuedToWhatsapp` is not checked by any rule, but it is what seeds
+`MemberProfile.whatsapp` at redemption, so a code issued without it produces a
+member the coach has no number for.
 
-`programId` and `programVersion` are not in the table because they are not on
-`AccessCodeBase` — but set them anyway, to whatever the cohort names. The member
+`programId` and `programVersion` are not on `AccessCodeBase`, but the member
 document copies them out of the code at redemption, and `programs/''` is not a
-document path, so a code without them redeems fine and then throws on the first
-workout save. `backfill-access-codes.mjs` warns about exactly this.
+document path — a code without them redeems fine and then throws on the first
+workout save.
+
+Codes written before the function existed can be missing any of these.
+`backfill-access-codes.mjs` brings them up to this shape and warns about the
+program pin.
 
 ## The schedule
 
