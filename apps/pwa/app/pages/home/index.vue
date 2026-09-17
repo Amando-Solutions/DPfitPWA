@@ -8,6 +8,51 @@ import type { ChatMessageView } from '~/data/types'
 const store = useAppStore()
 const data = useDataSourceClient()
 
+/**
+ * Home is now the screen the app loads *behind*.
+ *
+ * Signing in no longer waits for the payload — the member is routed the moment
+ * their membership is known, and their logs, program, photos and cohort arrive
+ * here. So for a second or so this screen holds a member whose state it has not
+ * read, and the defaults it holds instead are not neutral: no photos reads as
+ * "take your before photo", no check-in as "check in now", no sessions as a
+ * ring at 0%. Every one of those is a claim about somebody's training, and
+ * getting it wrong for a second and then correcting it is worse than not
+ * saying it.
+ *
+ * So while this is true the cards that make claims stand down and the ones that
+ * hold figures go to placeholders at their own size. Nothing moves when the
+ * real thing lands. See `identify` in `useAppStore`.
+ */
+const loading = store.loading
+
+/**
+ * The content load came back with nothing and a reason.
+ *
+ * Only reachable now that the load runs behind this screen: it used to fail
+ * under the boot splash or in front of the sign-in button, and the door screens
+ * were the only things that ever showed `startupError`. A member here with one
+ * is signed in, on the right screen, holding an account that would otherwise
+ * render as a fresh one — so the message takes the place of the cards that
+ * would be making things up, and the retry re-reads without asking anybody to
+ * relaunch an installed app.
+ */
+const failed = computed(() => !loading.value && store.startupError.value !== '')
+
+/** Nothing below can speak for this member yet, one way or the other. */
+const unread = computed(() => loading.value || failed.value)
+
+const retrying = ref(false)
+const retry = async () => {
+  if (retrying.value) return
+  retrying.value = true
+  try {
+    await store.retryLoad()
+  } finally {
+    retrying.value = false
+  }
+}
+
 const greeting = computed(() => {
   // The store's clock, not the device's, so the greeting agrees with the date
   // the rest of the app is working from.
@@ -91,16 +136,29 @@ const STAT_VALUE =
          browser that has no install route. -->
     <InstallAppCard />
 
+    <!-- The one place the wait is announced. Every placeholder below is
+         `aria-hidden`, so a screen reader hears this sentence once instead of
+         a dozen elements each declaring themselves busy. -->
+    <p v-if="loading" role="status" class="sr-only">Loading your training.</p>
+
     <!--
       No subtitle. It read "Day 1 of 42 · today is waiting on you", which the
       hero card directly below already says, in larger type, with the session
       attached to it.
     -->
+    <!-- The greeting is off the member document, so it is right from the first
+         frame. The week is off the schedule, which is still arriving: an
+         eyebrow reading "Week 1" and correcting itself to "Week 5" is the one
+         thing on this header that can be wrong. -->
     <ScreenIntro
-      :eyebrow="store.clock.value.label"
+      :eyebrow="unread ? '' : store.clock.value.label"
       :title="`${greeting}, ${store.displayName.value}`"
       class="home__intro order-0 lg:[grid-area:intro]"
-    />
+    >
+      <template v-if="loading" #eyebrow>
+        <SkeletonBlock :w="72" :h="10" />
+      </template>
+    </ScreenIntro>
 
     <!-- Desktop packs these into two independent columns; on mobile the
          wrappers dissolve and `order` restores the design's single-column
@@ -114,8 +172,12 @@ const STAT_VALUE =
 
         Stays until a photo taken after that session is on file.
       -->
+      <!-- Both photo prompts are held back until the photos have been read.
+           `firstPhotoDue` is "no photo on file", which is what an empty store
+           looks like too, so showing it early asks a member who uploaded one
+           in week one to upload it again. -->
       <section
-        v-if="store.finalPhotoDue.value"
+        v-if="!unread && store.finalPhotoDue.value"
         class="home__section home__section--photo order-1 mt-3.25 lg:mt-0"
       >
         <div :class="CARD">
@@ -158,7 +220,7 @@ const STAT_VALUE =
         no next week for it to come back in.
       -->
       <section
-        v-else-if="store.firstPhotoDue.value"
+        v-else-if="!unread && store.firstPhotoDue.value"
         class="home__section home__section--photo order-1 mt-3.25 lg:mt-0"
       >
         <div :class="CARD">
@@ -188,10 +250,57 @@ const STAT_VALUE =
         </div>
       </section>
 
+      <!--
+        What the hero's slot holds when the read failed.
+
+        In the hero's place rather than as a banner above it, because with
+        nothing loaded there is no hero, no week at a glance and no stats — the
+        screen below is empty, and a strip of red over an empty screen explains
+        less than a card sitting in the space the training should be in.
+      -->
+      <section
+        v-if="failed"
+        class="home__section home__section--failed order-1 mt-3.25 lg:mt-0"
+      >
+        <div :class="CARD">
+          <div class="flex gap-3">
+            <span class="grid size-9 shrink-0 place-items-center rounded-pill bg-primary-soft text-primary">
+              <AppIcon name="info" :size="17" />
+            </span>
+            <div class="min-w-0 flex-1">
+              <h2 class="m-0 font-display text-[16px] font-black tracking-[-0.24px] text-ink">
+                Couldn’t load your training
+              </h2>
+              <p class="mt-1 mb-0 text-[13px] leading-[1.45] text-muted">
+                {{ store.startupError.value }}
+              </p>
+            </div>
+          </div>
+          <AppButton class="mt-3.25" :disabled="retrying" @click="retry">
+            {{ retrying ? 'Trying again…' : 'Try again' }}
+          </AppButton>
+        </div>
+      </section>
+
+      <!-- The hero's own shape while the schedule is still arriving. Bottom
+           aligned and at the card's real heights, because the hero is the
+           tallest thing on the screen and everything below it would jump the
+           moment it appeared. -->
+      <section
+        v-if="loading"
+        class="home__section home__section--hero order-1 mt-3.25 lg:mt-0"
+      >
+        <div class="flex min-h-52 flex-col justify-end gap-3 rounded-lg bg-raised p-5 lg:min-h-64 lg:p-6">
+          <SkeletonBlock :w="96" :h="11" />
+          <SkeletonBlock w="70%" :h="26" />
+          <SkeletonBlock w="45%" :h="13" />
+        </div>
+      </section>
+
       <!-- Hero workout. Nothing to lead with until the program's training week
            has been authored, and an empty hero is worse than none. -->
       <section
-        v-if="store.today.value"
+        v-else-if="store.today.value"
         class="home__section home__section--hero order-1 mt-3.25 lg:mt-0"
       >
         <WorkoutHeroCard
@@ -211,7 +320,32 @@ const STAT_VALUE =
         above it (`relative`) and keep going to the day they show.
       -->
       <section
-        v-if="store.days.value.length"
+        v-if="loading"
+        class="home__section home__section--glance mt-3.25 lg:mt-0 order-3"
+      >
+        <div :class="CARD" class="p-4.5">
+          <SkeletonBlock w="55%" :h="13" />
+          <SkeletonBlock w="65%" :h="24" class="mt-2.5" />
+          <SkeletonBlock :h="5" class="mt-3 mb-4" />
+          <!-- `DayDots`' own geometry: a flexed square per day with its caption
+               under it, at the 54px the real dot is drawn at. Five, because a
+               training week is four to seven days and the middle of that costs
+               the least movement whichever it turns out to be. -->
+          <div class="flex gap-2">
+            <div
+              v-for="dot in 5"
+              :key="dot"
+              class="flex min-w-0 flex-1 flex-col items-center gap-2"
+            >
+              <SkeletonBlock shape="circle" w="100%" :h="54" class="max-w-13.5" />
+              <SkeletonBlock :w="24" :h="11" />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        v-else-if="store.days.value.length"
         class="home__section home__section--glance mt-3.25 lg:mt-0 order-3"
       >
         <div
@@ -272,9 +406,18 @@ const STAT_VALUE =
         percentage first and reads the detail second, instead of arbitrating
         between three numbers of equal weight.
       -->
-      <section class="home__stats order-2 mt-3.5 lg:mt-0">
+      <!-- Gone entirely when the read failed, rather than placeholders that
+           will never fill: the card above says why and offers the retry, and a
+           second, quieter copy of "no data" under it adds nothing. -->
+      <section v-if="!failed" class="home__stats order-2 mt-3.5 lg:mt-0">
         <div :class="CARD" class="flex items-center gap-6">
-          <ProgressRing :value="challengePct" :size="82" :stroke="8">
+          <!-- A ring at 0% is not an empty ring, it is a claim that nothing has
+               been logged, so the whole dial stands down rather than drawing
+               itself at a value it has not read. The ledger beside it keeps its
+               icons and labels — those are the card, and they are true before
+               any of the numbers are — and only the figures are held back. -->
+          <SkeletonBlock v-if="loading" shape="circle" :w="82" :h="82" />
+          <ProgressRing v-else :value="challengePct" :size="82" :stroke="8">
             <div class="flex flex-col items-center leading-none">
               <span class="flex items-baseline font-display font-black tracking-[-0.5px] text-ink tabular-nums">
                 <span class="text-[24px]">{{ challengePct }}</span
@@ -290,14 +433,20 @@ const STAT_VALUE =
                 <AppIcon name="train" :size="14" :stroke="2.2" />
               </span>
               <dt :class="STAT_LABEL" class="flex-1">Sessions logged</dt>
-              <dd :class="STAT_VALUE">{{ sessionsLogged }}</dd>
+              <dd :class="STAT_VALUE">
+                <SkeletonBlock v-if="loading" :w="20" :h="13" />
+                <template v-else>{{ sessionsLogged }}</template>
+              </dd>
             </div>
             <div class="flex items-center gap-2.5 border-t border-hairline pt-2.5">
               <span :class="STAT_ICON" class="bg-secondary-soft text-secondary-ink">
                 <AppIcon name="flame" :size="14" :stroke="2.2" />
               </span>
               <dt :class="STAT_LABEL" class="flex-1">Week streak</dt>
-              <dd :class="STAT_VALUE">{{ store.rewards.value.streakWeeks }}</dd>
+              <dd :class="STAT_VALUE">
+                <SkeletonBlock v-if="loading" :w="20" :h="13" />
+                <template v-else>{{ store.rewards.value.streakWeeks }}</template>
+              </dd>
             </div>
           </dl>
         </div>
@@ -326,8 +475,12 @@ const STAT_VALUE =
       <!-- Weekly check-in. This card is the reminder the "Weekly check-in
            reminder" switch on Profile turns off; the check-in itself stays
            reachable from the nav and the More menu. -->
+      <!-- Held back with the photo prompts, and for the same reason: an
+           unread store has no check-in on file, which is indistinguishable
+           from one that is due. The card would say "Check in now" to somebody
+           who checked in on Sunday. -->
       <section
-        v-if="store.prefs.value.weeklyCheckInReminder"
+        v-if="!unread && store.prefs.value.weeklyCheckInReminder"
         class="home__section home__section--checkin mt-3.25 lg:mt-0 order-4"
       >
         <div :class="CARD">

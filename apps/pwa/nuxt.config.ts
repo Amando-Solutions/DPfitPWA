@@ -151,6 +151,14 @@ export default defineNuxtConfig({
       // has not been told where to send people. A default here would be a real
       // inbox published on every deploy that forgot to set it.
       supportEmail: process.env.NUXT_PUBLIC_SUPPORT_EMAIL || '',
+      // NUXT_PUBLIC_WEB_APP_URL: the public site's origin, which is where a
+      // code is bought. The access-code screen is the one place in the app a
+      // person can arrive without having paid, and until this was set it had
+      // nothing to say to them — the only way on was a code, and the only way
+      // to get a code is a purchase made somewhere this app does not host.
+      // Empty hides the link, same as `supportEmail`: a guess at the origin
+      // would send members to a domain that may not be ours.
+      webAppUrl: process.env.NUXT_PUBLIC_WEB_APP_URL || '',
       /**
        * Firebase web config. Public by design — these identify the project,
        * they do not authorise anything. What stops a stranger reading the

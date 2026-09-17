@@ -44,16 +44,36 @@ const add = () => fileInput.value?.click()
 const celebrated = ref<BadgeDef | null>(null)
 const showCelebration = ref(false)
 
+/**
+ * The upload that just landed was the first photo on file, which is the one
+ * thing Start workout waits on.
+ *
+ * The celebration then carries a way through to the session, because this
+ * screen is where that gate sent them: a member who came here to be let in and
+ * is handed nothing but "Nice" has to find their own way back to the workout
+ * they were trying to start.
+ */
+const unlockedTraining = ref(false)
+
+/** The session Home leads with, or the week itself when nothing is authored. */
+const workoutTo = computed(() =>
+  store.today.value ? `/train/${store.today.value.id}` : '/train',
+)
+
 const onFile = async (event: Event) => {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file || pending.value) return
   error.value = ''
   pending.value = 'add'
+  // Read before the write: the photo lands in the store during `addPhoto`, and
+  // `firstPhotoDue` is false from that moment on.
+  const wasFirstPhoto = store.firstPhotoDue.value
   try {
     // Decode and downscale here; the store hands the result to the data
     // source, which is what decides where the bytes actually live.
     await store.addPhoto({ pose: pose.value, image: await processImage(file) })
+    unlockedTraining.value = wasFirstPhoto
     const badge = store.consumePendingBadge()
     if (badge) {
       celebrated.value = badge
@@ -246,7 +266,19 @@ const takenLabel = formatDate
         <span class="celebrate__emoji text-[56px] leading-none">{{ celebrated.emoji }}</span>
         <h2 class="celebrate__name m-0 font-display font-black text-[22px] text-ink">{{ celebrated.name }}</h2>
         <p class="celebrate__desc mt-0 mx-0 mb-2 text-[14px] text-muted">{{ celebrated.description }}</p>
-        <AppButton @click="showCelebration = false">Nice</AppButton>
+        <!-- Photo Proof is the badge that opens training, so it hands the
+             session over the way Saved hands back the week. Dismissing is kept
+             alongside it: the photo is filed either way. -->
+        <div
+          v-if="unlockedTraining"
+          class="celebrate__actions w-full flex flex-col gap-1"
+        >
+          <AppButton :to="workoutTo" @click="showCelebration = false">
+            Go to workout
+          </AppButton>
+          <AppButton variant="ghost" @click="showCelebration = false">Not now</AppButton>
+        </div>
+        <AppButton v-else @click="showCelebration = false">Nice</AppButton>
       </div>
     </BottomSheet>
   </div>

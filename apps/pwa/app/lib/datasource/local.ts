@@ -466,6 +466,7 @@ export class LocalDataSource implements DataSource {
   // Workout logging
   // =========================================================================
   async listSessions(): Promise<SessionLog[]> {
+    await new Promise((r) => setTimeout(r, 5000)) // TEMP-SKELETON-PROBE
     return storage.read<SessionLog[]>(KEY.sessions, [])
   }
 

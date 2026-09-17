@@ -234,13 +234,71 @@ const buildStore = () => {
   )
 
   // --- Loading -------------------------------------------------------------
-  const hydrate = async (force = false) => {
-    if (state.value.hydrated && !force) return
+  //
+  // A load has two halves, and only the first of them decides anything.
+  //
+  // `identify` answers who is signed in and whether they hold a membership.
+  // That is the whole of `gate`, which is the whole of what route middleware
+  // and the door screens need in order to know where somebody belongs.
+  //
+  // `loadContent` is the app itself: a dozen reads, several of them queued
+  // behind the program document before they can even start. It decides
+  // nothing. It was awaited on the sign-in path all the same, which left a
+  // member who had already been authenticated — and whose destination was
+  // already known — watching "Signing in…" for the length of the entire
+  // payload before the screen moved.
+  //
+  // `hydrate` still runs both, and the boot path still awaits it whole: the
+  // splash in `spa-loading-template.html` is already covering that wait and
+  // there is nothing to gain by finishing early underneath it. The sign-in
+  // path awaits only `identify` and lets the content land behind Home, which
+  // skeletons on `loading` while it does.
+
+  /**
+   * Which load the state belongs to.
+   *
+   * The sign-in path leaves a content load in flight on purpose, so a read
+   * from it can now resolve after a newer load has already replaced the state
+   * — a sign-out, or a redemption a second later. Every write below is stamped
+   * with the load that asked for it and dropped if it is no longer the current
+   * one, so the slower answer cannot overwrite the truer one.
+   */
+  let generation = 0
+
+  /**
+   * Whether the app's own content is still on its way in.
+   *
+   * True only in the window this file opened deliberately: signed in, routed,
+   * and reading. Screens skeleton on it rather than render a member's account
+   * as a row of zeros they have to watch correct themselves.
+   */
+  const loading = ref(false)
+
+  /**
+   * Who this is, and whether they hold a membership. The half `gate` reads.
+   *
+   * Resolves `true` when there is a member document, and therefore an app
+   * worth loading for it. Everything that stops the load short — an auth read
+   * that failed, a device signed out from elsewhere, no membership yet —
+   * resolves `false` and has already written its own reason into the state.
+   */
+  const identify = async (): Promise<boolean> => {
+    const gen = ++generation
 
     // A re-run re-answers the question, so the previous answer's failure does
     // not survive it. Without this a retry that succeeds still hands the screen
     // the error that prompted it.
     startupError.value = ''
+
+    /** Was this load overtaken while it waited? Then it has nothing left to say. */
+    const stale = () => gen !== generation
+
+    // Any content load still out belongs to a member this one is replacing, and
+    // its `finally` will decline to touch this flag because its generation is
+    // gone. So the flag is cleared here, by the load taking over, and set again
+    // a moment later by the `loadContent` this one hands off to — in the same
+    // tick, so nothing renders in between.
+    loading.value = false
 
     // Before anything asks who is signed in. A load returning from a Google
     // redirect carries its credentials in the URL, and they have to be
@@ -260,6 +318,11 @@ const buildStore = () => {
     // paint already has the right date. The network sync lands later.
     restoreClock()
 
+    /** The state a load with nowhere further to go leaves behind. */
+    const settleEmpty = () => {
+      state.value = { ...emptyState(), hydrated: true, nowMs: trustedNow().getTime() }
+    }
+
     // Read behind a catch, all the way down. `plugins/store.client.ts` awaits
     // this before the app mounts, so anything that escapes is not a message on
     // a screen — there is no screen yet — it is the error page. A member whose
@@ -269,10 +332,12 @@ const buildStore = () => {
     try {
       authUser = await data.getAuthUser()
     } catch (cause) {
+      if (stale()) return false
       startupError.value = readMessage(cause)
-      state.value = { ...emptyState(), hydrated: true, nowMs: trustedNow().getTime() }
-      return
+      settleEmpty()
+      return false
     }
+    if (stale()) return false
 
     // Anybody signed in here is past the tour, however they got in: members
     // signed in from before the flag existed never set it. Recorded now, so
@@ -290,6 +355,14 @@ const buildStore = () => {
     // The rules refuse every read from a device that has lost the account, and
     // finding that out through a failed member read would look like a broken
     // account rather than a sign-in somewhere else. See `claimDevice`.
+    //
+    // Strictly before the member read, not beside it. `firestore.rules` gates
+    // every member rule on `signedIn()`, which calls `onLatestSignIn()`: a read
+    // of `members/{uid}` is refused until `signIns/{uid}` carries this token's
+    // `auth_time`. On a fresh sign-in that claim has not been written yet, so a
+    // member read racing the claim is not merely early — it is denied, and a
+    // denial here is indistinguishable from an account that cannot be read.
+    // These two round trips are the price of one device at a time.
     if (authUser) {
       let claim: DeviceClaim = 'claimed'
       try {
@@ -305,10 +378,12 @@ const buildStore = () => {
         } catch (cause) {
           console.warn('[store] could not sign out a superseded device', cause)
         }
+        if (stale()) return false
         startupError.value = SIGNED_IN_ELSEWHERE
-        state.value = { ...emptyState(), hydrated: true, nowMs: trustedNow().getTime() }
-        return
+        settleEmpty()
+        return false
       }
+      if (stale()) return false
     }
 
     // Two reads, in order, rather than one `Promise.all`.
@@ -336,6 +411,7 @@ const buildStore = () => {
         memberUnreadable = true
       }
     }
+    if (stale()) return false
 
     // Everything past this point hangs off the member document — their logs,
     // their photos, their cohort's notifications and leaderboard — and every
@@ -345,53 +421,79 @@ const buildStore = () => {
     // account yet" for each. On the boot path that took the whole app down,
     // sign-in screen included, which is the one screen a visitor in exactly
     // that state needs. So the load stops here for them, with the rest of the
-    // state at its defaults and eight round trips not made.
-    if (!member) {
-      state.value = {
-        ...emptyState(),
-        hydrated: true,
-        nowMs: trustedNow().getTime(),
-        authUser,
-        memberUnreadable,
-      }
-      return
+    // state at its defaults and twelve round trips not made.
+    state.value = {
+      ...emptyState(),
+      hydrated: true,
+      nowMs: trustedNow().getTime(),
+      authUser,
+      member,
+      memberUnreadable,
     }
+    return member !== null
+  }
 
-    // The authored half of the load, alongside the member's own.
-    //
-    // It is not a second round trip: the program, the training week, the guide
-    // library and the cohort go out with the member's logs and settle together,
-    // because every screen needs both halves and there is nothing worth
-    // painting with only one of them. They are also the
-    // reads that used to be `import` statements, which is why they cost nothing
-    // before and are the whole of the difference now.
-    /**
-     * A read the app can do without.
-     *
-     * The guide library and the cohort document are each one screen or one
-     * card, and neither is load-bearing: an empty library renders its empty
-     * state, and a missing cohort costs the live-call card and the board.
-     * Inside `Promise.all` they were neither — a single rejection takes the
-     * whole array down and blanks the app, so a rules file that had not been deployed for one collection
-     * would present as a member's entire account failing to load.
-     *
-     * The training data below is deliberately *not* wrapped this way. A member
-     * with no sessions and no program has nothing to be shown, and pretending
-     * otherwise would replace an error message with a screen quietly claiming
-     * they had done nothing.
-     */
-    const optional = async <T>(read: Promise<T>, fallback: T, what: string): Promise<T> => {
-      try {
-        return await read
-      } catch (cause) {
-        console.warn(`[store] ${what} could not be read; continuing without it.`, cause)
-        return fallback
-      }
-    }
+  /**
+   * The app itself, read for whoever `identify` just named.
+   *
+   * Never throws, on either path it is used from: awaited at boot, where an
+   * escape is the error page rather than a message, and unawaited behind the
+   * sign-in, where an escape is an unhandled rejection nobody sees.
+   */
+  const loadContent = async (): Promise<void> => {
+    const gen = generation
+    const authUser = state.value.authUser
+    const member = state.value.member
+    if (!member) return
 
-    let loaded
+    loading.value = true
     try {
-      loaded = await Promise.all([
+      // The authored half of the load, alongside the member's own.
+      //
+      // It is not a second round trip: the program, the training week, the guide
+      // library and the cohort go out with the member's logs and settle together,
+      // because every screen needs both halves and there is nothing worth
+      // painting with only one of them. They are also the
+      // reads that used to be `import` statements, which is why they cost nothing
+      // before and are the whole of the difference now.
+      /**
+       * A read the app can do without.
+       *
+       * The guide library and the cohort document are each one screen or one
+       * card, and neither is load-bearing: an empty library renders its empty
+       * state, and a missing cohort costs the live-call card and the board.
+       * Inside `Promise.all` they were neither — a single rejection takes the
+       * whole array down and blanks the app, so a rules file that had not been deployed for one collection
+       * would present as a member's entire account failing to load.
+       *
+       * The training data below is deliberately *not* wrapped this way. A member
+       * with no sessions and no program has nothing to be shown, and pretending
+       * otherwise would replace an error message with a screen quietly claiming
+       * they had done nothing.
+       */
+      const optional = async <T>(read: Promise<T>, fallback: T, what: string): Promise<T> => {
+        try {
+          return await read
+        } catch (cause) {
+          console.warn(`[store] ${what} could not be read; continuing without it.`, cause)
+          return fallback
+        }
+      }
+
+      const [
+        sessions,
+        activeSession,
+        checkIns,
+        photos,
+        notificationReads,
+        earnedBadges,
+        leaderboard,
+        prefs,
+        program,
+        weeks,
+        guides,
+        cohort,
+      ] = await Promise.all([
         data.listSessions(),
         data.getActiveSession(),
         data.listCheckIns(),
@@ -405,65 +507,93 @@ const buildStore = () => {
         optional(data.listGuides(), [], 'the guide library'),
         optional(data.getCohort(), null, 'the cohort'),
       ])
-    } catch (cause) {
-      // The member document was readable and the rest was not, so keep them:
-      // being signed in is a fact worth not throwing away over a failed read,
-      // and it is the difference between a reload fixing this and the member
-      // having to sign in again.
-      startupError.value = readMessage(cause)
+
+      if (gen !== generation) return
+
       state.value = {
-        ...emptyState(),
         hydrated: true,
         nowMs: trustedNow().getTime(),
         authUser,
         member,
+        memberUnreadable: false,
+        program,
+        weeks,
+        guides,
+        // Whatever the listener has already delivered, if this read came back
+        // with nothing. The cohort watcher keys off the member id, which
+        // `identify` now sets a beat before this read is even sent, so for the
+        // first time the listener can be ahead of the load — and `optional`
+        // reports a cohort it could not read as `null`, which would take the
+        // live one down with it. A cohort that genuinely does not exist is
+        // `null` on both sides, so this can only preserve.
+        cohort: cohort ?? state.value.cohort,
+        sessions,
+        activeSession,
+        checkIns,
+        photos,
+        notificationReads,
+        earnedBadges,
+        leaderboard,
+        // Read on the screen that shows it, not here. See `refreshCohortMemberCount`.
+        cohortMemberCount: null,
+        prefs,
+        pendingBadge: null,
       }
+    } catch (cause) {
+      // The member document was readable and the rest was not. `identify` has
+      // already left them signed in with the state at its defaults, which is
+      // what this branch used to have to rebuild: being signed in is a fact
+      // worth not throwing away over a failed read, and it is the difference
+      // between a reload fixing this and the member having to sign in again.
+      //
+      // Reported through `startupError` as it always was, but it now has a
+      // second reader. This used to be reachable only under the boot splash,
+      // where the door screens picked the message up on the way past; a member
+      // signing in never got here, because the sign-in screen was still on
+      // screen and failed in front of them. Now they are on Home by the time
+      // this lands, so Home shows it — and offers `retryLoad` rather than
+      // asking somebody to reload an installed app.
+      if (gen !== generation) return
+      startupError.value = readMessage(cause)
       return
-    }
-
-    const [
-      sessions,
-      activeSession,
-      checkIns,
-      photos,
-      notificationReads,
-      earnedBadges,
-      leaderboard,
-      prefs,
-      program,
-      weeks,
-      guides,
-      cohort,
-    ] = loaded
-
-    state.value = {
-      hydrated: true,
-      nowMs: trustedNow().getTime(),
-      authUser,
-      member,
-      memberUnreadable: false,
-      program,
-      weeks,
-      guides,
-      cohort,
-      sessions,
-      activeSession,
-      checkIns,
-      photos,
-      notificationReads,
-      earnedBadges,
-      leaderboard,
-      // Read on the screen that shows it, not here. See `refreshCohortMemberCount`.
-      cohortMemberCount: null,
-      prefs,
-      pendingBadge: null,
+    } finally {
+      if (gen === generation) loading.value = false
     }
 
     // Two badges turn on the calendar as much as on the logs ("reach Week 3
     // with…"), so their moment can arrive with no RP event to notice it. Catch
     // up quietly here: a celebration hours after the fact is worse than none.
-    await syncBadges({ celebrate: false })
+    //
+    // Swallowed rather than thrown: a badge that could not be written is worth
+    // a line in the console, and it is not worth the error page it used to
+    // cost when this ran on the boot path and rejected.
+    try {
+      if (gen === generation) await syncBadges({ celebrate: false })
+    } catch (cause) {
+      console.warn('[store] could not catch up on badges', cause)
+    }
   }
+
+  /**
+   * Both halves, in order. The boot path, and anything that needs the store
+   * whole before it carries on.
+   */
+  const hydrate = async (force = false) => {
+    if (state.value.hydrated && !force) return
+    if (await identify()) await loadContent()
+  }
+
+  /**
+   * Read the app again, for a member already signed in and already on a screen.
+   *
+   * Not `hydrate(true)`: who they are is not in question — `identify` answered
+   * that and the session is still good — so re-asking would re-claim the device
+   * and re-read the member document to arrive back where it already is. This is
+   * the half that failed, retried on its own. `loading` goes back to true, so
+   * the screen returns to its placeholders rather than sitting on stale zeros
+   * while it runs.
+   */
+  const retryLoad = () => loadContent()
 
   /** Re-read the trusted clock. Cheap, and what the midnight rollover calls. */
   const tick = () => {
@@ -1232,11 +1362,15 @@ const buildStore = () => {
    * to do. The other branch is a popup that came back with a user, and the
    * member document and everything derived from it belong to whoever just
    * signed in, none of it loaded for them — so it re-hydrates.
+   *
+   * Awaits `identify` rather than the whole of `hydrate`, for the reason
+   * `signInWithPassword` does: the destination is decided by the time it
+   * resolves, and the rest is the app loading behind the screen it goes to.
    */
   const signInWithGoogle = async () => {
     startupError.value = ''
     const user = await data.signInWithGoogle()
-    if (user) await hydrate(true)
+    if (user && (await identify())) void loadContent()
     return user
   }
 
@@ -1247,10 +1381,17 @@ const buildStore = () => {
    * Make the account a code pays for, and redeem the code on it.
    *
    * Two steps with a load between them, because the redemption is refused to
-   * a session that has not claimed this device yet — and `hydrate` is what
-   * claims it. The load also answers whether there is anything left to redeem:
-   * an account from an earlier, interrupted sign-up may have got further than
+   * a session that has not claimed this device yet — and `identify` is what
+   * claims it. It also answers whether there is anything left to redeem: an
+   * account from an earlier, interrupted sign-up may have got further than
    * this one knows.
+   *
+   * `identify` rather than `hydrate`, because the usual path through here
+   * redeems immediately afterwards and `redeemAccessCode` loads the app for
+   * the membership it creates. Hydrating first read the whole payload for a
+   * member who was about to get a different one a moment later. The other
+   * branch — an account that already held its membership — has nothing left to
+   * redeem, so it is the one that starts the load itself.
    *
    * If the redemption fails, the account stays. The member is then signed in
    * without a membership, which is `needs-code`, and the access-code screen
@@ -1260,15 +1401,24 @@ const buildStore = () => {
   const createAccount = async (code: string, email: string, password: string) => {
     startupError.value = ''
     await data.createAccount(code, email, password)
-    await hydrate(true)
+    const hasMember = await identify()
     if (gate.value === 'needs-code') await redeemAccessCode(code)
+    else if (hasMember) void loadContent()
   }
 
-  /** Sign in with an email and password, and load whoever that is. */
+  /**
+   * Sign in with an email and password, and load whoever that is.
+   *
+   * Resolves as soon as the member is identified, not once the app has
+   * finished loading for them. Those are two different waits and only the
+   * first one has an answer the screen needs: `gate` is settled, so the
+   * sign-in screen knows where to send them and can send them there. The
+   * content is started, not awaited, and lands behind the screen it lands on.
+   */
   const signInWithPassword = async (email: string, password: string) => {
     startupError.value = ''
     const user = await data.signInWithPassword(email, password)
-    await hydrate(true)
+    if (await identify()) void loadContent()
     return user
   }
 
@@ -1676,6 +1826,8 @@ const buildStore = () => {
     // state
     state,
     hydrated: computed(() => state.value.hydrated),
+    /** The app's content is still arriving. What screens skeleton on. See `identify`. */
+    loading: computed(() => loading.value),
     authUser,
     member,
     profile,
@@ -1750,6 +1902,7 @@ const buildStore = () => {
 
     // actions
     hydrate,
+    retryLoad,
     tick,
     refreshClock,
     refreshCohortMemberCount,

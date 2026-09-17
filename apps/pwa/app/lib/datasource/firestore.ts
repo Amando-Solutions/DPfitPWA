@@ -2373,8 +2373,23 @@ export class FirestoreDataSource implements DataSource {
   // =========================================================================
   // Preferences
   // =========================================================================
+  /**
+   * The member's preferences, off the member document.
+   *
+   * Reads the cached copy when there is one rather than fetching the document
+   * again. Preferences are a field of `members/{uid}`, and every caller of this
+   * arrives just behind a `getMember` — the load reads it, then asks for the
+   * preferences on it and paid for a second identical round trip to be told the
+   * same thing. `requireMember` has always trusted this cache for the cohort id
+   * and the program version, which are load-bearing in a way a reminder toggle
+   * is not.
+   *
+   * Not `requireMember`: that throws for an account with no membership, and
+   * this answers with the defaults, which is what the setup screens read before
+   * there is anything to have a preference about.
+   */
   async getPreferences(): Promise<MemberPreferences> {
-    const member = await this.getMember()
+    const member = this.memberCache ?? (await this.getMember())
     return { ...defaultPreferences(), ...(member?.prefs ?? {}) }
   }
 

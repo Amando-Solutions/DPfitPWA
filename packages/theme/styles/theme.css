@@ -653,6 +653,7 @@
   --animate-rest-pulse: rest-pulse 2s ease-in-out infinite;
   --animate-typing-dot: typing-dot 1.25s ease-in-out infinite;
   --animate-jump-flash: jump-flash 1.4s ease-out forwards;
+  --animate-skeleton: skeleton 1.4s ease-in-out infinite;
 }
 
 @keyframes day-ping {
@@ -675,6 +676,35 @@
   }
   50% {
     opacity: 0.55;
+  }
+}
+
+/* A placeholder standing in for something still being read.
+
+   Opacity rather than a travelling sheen: a gradient sweeping across a block
+   is a second thing to look at, and this is furniture that exists to be
+   ignored until it turns into the real card. The floor is 0.45 rather than
+   something lower so the shape stays readable as layout the whole time — the
+   point of a skeleton is that nothing moves when the data lands.
+
+   Held still under `prefers-reduced-motion`: the placeholder is legible as a
+   flat block, and the animation carries no information the stillness loses. */
+@keyframes skeleton {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* Unlayered on purpose: Tailwind's `animate-*` utilities live in
+   `@layer utilities`, and a plain rule outside every layer outranks them
+   without needing `!important`. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-skeleton {
+    animation: none;
   }
 }
 

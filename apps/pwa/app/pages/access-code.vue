@@ -18,8 +18,26 @@ const install = useInstallApp()
  * has to open a composer — it used to point back at this route, which answered
  * nothing.
  */
-const supportEmail = useRuntimeConfig().public.supportEmail as string
+const config = useRuntimeConfig().public
+const supportEmail = config.supportEmail as string
 const supportHref = `mailto:${supportEmail}?subject=${encodeURIComponent('DP Fitness — access code help')}`
+
+/**
+ * Where somebody with no code at all is sent.
+ *
+ * Every other way out of this screen assumes a purchase has already happened:
+ * the code was emailed, or it is lost, or the wrong account is signed in. The
+ * one case the screen could not answer was the person who has not bought yet —
+ * and there is nothing in the app that sells, so the only honest answer is the
+ * site that does. `#register` rather than the bare origin, because the landing
+ * page is long and the form is most of the way down it; a member who has to
+ * scroll for it is being asked to find the thing they came for.
+ *
+ * Skipped when the origin already carries a hash, so a deploy that points this
+ * at some other part of the site keeps the target it chose.
+ */
+const webAppUrl = (config.webAppUrl as string) || ''
+const buyHref = webAppUrl.includes('#') ? webAppUrl : `${webAppUrl.replace(/\/+$/, '')}#register`
 
 /**
  * The only way an account gets made.
@@ -384,6 +402,12 @@ const showSwitchAccount = computed(() => phase.value === 'redeem' || phase.value
 /** The other door, for anybody who already has an account and came in this one. */
 const showSignInLink = computed(() => phase.value === 'code' || phase.value === 'account')
 
+/** The steps where a code is the thing being asked for, and so the only ones any of the code help belongs on. */
+const askingForCode = computed(() => phase.value === 'code' || phase.value === 'redeem')
+
+/** Hidden on a deploy with no site to point at; see `buyHref`. */
+const showBuyLink = computed(() => Boolean(webAppUrl) && askingForCode.value)
+
 // Clear the error as soon as the member edits any field.
 watch([code, email, password, confirm], () => {
   if (failure.value) failure.value = null
@@ -464,7 +488,7 @@ watch([code, email, password, confirm], () => {
           :inert="busy !== ''"
         >
           <TextField
-            v-if="phase === 'code' || phase === 'redeem'"
+            v-if="askingForCode"
             v-model="code"
             label="Access code"
             placeholder="ENTER YOUR CODE"
@@ -613,18 +637,50 @@ watch([code, email, password, confirm], () => {
       screen, not a line the member is being asked to read.
     -->
     <div class="access__foot mt-auto flex flex-col gap-2.5 pt-5 text-center">
+      <!--
+        The other door, for anybody who already has an account and came in this
+        one. The only line at this weight, because it is the only one that is a
+        whole route out of the screen rather than an answer to something having
+        gone wrong.
+      -->
       <p v-if="showSignInLink" class="access__hint m-0 text-[13px] text-muted">
         Already have an account?
         <NuxtLink to="/sign-in" class="access__link text-primary font-bold">Sign in</NuxtLink>
       </p>
-      <p v-if="phase === 'code' || phase === 'redeem'" class="access__hint muted m-0 text-[13px]">
+
+      <!--
+        Everything for a code that isn't in hand, in one sentence.
+
+        This was two lines — "no code yet" above "can't find your code" — which
+        is one question asked twice as far as anybody skimming is concerned, and
+        the answers to them sat at different sizes on either side of the screen's
+        only real link. They are the same moment: the code is not here. So they
+        are one line, and each clause is only the part that applies — check
+        spam, then a person, then the way to buy one if there was never a
+        purchase behind it.
+
+        Each fragment is a suffix on the one before, so the sentence still
+        closes properly on a deploy with no support inbox, no site to point at,
+        or neither.
+
+        The purchase link opens a new tab rather than navigating. It ends in an
+        email, and leaving this screen where it was means coming back is
+        switching tabs rather than finding the app again — which on an installed
+        home-screen app is the difference between a tap and a re-launch.
+      -->
+      <p v-if="askingForCode" class="access__hint m-0 mt-0.5 text-[12px] leading-normal text-muted">
         Can’t find your code? Check spam<template v-if="supportEmail"> or
-        <a :href="supportHref" class="access__link text-primary font-bold">contact support</a></template>.
+        <a :href="supportHref" class="access__link font-semibold text-primary">contact support</a></template
+        ><template v-if="showBuyLink"> — or
+        <a
+          :href="buyHref"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="access__link font-semibold text-primary"
+        >join the challenge</a> if you don’t have one yet</template>.
       </p>
-      <p
-        v-if="store.demoAccessCode && (phase === 'code' || phase === 'redeem')"
-        class="access__dev m-0 text-[12px] text-muted"
-      >
+
+      <p v-if="store.demoAccessCode && askingForCode" class="access__dev m-0 text-[12px] text-muted">
         Demo code: <strong class="font-data">{{ store.demoAccessCode }}</strong>
       </p>
 

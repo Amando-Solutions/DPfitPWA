@@ -25,7 +25,12 @@ const store = useAppStore()
   <header class="intro">
     <div class="intro__row flex items-start justify-between gap-2.5">
       <div class="intro__identity min-w-0">
-        <EyebrowLabel v-if="eyebrow">{{ eyebrow }}</EyebrowLabel>
+        <!-- The slot is for a screen whose eyebrow is a fact it has not read
+             yet: it stands a placeholder in the label's own box, so the title
+             below does not move when the real words arrive. -->
+        <EyebrowLabel v-if="eyebrow || $slots.eyebrow">
+          <slot name="eyebrow">{{ eyebrow }}</slot>
+        </EyebrowLabel>
         <h1 class="intro__title mt-1.25 mx-0 mb-0 font-display font-black text-[24px] leading-[1.08] tracking-[-0.48px] text-ink lg:text-[32px]">{{ title }}</h1>
       </div>
 
