@@ -275,6 +275,19 @@ const buildStore = () => {
   const loading = ref(false)
 
   /**
+   * Why the content load came back with nothing, in the member's words.
+   *
+   * Separate from `startupError`, which is the door's: that one is about
+   * getting in — a Google redirect that failed, a device signed out from
+   * elsewhere — and the screens that show it clear it on their way past. This
+   * one belongs to somebody already inside, whose account would otherwise
+   * render as an empty one, and it is cleared by the read that succeeds rather
+   * than by whoever happened to display it. Sharing a single ref between the
+   * two meant a retry that worked left its own failure message on screen.
+   */
+  const loadError = ref('')
+
+  /**
    * Who this is, and whether they hold a membership. The half `gate` reads.
    *
    * Resolves `true` when there is a member document, and therefore an app
@@ -289,6 +302,7 @@ const buildStore = () => {
     // not survive it. Without this a retry that succeeds still hands the screen
     // the error that prompted it.
     startupError.value = ''
+    loadError.value = ''
 
     /** Was this load overtaken while it waited? Then it has nothing left to say. */
     const stale = () => gen !== generation
@@ -447,6 +461,7 @@ const buildStore = () => {
     if (!member) return
 
     loading.value = true
+    loadError.value = ''
     try {
       // The authored half of the load, alongside the member's own.
       //
@@ -554,7 +569,7 @@ const buildStore = () => {
       // this lands, so Home shows it — and offers `retryLoad` rather than
       // asking somebody to reload an installed app.
       if (gen !== generation) return
-      startupError.value = readMessage(cause)
+      loadError.value = readMessage(cause)
       return
     } finally {
       if (gen === generation) loading.value = false
@@ -1828,6 +1843,8 @@ const buildStore = () => {
     hydrated: computed(() => state.value.hydrated),
     /** The app's content is still arriving. What screens skeleton on. See `identify`. */
     loading: computed(() => loading.value),
+    /** Why it did not arrive, for the screen the member is already on. */
+    loadError: computed(() => loadError.value),
     authUser,
     member,
     profile,

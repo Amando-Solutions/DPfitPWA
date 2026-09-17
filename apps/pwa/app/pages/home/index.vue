@@ -29,15 +29,15 @@ const loading = store.loading
 /**
  * The content load came back with nothing and a reason.
  *
- * Only reachable now that the load runs behind this screen: it used to fail
- * under the boot splash or in front of the sign-in button, and the door screens
- * were the only things that ever showed `startupError`. A member here with one
- * is signed in, on the right screen, holding an account that would otherwise
- * render as a fresh one — so the message takes the place of the cards that
- * would be making things up, and the retry re-reads without asking anybody to
- * relaunch an installed app.
+ * Only worth showing now that the load runs behind this screen. It used to
+ * fail under the boot splash or in front of the sign-in button, where either
+ * the splash or the door screens were carrying the message. A member here with
+ * one is signed in, on the right screen, holding an account that would
+ * otherwise render as a fresh one — so the message takes the place of the cards
+ * that would be making things up, and the retry re-reads without asking anybody
+ * to relaunch an installed app.
  */
-const failed = computed(() => !loading.value && store.startupError.value !== '')
+const failed = computed(() => !loading.value && store.loadError.value !== '')
 
 /** Nothing below can speak for this member yet, one way or the other. */
 const unread = computed(() => loading.value || failed.value)
@@ -272,7 +272,7 @@ const STAT_VALUE =
                 Couldn’t load your training
               </h2>
               <p class="mt-1 mb-0 text-[13px] leading-[1.45] text-muted">
-                {{ store.startupError.value }}
+                {{ store.loadError.value }}
               </p>
             </div>
           </div>
