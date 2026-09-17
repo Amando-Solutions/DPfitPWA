@@ -253,14 +253,6 @@ const createAccount = async () => {
   busy.value = ''
 }
 
-/** Back to step one for a different code. The address typed stays; the passwords do not. */
-const changeCode = () => {
-  step.value = 'code'
-  password.value = ''
-  confirm.value = ''
-  failure.value = null
-}
-
 /** Signed in without a membership: spend the code on the session there is. */
 const redeem = async () => {
   if (busy.value) return
@@ -481,26 +473,14 @@ watch([code, email, password, confirm], () => {
             :error="errorOn('code')"
           />
 
+          <!-- Three fields and nothing else. The code that got the member here
+               is held in `checkedCode` and neither shown nor editable: it has
+               been checked, it is what this account is about to be made from,
+               and a box that still invited a change would be offering to spend
+               a different code than the one that passed. The only way back to
+               it is a failure that makes it necessary — claimed or expired
+               between the two steps — which `createAccount` handles. -->
           <template v-else-if="phase === 'account'">
-            <!-- The code that was checked, kept in view: it is what this
-                 account is being made from, and the address below has to be
-                 the one it was sent to. -->
-            <div class="access__code flex items-center justify-between gap-3 rounded-2xl bg-sunken px-4.25 py-3">
-              <div class="min-w-0">
-                <p class="m-0 text-[13px] text-soft">Access code</p>
-                <p class="m-0 mt-0.5 truncate font-data text-[15px] tracking-[1px] text-ink">
-                  {{ checkedCode }}
-                </p>
-              </div>
-              <button
-                type="button"
-                class="access__change shrink-0 pt-1 pb-1 text-[13px] font-bold text-primary"
-                @click="changeCode"
-              >
-                Change
-              </button>
-            </div>
-
             <TextField
               v-model="email"
               label="Email address"
@@ -510,11 +490,19 @@ watch([code, email, password, confirm], () => {
               placeholder="you@example.com"
               :error="errorOn('email')"
             />
+            <!-- Both boxes carry their own eye. A password being *chosen* is
+                 unreadable to the person choosing it, and the confirmation
+                 only ever says whether two strings nobody can see agree — so
+                 the toggle is what turns "the passwords don't match" from a
+                 guess into something fixable. Per field rather than one switch
+                 over both: a member who wants to check one is not asking to
+                 put the other on screen too. -->
             <TextField
               v-model="password"
               label="Password"
               type="password"
               autocomplete="new-password"
+              reveal
               :placeholder="`At least ${MIN_PASSWORD_LENGTH} characters`"
               :error="errorOn('password')"
             />
@@ -523,6 +511,7 @@ watch([code, email, password, confirm], () => {
               label="Confirm password"
               type="password"
               autocomplete="new-password"
+              reveal
               placeholder="Type it again"
               :error="errorOn('confirm')"
             />

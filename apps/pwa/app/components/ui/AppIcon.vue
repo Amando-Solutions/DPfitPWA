@@ -119,6 +119,12 @@ const fallbacks: Record<string, string> = {
     '<path d="M12 3.5v10"/><path d="M8.5 7 12 3.5 15.5 7"/><path d="M7.5 10.5H6A2 2 0 0 0 4 12.5v6A2 2 0 0 0 6 20.5h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-1.5"/>',
   download:
     '<path d="M12 3.5v10"/><path d="M8 10l4 3.5 4-3.5"/><path d="M4 16.5v2A2 2 0 0 0 6 20.5h12a2 2 0 0 0 2-2v-2"/>',
+  // The reveal toggle on a password field. Two glyphs rather than one that
+  // rotates, because the struck-through eye is the half people read as "it is
+  // hidden right now" — an eye alone flips meaning depending on who is looking.
+  eye: '<path d="M2.5 12C4.6 8.4 8 6.2 12 6.2s7.4 2.2 9.5 5.8c-2.1 3.6-5.5 5.8-9.5 5.8S4.6 15.6 2.5 12Z"/><circle cx="12" cy="12" r="3.1"/>',
+  eyeOff:
+    '<path d="M10.7 6.4a9.7 9.7 0 0 1 1.3-.2c4 0 7.4 2.2 9.5 5.8a16.9 16.9 0 0 1-2.8 3.6"/><path d="M6.4 8.1A16.6 16.6 0 0 0 2.5 12c2.1 3.6 5.5 5.8 9.5 5.8 1.4 0 2.7-.3 3.9-.8"/><path d="M9.8 9.8a3.1 3.1 0 0 0 4.4 4.4"/><path d="M4 4l16 16"/>',
 }
 
 const glyph = computed(() => glyphFor(props.name))

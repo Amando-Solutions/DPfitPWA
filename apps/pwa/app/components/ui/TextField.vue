@@ -1,5 +1,5 @@
 <script setup lang="ts">
-withDefaults(
+const props = withDefaults(
   defineProps<{
     // `null` is a real value here: the profile stores "not answered yet" as
     // null for age, height and weight, and those fields bind straight to this.
@@ -25,8 +25,18 @@ withDefaults(
     autocomplete?: string
     /** For a field whose visible label sits outside the component. */
     ariaLabel?: string
+    /**
+     * A show/hide control on a `type="password"` field.
+     *
+     * Opt-in rather than automatic on every password box: a member typing a
+     * password they are *choosing* cannot check it any other way — the
+     * characters are dots and the confirmation box only says whether two
+     * unreadable strings agree — whereas one they already know is a shoulder
+     * to read over for nothing.
+     */
+    reveal?: boolean
   }>(),
-  { type: 'text', mono: false },
+  { type: 'text', mono: false, reveal: false },
 )
 
 defineEmits<{
@@ -35,6 +45,20 @@ defineEmits<{
   // save-on-blur forms to work.
   (e: 'blur', ev: FocusEvent): void
 }>()
+
+const revealed = ref(false)
+
+/** Only a password field has anything to reveal. */
+const revealable = computed(() => props.reveal && props.type === 'password')
+
+/**
+ * What the input is actually set to.
+ *
+ * The `type` attribute is switched rather than the characters being redrawn,
+ * which is the only way that works: a password input's dots are the browser's
+ * rendering of the real value, and nothing else can un-render them.
+ */
+const inputType = computed(() => (revealable.value && revealed.value ? 'text' : props.type))
 </script>
 
 <template>
@@ -60,7 +84,7 @@ defineEmits<{
       <input
         class="w-full min-w-0 flex-1 appearance-none border-none bg-transparent text-[15px] text-ink outline-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none"
         :class="mono && 'font-data tracking-[1px]'"
-        :type="type"
+        :type="inputType"
         :inputmode="inputmode"
         :autocomplete="autocomplete"
         :aria-label="ariaLabel"
@@ -74,6 +98,26 @@ defineEmits<{
       <span v-if="suffix" class="text-[13px] font-semibold text-muted">
         {{ suffix }}
       </span>
+
+      <!--
+        Inside the <label>, which is this component's root, and safe there: a
+        label does not forward activation to its input for clicks that land on
+        an interactive descendant, so the eye toggles without also being a
+        click on the box.
+
+        `type="button"` for the ordinary reason — an unmarked button inside a
+        form submits it, and revealing a password would post the form.
+      -->
+      <button
+        v-if="revealable"
+        type="button"
+        class="-mr-2 grid size-9 shrink-0 place-items-center rounded-pill text-muted transition-colors duration-150 active:text-ink"
+        :aria-label="revealed ? 'Hide password' : 'Show password'"
+        :aria-pressed="revealed"
+        @click="revealed = !revealed"
+      >
+        <AppIcon :name="revealed ? 'eyeOff' : 'eye'" :size="18" />
+      </button>
     </div>
 
     <span v-if="error" class="mt-1.5 block text-xs font-semibold text-primary">

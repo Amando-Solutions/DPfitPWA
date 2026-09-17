@@ -17,6 +17,7 @@
 // this code runs if it is anything else. A Google token for a service account
 // is not one, so it travels beside it.
 // =============================================================================
+import { logger } from 'firebase-functions'
 import { defineString } from 'firebase-functions/params'
 import { HttpsError, type CallableRequest } from 'firebase-functions/https'
 import { OAuth2Client } from 'google-auth-library'
@@ -94,6 +95,15 @@ export const identifyCaller = async (request: CallableRequest): Promise<Caller> 
   }
 
   if (!email || email !== registrationServiceAccount.value()) {
+    // Both sides, because the refusal on its own is unreadable: the caller is
+    // told a service account was rejected and never which one, and the answer
+    // is a mismatch between a key in the landing site's environment and a
+    // string set at deploy time here — two places, neither visible from the
+    // other. Service account addresses are identifiers, not secrets.
+    logger.warn('Refused a service token', {
+      presented: email ?? '(no verified email on the token)',
+      expected: registrationServiceAccount.value() || '(REGISTRATION_SERVICE_ACCOUNT is unset)',
+    })
     throw new HttpsError('permission-denied', 'That service account cannot create access codes.')
   }
   return { actor: LANDING_ACTOR, batchPrefix: 'landing' }
