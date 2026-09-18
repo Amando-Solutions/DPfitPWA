@@ -399,11 +399,26 @@ const standfirst = computed(() => {
 /** The signed-in steps, which are the ones that need a way back out. */
 const showSwitchAccount = computed(() => phase.value === 'redeem' || phase.value === 'blocked')
 
-/** The other door, for anybody who already has an account and came in this one. */
-const showSignInLink = computed(() => phase.value === 'code' || phase.value === 'account')
+/**
+ * The other door, for anybody who already has an account and came in this one.
+ *
+ * Not while the install ask is up. That card is one instruction — add this to
+ * the Home Screen — and a way out of it to somewhere the same problem is
+ * waiting reads as an alternative to following it.
+ */
+const showSignInLink = computed(
+  () => !installFirst.value && (phase.value === 'code' || phase.value === 'account'),
+)
 
-/** The steps where a code is the thing being asked for, and so the only ones any of the code help belongs on. */
-const askingForCode = computed(() => phase.value === 'code' || phase.value === 'redeem')
+/**
+ * The steps where a code is the thing being asked for, and so the only ones any
+ * of the code help belongs on. The install ask is not one of them: nothing on
+ * it takes a code, so help finding one is answering a question nobody asked
+ * yet.
+ */
+const askingForCode = computed(
+  () => !installFirst.value && (phase.value === 'code' || phase.value === 'redeem'),
+)
 
 /** Hidden on a deploy with no site to point at; see `buyHref`. */
 const showBuyLink = computed(() => Boolean(webAppUrl) && askingForCode.value)
@@ -648,26 +663,6 @@ watch([code, email, password, confirm], () => {
         <NuxtLink to="/sign-in" class="access__link text-primary font-bold">Sign in</NuxtLink>
       </p>
 
-      <!--
-        Everything for a code that isn't in hand, in one sentence.
-
-        This was two lines — "no code yet" above "can't find your code" — which
-        is one question asked twice as far as anybody skimming is concerned, and
-        the answers to them sat at different sizes on either side of the screen's
-        only real link. They are the same moment: the code is not here. So they
-        are one line, and each clause is only the part that applies — check
-        spam, then a person, then the way to buy one if there was never a
-        purchase behind it.
-
-        Each fragment is a suffix on the one before, so the sentence still
-        closes properly on a deploy with no support inbox, no site to point at,
-        or neither.
-
-        The purchase link opens a new tab rather than navigating. It ends in an
-        email, and leaving this screen where it was means coming back is
-        switching tabs rather than finding the app again — which on an installed
-        home-screen app is the difference between a tap and a re-launch.
-      -->
       <p v-if="askingForCode" class="access__hint m-0 mt-0.5 text-[12px] leading-normal text-muted">
         Can’t find your code? Check spam<template v-if="supportEmail"> or
         <a :href="supportHref" class="access__link font-semibold text-primary">contact support</a></template
