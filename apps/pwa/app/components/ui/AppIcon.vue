@@ -81,6 +81,9 @@ const glyphFor = (name: string): Glyph | undefined => {
 // --- Fallbacks: glyphs the Figma file never exported -------------------------
 const fallbacks: Record<string, string> = {
   arrowLeft: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
+  // iOS's back chevron: taller than it is wide, with no shaft. The arrow above
+  // is Material's, and on an iPhone it reads as an Android port.
+  chevronLeft: '<path d="M15 4.5 7.5 12l7.5 7.5"/>',
   play: '<path d="M8 5.5v13l11-6.5-11-6.5Z"/>',
   pause: '<path d="M8 5v14M16 5v14"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',

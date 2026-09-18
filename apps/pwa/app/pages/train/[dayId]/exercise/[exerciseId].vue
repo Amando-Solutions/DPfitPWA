@@ -21,6 +21,11 @@ const weekParam = computed(() => {
   return Number.isInteger(n) && n > 0 ? n : undefined
 })
 
+/** The session screen this was opened from, for a Back with no history behind it. */
+const sessionHref = computed(() =>
+  weekParam.value ? `/train/${dayId.value}?week=${weekParam.value}` : `/train/${dayId.value}`,
+)
+
 /** The coach's version of the exercise: cues, targets, the thumbnail. */
 const planned = computed(() =>
   store.getDay(dayId.value, weekParam.value)?.exercises.find((e) => e.id === exerciseId.value),
@@ -199,7 +204,7 @@ const TRIGGER =
 <template>
   <div v-if="name" class="relative flex h-full flex-col bg-surface">
     <div class="shrink-0 lg:mx-auto lg:w-full lg:max-w-(--focus-max) lg:px-10">
-      <ScreenHeader :title="name" />
+      <ScreenHeader :title="name" :fallback="sessionHref" />
     </div>
 
     <TabsRoot v-model="tab" class="flex min-h-0 flex-1 flex-col">

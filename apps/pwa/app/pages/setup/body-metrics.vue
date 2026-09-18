@@ -122,6 +122,7 @@ const FIELD_LABEL = 'text-[13px] text-soft'
   <SetupStepShell
     :step="2"
     :total="3"
+    back="/setup/about-you"
     eyebrow="Your numbers"
     title="What's your starting point?"
     subtitle="Weight and height set your daily food targets. Nothing here is shared with the group."

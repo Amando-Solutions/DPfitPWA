@@ -23,7 +23,7 @@
  */
 
 /** Reachable while signed out. */
-const PUBLIC_ROUTES = ['/onboarding', '/access-code', '/sign-in']
+export const PUBLIC_ROUTES = ['/onboarding', '/access-code', '/sign-in']
 
 /**
  * Where setup begins. Declared before the list rather than read back out of it:
@@ -33,7 +33,7 @@ const PUBLIC_ROUTES = ['/onboarding', '/access-code', '/sign-in']
 export const FIRST_SETUP_STEP = '/setup/about-you'
 
 /** Reachable once signed in but before setup is finished. */
-const SETUP_ROUTES = [
+export const SETUP_ROUTES = [
   FIRST_SETUP_STEP,
   '/setup/body-metrics',
   '/setup/activity-goal',

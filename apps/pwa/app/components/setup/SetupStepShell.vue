@@ -35,25 +35,28 @@ withDefaults(
      * press it again.
      */
     error?: string
+    /**
+     * The step before this one, for a Back with no history behind it.
+     *
+     * Omitted on the first step, which has nowhere to go back to: the door
+     * screen behind it sends a member with an account straight back here, so a
+     * Back there was a button that appeared to do nothing.
+     */
+    back?: string
   }>(),
-  { canContinue: true, busy: false, error: '' },
+  { canContinue: true, busy: false, error: '', back: undefined },
 )
 
 const emit = defineEmits<{ (e: 'continue'): void }>()
-const router = useRouter()
 </script>
 
 <template>
   <div class="flex flex-1 flex-col px-6 pt-(--screen-pad-top) pb-6 lg:px-11 lg:pt-8 lg:pb-9">
-    <header class="mb-4 flex items-center justify-between">
-      <button
-        class="grid size-9.5 place-items-center rounded-full bg-raised text-ink shadow-card disabled:opacity-45"
-        aria-label="Back"
-        :disabled="busy"
-        @click="router.back()"
-      >
-        <AppIcon name="arrowLeft" :size="20" :stroke="2.2" />
-      </button>
+    <!-- `min-h-11` holds the row's height on the first step, where there is no
+         Back to give it one. -->
+    <header class="mb-4 flex min-h-11 items-center justify-between">
+      <BackButton v-if="back" :fallback="back" :disabled="busy" />
+      <span v-else />
       <span class="text-[12.5px] text-muted tabular-nums">
         Step {{ step }} of {{ total }}
       </span>

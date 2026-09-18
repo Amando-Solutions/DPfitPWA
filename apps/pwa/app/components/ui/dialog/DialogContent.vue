@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   DialogContent as RekaDialogContent,
+  injectDialogRootContext,
   useForwardPropsEmits,
   type DialogContentEmits,
   type DialogContentProps,
@@ -29,6 +30,10 @@ const delegated = computed(() => {
 })
 
 const forwarded = useForwardPropsEmits(delegated, emits)
+
+// Android's back button closes the dialog rather than leaving the screen.
+const dialog = injectDialogRootContext()
+useCloseOnBack(dialog.open, () => dialog.onOpenChange(false))
 </script>
 
 <template>

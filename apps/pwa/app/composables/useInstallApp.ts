@@ -1,3 +1,4 @@
+import { isIosDevice, isStandalone } from '~/lib/platform'
 import { storage } from '~/lib/storage'
 
 /**
@@ -29,27 +30,6 @@ const SNOOZE_MS = 14 * 24 * 60 * 60 * 1000
  *               its own menu is all that is left.
  */
 export type InstallMethod = 'prompt' | 'ios' | 'manual'
-
-const isIosDevice = (): boolean => {
-  if (import.meta.server) return false
-  const ua = navigator.userAgent
-  // iPadOS 13+ reports itself as a Mac, and only the touch points give it away.
-  return (
-    /iPhone|iPad|iPod/.test(ua) ||
-    (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)
-  )
-}
-
-const isStandalone = (): boolean => {
-  if (import.meta.server) return false
-  return (
-    window.matchMedia('(display-mode: standalone)').matches ||
-    window.matchMedia('(display-mode: minimal-ui)').matches ||
-    // Safari's own flag, which iOS set for years before it understood the
-    // display-mode query, and still sets today.
-    (navigator as Navigator & { standalone?: boolean }).standalone === true
-  )
-}
 
 /** Window-level wiring belongs to the app, not to whichever component asked first. */
 let wired = false

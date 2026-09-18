@@ -22,6 +22,14 @@ const day = computed(() =>
 )
 const session = computed(() => store.activeSession.value)
 
+/** Back to the logging screen, on the session's own week when it isn't this one. */
+const sessionHref = computed(() => {
+  const week = store.activeSessionWeek.value
+  return week && week !== store.clock.value.week
+    ? `/train/${dayId.value}?week=${week}`
+    : `/train/${dayId.value}`
+})
+
 // Nothing to complete without a session in flight.
 onMounted(() => {
   if (!store.activeSession.value) router.replace('/train')
@@ -197,6 +205,8 @@ const discard = async () => {
       :image-url="day.heroImage?.downloadUrl"
       action="Save"
       :action-disabled="pending !== ''"
+      :back="sessionHref"
+      :back-disabled="pending !== ''"
       @action="save"
     />
 

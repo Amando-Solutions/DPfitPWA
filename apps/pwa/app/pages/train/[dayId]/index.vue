@@ -496,6 +496,8 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
         :unit="units"
         :image-url="day.heroImage?.downloadUrl"
         :action="session.running ? 'Cancel' : undefined"
+        :back="trainHref"
+        :back-disabled="discarding"
         @action="showDiscard = true"
       />
 
@@ -550,16 +552,18 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
         <div
           class="relative px-5 pt-(--screen-pad-top) pb-4 lg:mx-auto lg:max-w-(--focus-max) lg:px-10 lg:pt-6 lg:pb-5"
         >
-          <div class="mb-3.5 flex items-center justify-between gap-3">
-            <h1 class="m-0 min-w-0 truncate font-display text-[17px] font-bold lg:text-[20px]">
+          <!-- The same Back as the logging header above, where this used to
+               have a "Close" pill: one screen, one way out of it. -->
+          <div class="mb-3.5 flex items-center gap-3">
+            <BackButton
+              :fallback="trainHref"
+              :label="false"
+              tone="photo"
+              class="-mr-1.5"
+            />
+            <h1 class="m-0 min-w-0 flex-1 truncate font-display text-[17px] font-bold lg:text-[20px]">
               {{ day.dayNumber ? `Day ${day.dayNumber}: ${day.label}` : day.label }}
             </h1>
-            <NuxtLink
-              :to="trainHref"
-              class="shrink-0 rounded-pill bg-on-photo/14 px-4 py-2 text-[13px] font-bold text-on-photo transition-opacity duration-100 active:opacity-70"
-            >
-              Close
-            </NuxtLink>
           </div>
 
           <!-- The plan's own figures, not a session's. A duration and a volume

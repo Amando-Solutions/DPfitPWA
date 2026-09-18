@@ -50,6 +50,7 @@ const finish = async () => {
   <SetupStepShell
     :step="3"
     :total="3"
+    back="/setup/body-metrics"
     eyebrow="Your rhythm"
     title="What's your main focus this round?"
     subtitle="This just fine-tunes your daily numbers — everyone's doing the same challenge either way."
