@@ -3,32 +3,152 @@
 definePageMeta({ layout: false })
 
 import type { SetType } from '~/data/types'
-import { trustedTimestamp } from '~/lib/time'
+import { nightsLabel, scheduleDateLabel, trustedTimestamp } from '~/lib/time'
 
 const route = useRoute()
 const router = useRouter()
 const store = useAppStore()
 
 const dayId = computed(() => String(route.params.dayId))
-const day = computed(() => store.getDay(dayId.value))
+/**
+ * The week the day was picked from, when Train's switcher was on another one.
+ * Day ids repeat across weeks, so without it week 4's day 1 would open as
+ * this week's.
+ */
+const weekParam = computed(() => {
+  const n = Number(route.query.week)
+  return Number.isInteger(n) && n > 0 ? n : undefined
+})
+const day = computed(() => store.getDay(dayId.value, weekParam.value))
 
-// Resume the session for this day, or open a fresh one. A session already in
-// progress for a *different* day is left alone; the picker offers to resume it.
-onMounted(async () => {
+/** A day from a week other than the one the calendar is in. Always read-only. */
+const otherWeek = computed(
+  () => !!day.value && day.value.weekNumber !== store.clock.value.week,
+)
+
+/** Back to the list, on the week it was opened from. */
+const trainHref = computed(() =>
+  weekParam.value && weekParam.value !== store.clock.value.week
+    ? `/train?week=${weekParam.value}`
+    : '/train',
+)
+
+/** An exercise's history and how-to, carrying the week so it resolves the same day. */
+const exerciseHref = (exerciseId: string) =>
+  `/train/${dayId.value}/exercise/${exerciseId}${weekParam.value ? `?week=${weekParam.value}` : ''}`
+
+/**
+ * The session in progress, when it is this day's.
+ *
+ * Only one session is ever open, and it belongs to one day in one week. Opening
+ * an open day creates it on arrival, so without this check every other day — a
+ * padlocked one included — rendered that session under its own title, with a
+ * live Start button that started the other day's workout.
+ */
+const session = computed(() =>
+  day.value && store.isActiveDay(dayId.value, day.value.weekNumber)
+    ? store.activeSession.value
+    : null,
+)
+
+/**
+ * True while the screen is still deciding between logging and preview.
+ *
+ * Without it the preview renders for a frame on a day that is about to open a
+ * session, and the member sees a padlock flash over the workout they just
+ * tapped Start on.
+ */
+const opening = ref(true)
+
+/**
+ * Resume this day's session, or open one if the plan has it open today.
+ *
+ * A day the calendar has not reached is not a dead end and not a redirect: it
+ * renders as a preview below, so the member can read Thursday's session on
+ * Tuesday and see the date it opens. A session already in progress for a
+ * *different* day is left alone; the picker offers to resume it.
+ */
+const open = async () => {
   if (!day.value) {
     router.replace('/train')
     return
   }
-  if (store.activeSession.value?.dayId !== dayId.value) {
-    // Null means today's session is already in the log. The picker is where
-    // that gets explained, so hand back to it rather than showing an empty
-    // session that cannot be started.
-    const started = await store.startSession(day.value)
-    if (!started) router.replace('/train')
+  if (!store.isActiveDay(dayId.value, day.value.weekNumber) && day.value.canStart) {
+    await store.startSession(day.value)
   }
+  opening.value = false
+}
+
+onMounted(open)
+
+// Midnight rolls the store's clock over, which is exactly when a day being
+// previewed becomes the day that is open. Turn the preview into a session on
+// the spot rather than making them find their way back to the picker. Not while
+// another day's session is open, though: opening this one would replace it.
+watch(() => day.value?.canStart, (canStart) => {
+  if (canStart && !store.activeSession.value) void open()
 })
 
-const session = computed(() => store.activeSession.value)
+/** The read-only state: a day to look at, with no session behind it. */
+const preview = computed(() => !opening.value && !!day.value && !session.value)
+
+/** "Opens Thursday", or the reason there is nothing to open at all. */
+const opensLabel = computed(() => {
+  if (!day.value) return ''
+  if (day.value.status === 'completed') {
+    return otherWeek.value ? `Logged in Week ${day.value.weekNumber}` : 'Logged this week'
+  }
+  const nights = day.value.opensInNights
+  // The finisher holds no slot in the week, so nothing schedules it and the one
+  // thing that shuts it is having already been logged today.
+  if (nights === null) return 'Logged today'
+  // A day behind the calendar that still cannot start: one reached by id alone
+  // from a week that does not have it in its quota. Its own week can open it.
+  if (nights < 0) return 'Open it from its week'
+  // Nothing reaches here with `nights` at zero: a day whose slot is today is
+  // either open or already in the log, and both were answered above.
+  // A later week's day gets its date: weeks out, a weekday name is a riddle.
+  return otherWeek.value && day.value.date
+    ? `Opens ${scheduleDateLabel(day.value.date)}`
+    : `Opens ${nightsLabel(nights, store.now.value)}`
+})
+
+/**
+ * The sentence under it: which rule is holding this day shut.
+ *
+ * A day already logged and a day the week has not reached are shut for
+ * different reasons, and only one of them is about the calendar. Neither is the
+ * old one-a-day rule, which no longer exists — a day left behind stays open
+ * precisely so a member who missed Tuesday can log it on Thursday.
+ */
+const previewNote = computed(() => {
+  if (!day.value) return ''
+  if (day.value.status === 'completed') {
+    return otherWeek.value
+      ? 'Already in the log for its week. Nothing left to do on this one.'
+      : 'This one is logged for the week. It comes round again when the week does.'
+  }
+  if (day.value.opensInNights === null) {
+    return 'The finisher is once a day. It is here to read until tomorrow.'
+  }
+  if (day.value.opensInNights < 0) {
+    return 'Pick this session from its week on Train to log it.'
+  }
+  return 'Days open as the week reaches them. This one is here to read until it does.'
+})
+
+/**
+ * A padlock only where something is actually shut.
+ *
+ * A day already in the log — this week's, or the finisher done this morning —
+ * is not locked, it is finished, and the tick is the honest mark for it.
+ */
+const previewIcon = computed(() =>
+  day.value?.status === 'completed' || day.value?.opensInNights === null ? 'check' : 'lock',
+)
+
+const setsFor = (exercises: { sets: unknown[] }[]) =>
+  exercises.reduce((n, e) => n + e.sets.length, 0)
 
 // --- Timer -----------------------------------------------------------------
 /**
@@ -48,7 +168,7 @@ let lastTickAt = 0
 let carry = 0
 
 const advance = (seconds: number) => {
-  const active = store.activeSession.value
+  const active = session.value
   if (!active || seconds <= 0) return
 
   const before = active.elapsedSeconds
@@ -90,7 +210,7 @@ const startClock = () => {
 
 /** Only run while there is something to count. */
 const syncClock = () => {
-  if (store.activeSession.value?.running && !document.hidden) startClock()
+  if (session.value?.running && !document.hidden) startClock()
   else stopClock()
 }
 
@@ -100,37 +220,88 @@ const syncClock = () => {
  */
 const onVisibility = () => {
   if (document.hidden) {
-    if (store.activeSession.value?.running && lastTickAt) {
+    if (session.value?.running && lastTickAt) {
       advance((Date.now() - lastTickAt) / 1000)
     }
     stopClock()
     store.persistActiveSession()
     return
   }
-  if (store.activeSession.value?.running && lastTickAt) {
+  if (session.value?.running && lastTickAt) {
     advance((Date.now() - lastTickAt) / 1000)
   }
   syncClock()
 }
 
+/**
+ * Open while Start was refused for want of a first progress photo.
+ *
+ * Only Start is held. A session already running is left to finish, so a member
+ * mid-workout when this rule arrived is not locked out of their own sets.
+ */
+const photoGateOpen = ref(false)
+
 const startWorkout = async () => {
-  const active = store.activeSession.value
+  const active = session.value
   if (!active) return
+  if (!active.running && store.firstPhotoDue.value) {
+    photoGateOpen.value = true
+    return
+  }
   active.running = true
   active.startedAt = active.startedAt ?? trustedTimestamp()
   syncClock()
   await store.persistActiveSession()
 }
 
-watch(() => store.activeSession.value?.running, syncClock)
+watch(() => session.value?.running, syncClock)
+
+/**
+ * The clock and rest timer as they stood when the member stepped out to an
+ * exercise's history or how-to.
+ *
+ * The clock lives on this screen, so leaving it stops the count. For most exits
+ * that is the existing behaviour and is left alone, but reading how to do the
+ * next lift is part of the workout: without this, every trip to it quietly took
+ * those minutes off the duration and threw away the rest countdown. Held in
+ * `useState` because this component is gone by the time the member comes back.
+ */
+const detour = useState<{ dayId: string; at: number; rest: number } | null>(
+  'session-exercise-detour',
+  () => null,
+)
 
 onMounted(() => {
   document.addEventListener('visibilitychange', onVisibility)
+  const back = detour.value
+  detour.value = null
+  if (back?.dayId === dayId.value && session.value?.running) {
+    // Rest first: `advance` counts it down along with the clock.
+    if (back.rest > 0) {
+      restRemaining.value = back.rest
+      restActive.value = true
+    }
+    advance((Date.now() - back.at) / 1000)
+  }
   syncClock()
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', onVisibility)
+  // By the time the page unmounts the router is already on its destination.
+  const leavingForExercise = router.currentRoute.value.path.startsWith(
+    `/train/${dayId.value}/exercise/`,
+  )
+  if (leavingForExercise && clock && session.value?.running) {
+    // Settle the part of a second since the last tick, so the gap measured on
+    // the way back starts exactly where the count stopped.
+    advance((Date.now() - lastTickAt) / 1000)
+    detour.value = {
+      dayId: dayId.value,
+      at: Date.now(),
+      rest: restActive.value ? restRemaining.value : 0,
+    }
+  }
   stopClock()
   // Leaving the screen shouldn't lose the last few reps.
   store.persistActiveSession()
@@ -161,23 +332,42 @@ const allDone = computed(() => totals.value.setsTotal > 0 && totals.value.setsDo
 const restActive = ref(false)
 const restRemaining = ref(0)
 
-const openRest = async (seconds: number) => {
-  if (!session.value?.running) await startWorkout()
+const openRest = (seconds: number) => {
+  // This used to press Start on the member's behalf, so tapping the rest timer
+  // on a card began the workout. Start workout is the only way in; a rest
+  // before it has nothing to be a rest from.
+  if (!session.value?.running) return
   restActive.value = true
   restRemaining.value = seconds
 }
 
+/**
+ * The card's own Rest timer button.
+ *
+ * Only once a set of that exercise is ticked off: rest follows a set. The card
+ * disables the button until then, and this is the guard behind it.
+ */
+const restFor = (exerciseIndex: number) => {
+  const exercise = session.value?.exercises[exerciseIndex]
+  if (!exercise?.sets.some((s) => s.done)) return
+  openRest(exercise.restSeconds)
+}
+
 // --- Set logging -----------------------------------------------------------
 const toggleSet = async (exerciseIndex: number, setIndex: number) => {
-  const active = store.activeSession.value
+  const active = session.value
   if (!active) return
-  if (!active.running) await startWorkout()
+  // Ticking a set used to start the clock on the member's behalf, which meant a
+  // workout could be half logged before it had officially begun and the
+  // duration on it was nonsense. Start workout is the way in now; the card
+  // disables the tick until then, and this is the guard behind it.
+  if (!active.running) return
   const exercise = active.exercises[exerciseIndex]
   const set = exercise?.sets[setIndex]
   if (!set) return
   set.done = !set.done
   // Completing a set is the natural moment to start resting.
-  if (set.done) await openRest(exercise.restSeconds)
+  if (set.done) openRest(exercise.restSeconds)
   await store.persistActiveSession()
 }
 
@@ -185,7 +375,7 @@ const updateSet = async (
   exerciseIndex: number,
   payload: { index: number; field: 'reps' | 'weightKg'; value: number },
 ) => {
-  const active = store.activeSession.value
+  const active = session.value
   if (!active) return
   const set = active.exercises[exerciseIndex]?.sets[payload.index]
   if (!set) return
@@ -194,7 +384,7 @@ const updateSet = async (
 }
 
 const addSet = async (exerciseIndex: number) => {
-  const active = store.activeSession.value
+  const active = session.value
   if (!active) return
   const exercise = active.exercises[exerciseIndex]
   if (!exercise) return
@@ -221,7 +411,7 @@ const setSetType = async (
   exerciseIndex: number,
   payload: { index: number; setType: SetType },
 ) => {
-  const active = store.activeSession.value
+  const active = session.value
   if (!active) return
   const set = active.exercises[exerciseIndex]?.sets[payload.index]
   if (!set) return
@@ -241,7 +431,7 @@ const setSetType = async (
  * too — the sheet is a UI, and this is the only thing that touches the session.
  */
 const removeSet = async (exerciseIndex: number, setIndex: number) => {
-  const active = store.activeSession.value
+  const active = session.value
   if (!active) return
   const exercise = active.exercises[exerciseIndex]
   if (!exercise?.sets[setIndex]?.added) return
@@ -250,7 +440,7 @@ const removeSet = async (exerciseIndex: number, setIndex: number) => {
 }
 
 const updateNote = async (exerciseIndex: number, value: string) => {
-  const active = store.activeSession.value
+  const active = session.value
   if (!active) return
   const exercise = active.exercises[exerciseIndex]
   if (!exercise) return
@@ -267,9 +457,26 @@ const units = computed(() => store.prefs.value.units)
 
 // --- Leaving ---------------------------------------------------------------
 const showDiscard = ref(false)
+/*
+  Guarded, and both buttons freeze with it.
+
+  Everything else on this screen is a running draft — a set ticked, a weight
+  corrected, the clock — and those persist as they are made, which is why the
+  screen is not frozen for them. This is the one discrete, irreversible act on
+  it: the session document is cleared and "Keep going" cannot bring it back
+  once the write has left, so offering it while the write is open is offering
+  something that is not on the table.
+*/
+const discarding = ref(false)
 const confirmDiscard = async () => {
-  await store.discardSession()
-  router.push('/train')
+  if (discarding.value) return
+  discarding.value = true
+  try {
+    await store.discardSession()
+    await router.push('/train')
+  } catch {
+    discarding.value = false
+  }
 }
 
 const finish = () => router.push(`/train/${dayId.value}/complete`)
@@ -289,6 +496,8 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
         :unit="units"
         :image-url="day.heroImage?.downloadUrl"
         :action="session.running ? 'Cancel' : undefined"
+        :back="trainHref"
+        :back-disabled="discarding"
         @action="showDiscard = true"
       />
 
@@ -301,14 +510,123 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
           :note="exercise.note"
           :sets="exercise.sets"
           :unit="units"
+          :started="session.running"
+          :to="exerciseHref(exercise.id)"
           @toggle-set="(setIndex) => toggleSet(i, setIndex)"
           @update-set="(payload) => updateSet(i, payload)"
           @update-set-type="(payload) => setSetType(i, payload)"
           @add-set="() => addSet(i)"
           @remove-set="(setIndex) => removeSet(i, setIndex)"
           @update-note="(value) => updateNote(i, value)"
-          @rest="openRest"
+          @rest="() => restFor(i)"
         />
+      </div>
+    </div>
+
+    <!--
+      A day the plan has not opened yet, or has already taken.
+
+      Read-only on purpose, and reachable on purpose: the coach's session for
+      Thursday is worth being able to look at on Tuesday, and a member who taps
+      a padlocked day deserves the workout and the date it opens rather than
+      being bounced back to the list they just left. Nothing here writes — no
+      session document exists for this day until its own day comes round.
+
+      A day the week has gone past is not one of these. It stays open to log,
+      so it arrives at the session above rather than here.
+    -->
+    <div v-else-if="preview && day" class="session__scroll scroll-y flex-1 min-h-0">
+      <header
+        class="relative overflow-hidden rounded-b-2xl bg-photo text-on-photo shadow-[0_1px_0_rgba(0,0,0,0.25)]"
+      >
+        <img
+          v-if="day.heroImage"
+          :src="day.heroImage.downloadUrl"
+          alt=""
+          aria-hidden="true"
+          decoding="async"
+          class="absolute inset-0 size-full object-cover"
+        />
+        <div v-if="day.heroImage" class="absolute inset-0 bg-photo/80" />
+
+        <div
+          class="relative px-5 pt-(--screen-pad-top) pb-4 lg:mx-auto lg:max-w-(--focus-max) lg:px-10 lg:pt-6 lg:pb-5"
+        >
+          <!-- The same Back as the logging header above, where this used to
+               have a "Close" pill: one screen, one way out of it. -->
+          <div class="mb-3.5 flex items-center gap-3">
+            <BackButton
+              :fallback="trainHref"
+              :label="false"
+              tone="photo"
+              class="-mr-1.5"
+            />
+            <h1 class="m-0 min-w-0 flex-1 truncate font-display text-[17px] font-bold lg:text-[20px]">
+              {{ day.dayNumber ? `Day ${day.dayNumber}: ${day.label}` : day.label }}
+            </h1>
+          </div>
+
+          <!-- The plan's own figures, not a session's. A duration and a volume
+               of zero would read as a workout gone wrong rather than one not
+               started. -->
+          <div class="grid grid-cols-3 gap-3">
+            <div class="flex flex-col gap-0.5">
+              <span class="text-[12px] text-on-photo/60">Exercises</span>
+              <span class="text-[17px] font-bold tabular-nums">{{ day.exercises.length }}</span>
+            </div>
+            <div class="flex flex-col gap-0.5">
+              <span class="text-[12px] text-on-photo/60">Sets</span>
+              <span class="text-[17px] font-bold tabular-nums">{{ setsFor(day.exercises) }}</span>
+            </div>
+            <div class="flex flex-col gap-0.5">
+              <span class="text-[12px] text-on-photo/60">Est. time</span>
+              <span class="text-[17px] font-bold tabular-nums">{{ day.estimatedMinutes }} min</span>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div class="pt-4 px-5 pb-30 flex flex-col gap-3.5 lg:w-full lg:max-w-(--focus-max) lg:my-0 lg:mx-auto lg:pt-6 lg:px-10 lg:pb-37.5">
+        <!-- Says which rule is holding it shut, above the plan rather than
+             below it, so it is read before the scrolling starts. -->
+        <div class="flex items-center gap-3 rounded-card border border-hairline bg-raised px-4.5 py-3.5">
+          <span class="grid size-8.5 shrink-0 place-items-center rounded-pill bg-fill-subtle text-muted">
+            <AppIcon :name="previewIcon" :size="16" />
+          </span>
+          <span class="flex min-w-0 flex-col gap-0.5">
+            <strong class="font-display text-[14.5px] font-black text-ink">{{ opensLabel }}</strong>
+            <small class="text-[12.5px] text-muted">{{ previewNote }}</small>
+          </span>
+        </div>
+
+        <article
+          v-for="exercise in day.exercises"
+          :key="exercise.id"
+          class="rounded-card border border-hairline bg-raised p-4.5"
+        >
+          <div class="flex items-baseline justify-between gap-3">
+            <h2 class="m-0 min-w-0 font-display text-[15.5px] font-black tracking-[-0.2325px] text-ink">
+              <NuxtLink
+                :to="exerciseHref(exercise.id)"
+                class="rounded-field transition-opacity duration-100 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring active:opacity-70"
+              >
+                {{ exercise.name }}
+              </NuxtLink>
+            </h2>
+            <span class="shrink-0 text-[12.5px] text-muted tabular-nums">
+              {{ exercise.restSeconds }}s rest
+            </span>
+          </div>
+          <p class="mt-1.5 mb-0 text-[13px] text-soft">
+            {{ exercise.sets.length }} × {{ exercise.targetReps }} · {{ exercise.muscleGroup }}
+          </p>
+          <!-- The coach's cues are the reason to open a day early at all. -->
+          <ul v-if="exercise.cues.length" class="mt-2.5 mb-0 flex flex-col gap-1 pl-4.5">
+            <li v-for="cue in exercise.cues" :key="cue" class="text-[12.5px] leading-[1.45] text-muted">
+              {{ cue }}
+            </li>
+          </ul>
+        </article>
       </div>
     </div>
 
@@ -320,14 +638,16 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
         @skip="restActive = false"
         @adjust="(delta) => (restRemaining = Math.max(0, restRemaining + delta))"
       />
+      <AppButton v-if="preview" variant="secondary" disabled>
+        {{ opensLabel }}
+      </AppButton>
       <AppButton
-        v-if="!session?.running"
-        icon="play"
+        v-else-if="session && !session.running"
         @click="startWorkout"
       >
         Start workout
       </AppButton>
-      <AppButton v-else variant="primary" @click="finish">
+      <AppButton v-else-if="session" variant="primary" @click="finish">
         {{ allDone ? 'Finish workout' : `Finish (${totals.setsDone}/${totals.setsTotal} sets)` }}
       </AppButton>
     </div>
@@ -338,9 +658,34 @@ const finish = () => router.push(`/train/${dayId.value}/complete`)
         undone.
       </p>
       <div class="discard__actions grid grid-cols-[1fr_1fr] gap-3">
-        <AppButton variant="secondary" @click="showDiscard = false">Keep going</AppButton>
-        <AppButton variant="danger" @click="confirmDiscard">Discard workout</AppButton>
+        <AppButton variant="secondary" :disabled="discarding" @click="showDiscard = false">
+          Keep going
+        </AppButton>
+        <AppButton variant="danger" :disabled="discarding" @click="confirmDiscard">
+          {{ discarding ? 'Discarding…' : 'Discard workout' }}
+        </AppButton>
       </div>
     </BottomSheet>
+
+    <!-- A modal rather than a sheet like Discard above: this is not a choice
+         about the workout, it is the reason it cannot start. -->
+    <Dialog v-model:open="photoGateOpen">
+      <DialogContent class="w-[calc(100%-32px)] max-w-100 gap-0 rounded-lg bg-raised p-5">
+        <span class="grid size-10 place-items-center rounded-pill bg-primary-soft text-primary">
+          <AppIcon name="image" :size="19" />
+        </span>
+        <DialogTitle class="mt-3.5 text-[17px]">Progress photo first</DialogTitle>
+        <DialogDescription class="mt-1.5 text-[13.5px] leading-normal text-soft">
+          Upload a progress photo before you start training. It’s your before,
+          and what week 6 gets measured against.
+        </DialogDescription>
+        <div class="mt-4.5 flex flex-col gap-2.5">
+          <AppButton to="/progress" @click="photoGateOpen = false">
+            Upload progress photo
+          </AppButton>
+          <AppButton variant="secondary" @click="photoGateOpen = false">Not now</AppButton>
+        </div>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>

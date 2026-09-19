@@ -12,6 +12,16 @@
       "indexes": "firestore.indexes.json"
     }
   ],
+  "_comment_functions": "One codebase, `apps/functions`. It is the only writer of `accessCodes` — see the header of `apps/functions/src/access-codes.ts`. Built before upload because Cloud Build installs dependencies but does not compile TypeScript; `lib/` is what runs.",
+  "functions": [
+    {
+      "source": "apps/functions",
+      "codebase": "default",
+      "runtime": "nodejs22",
+      "ignore": ["node_modules", ".git", "src", "tsconfig.json", ".env.example", "firebase-debug.log", "firebase-debug.*.log", "*.local"],
+      "predeploy": ["bun run --cwd \"$RESOURCE_DIR\" build"]
+    }
+  ],
   "_comment_storage": "An ARRAY, for the same reason `firestore` above is one, and it bit us the same way. The project has two buckets — the default one and `recomp-48b7b-staging`, which is what NUXT_PUBLIC_FIREBASE_STORAGE_BUCKET points at outside production. The single-object form has no `bucket` field to name, so `firebase deploy --only storage` published `storage.rules` to the DEFAULT bucket alone and silently left staging on the deny-all template the console creates a new bucket with. Every chat attachment in staging failed with `storage/unauthorized`, and nothing in the deploy output said so. Both buckets are named here, and both read the same file: unlike the Firestore pair there is nothing about a bucket that wants to diverge, and a second rules file is a second thing to forget to point at a bucket. Add the bucket here when you add a bucket.",
   "storage": [
     {
@@ -47,6 +57,7 @@
   },
   "emulators": {
     "auth": { "port": 9099 },
+    "functions": { "port": 5001 },
     "firestore": { "port": 8080 },
     "storage": { "port": 9199 },
     "ui": { "enabled": true }

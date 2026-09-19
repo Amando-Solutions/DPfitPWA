@@ -1,0 +1,144 @@
+/* =============================================================================
+   Screen transitions
+   -----------------------------------------------------------------------------
+   Drawn with the View Transitions API. `plugins/navigation.client.ts` decides
+   each navigation's direction and writes it to <html>:
+
+     data-platform  ios | android | desktop
+     data-nav       forward | back | tab | fade | none
+     data-nav-bar   keep, when the tab bar (or side rail) is on both screens
+
+   Only the combinations below move. Everything else swaps screens instantly,
+   which is also what a browser without View Transitions does.
+   ========================================================================== */
+
+:root {
+  /* UIKit's push: long, with most of the travel up front. */
+  --nav-ios-duration: 420ms;
+  --nav-ios-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  /* Material 3's emphasized easing and its shared-axis travel. */
+  --nav-md-duration: 300ms;
+  --nav-md-ease: cubic-bezier(0.2, 0, 0, 1);
+  --nav-md-shift: 30px;
+}
+
+/* What shows between the two screens. A fade-through passes through the page
+   colour rather than through black. */
+::view-transition {
+  background: var(--paper);
+}
+
+/* Held still while the screen moves under it, when it is on both screens.
+   Without a name of its own it is part of the screen's snapshot and travels
+   with it, which is right when only one of the two screens has it. */
+html[data-nav-bar='keep'] .tabbar-dock,
+html[data-nav-bar='keep'] .sidenav {
+  view-transition-name: app-nav;
+}
+
+/* The directional moves are two opaque screens passing each other, not a
+   cross-fade, so they drop the UA's additive blend. */
+html[data-nav='forward']::view-transition-old(root),
+html[data-nav='forward']::view-transition-new(root),
+html[data-nav='back']::view-transition-old(root),
+html[data-nav='back']::view-transition-new(root) {
+  mix-blend-mode: normal;
+}
+
+/* --- iOS ---------------------------------------------------------------------
+   Push: the new screen slides in from the right edge over the old one, which
+   drifts a third of the way left and dims. Pop is the same, played backwards,
+   with the leaving screen kept on top. */
+
+html[data-platform='ios'][data-nav='forward']::view-transition-old(root) {
+  animation: nav-ios-recede var(--nav-ios-duration) var(--nav-ios-ease) both;
+}
+html[data-platform='ios'][data-nav='forward']::view-transition-new(root) {
+  animation: nav-ios-arrive var(--nav-ios-duration) var(--nav-ios-ease) both;
+  box-shadow: -1px 0 24px rgb(0 0 0 / 0.14);
+}
+
+html[data-platform='ios'][data-nav='back']::view-transition-old(root) {
+  z-index: 1;
+  animation: nav-ios-depart var(--nav-ios-duration) var(--nav-ios-ease) both;
+  box-shadow: -1px 0 24px rgb(0 0 0 / 0.14);
+}
+html[data-platform='ios'][data-nav='back']::view-transition-new(root) {
+  animation: nav-ios-return var(--nav-ios-duration) var(--nav-ios-ease) both;
+}
+
+/* Across the gate: a plain cross-fade, the UA's own, just quicker. */
+html[data-platform='ios'][data-nav='fade']::view-transition-group(root) {
+  animation-duration: 250ms;
+}
+
+@keyframes nav-ios-arrive {
+  from { transform: translateX(100%); }
+}
+@keyframes nav-ios-recede {
+  to { transform: translateX(-30%); filter: brightness(0.9); }
+}
+@keyframes nav-ios-depart {
+  to { transform: translateX(100%); }
+}
+@keyframes nav-ios-return {
+  from { transform: translateX(-30%); filter: brightness(0.9); }
+}
+
+/* --- Android -----------------------------------------------------------------
+   Material's shared axis X for going deeper and coming back: both screens
+   travel 30px along the axis, the old one gone in the first third, the new one
+   fading in behind it. Tabs and the gate use fade-through: out quickly, then in
+   with a slight grow. */
+
+html[data-platform='android'][data-nav='forward']::view-transition-old(root) {
+  animation: nav-md-exit-start var(--nav-md-duration) var(--nav-md-ease) both;
+}
+html[data-platform='android'][data-nav='forward']::view-transition-new(root) {
+  animation: nav-md-enter-end var(--nav-md-duration) var(--nav-md-ease) both;
+}
+
+html[data-platform='android'][data-nav='back']::view-transition-old(root) {
+  animation: nav-md-exit-end var(--nav-md-duration) var(--nav-md-ease) both;
+}
+html[data-platform='android'][data-nav='back']::view-transition-new(root) {
+  animation: nav-md-enter-start var(--nav-md-duration) var(--nav-md-ease) both;
+}
+
+html[data-platform='android'][data-nav='tab']::view-transition-old(root),
+html[data-platform='android'][data-nav='fade']::view-transition-old(root) {
+  mix-blend-mode: normal;
+  animation: nav-md-fade-out 90ms linear both;
+}
+html[data-platform='android'][data-nav='tab']::view-transition-new(root),
+html[data-platform='android'][data-nav='fade']::view-transition-new(root) {
+  mix-blend-mode: normal;
+  animation: nav-md-fade-in 210ms var(--nav-md-ease) 90ms both;
+}
+
+@keyframes nav-md-exit-start {
+  0% { transform: none; opacity: 1; }
+  35% { opacity: 0; }
+  100% { transform: translateX(calc(var(--nav-md-shift) * -1)); opacity: 0; }
+}
+@keyframes nav-md-enter-end {
+  0% { transform: translateX(var(--nav-md-shift)); opacity: 0; }
+  35% { opacity: 0; }
+  100% { transform: none; opacity: 1; }
+}
+@keyframes nav-md-exit-end {
+  0% { transform: none; opacity: 1; }
+  35% { opacity: 0; }
+  100% { transform: translateX(var(--nav-md-shift)); opacity: 0; }
+}
+@keyframes nav-md-enter-start {
+  0% { transform: translateX(calc(var(--nav-md-shift) * -1)); opacity: 0; }
+  35% { opacity: 0; }
+  100% { transform: none; opacity: 1; }
+}
+@keyframes nav-md-fade-out {
+  to { opacity: 0; }
+}
+@keyframes nav-md-fade-in {
+  from { opacity: 0; transform: scale(0.92); }
+}

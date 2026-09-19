@@ -61,9 +61,18 @@ const links = computed(() => [
 // not a setting, and it was the one destructive control sitting at the bottom
 // of a form people scroll through to change their weight.
 const showSignOut = ref(false)
+// Both buttons freeze for the length of it, as they do on the profile screen:
+// the session is already going, and Cancel cannot call it back.
+const signingOut = ref(false)
 const signOut = async () => {
-  await store.signOut()
-  await router.push('/access-code')
+  if (signingOut.value) return
+  signingOut.value = true
+  try {
+    await store.signOut()
+    await router.push('/sign-in')
+  } catch {
+    signingOut.value = false
+  }
 }
 
 const initials = computed(() =>
@@ -78,14 +87,14 @@ const initials = computed(() =>
 </script>
 
 <template>
-  <div class="more p-[var(--screen-pad-top)_20px_0] flex flex-col gap-4.5 [&_.more__title]:m-[8px_0_0] lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:[grid-template-areas:'header_header'_'profile_rewards'_'links_links'_'signout_signout'] lg:content-start lg:items-start lg:gap-x-6 lg:gap-y-4.5 lg:p-[0_0_8px]">
+  <div class="more p-[var(--screen-pad-top)_20px_0] flex flex-col gap-4.5 [&_.more__title]:m-[8px_0_0] lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:[grid-template-areas:'header_header'_'profile_rewards'_'links_links'_'signout_signout'_'credit_credit'] lg:content-start lg:items-start lg:gap-x-6 lg:gap-y-4.5 lg:p-[0_0_8px]">
     <!-- The cohort-and-coach eyebrow is gone: it named the same cohort on every
          screen that carried it, and neither half was something you act on. -->
     <ScreenIntro title="More" class="more__header lg:[grid-area:header]" />
 
     <section class="more__profile lg:[grid-area:profile]">
       <AppCard variant="raised" class="more__profile-card flex items-center gap-3.5">
-        <Avatar size="lg" class="more__avatar w-13 h-13 rounded-[50%] object-cover shrink-0 [&.more__avatar--initials]:grid [&.more__avatar--initials]:place-items-center [&.more__avatar--initials]:bg-rose-fill [&.more__avatar--initials]:text-on-rose [&.more__avatar--initials]:font-display [&.more__avatar--initials]:font-black [&.more__avatar--initials]:text-[18px]">
+        <Avatar size="lg" class="more__avatar w-13 h-13 rounded-[50%] object-cover shrink-0 [&.more__avatar--initials]:grid [&.more__avatar--initials]:place-items-center [&.more__avatar--initials]:bg-primary-fill [&.more__avatar--initials]:text-on-primary [&.more__avatar--initials]:font-display [&.more__avatar--initials]:font-black [&.more__avatar--initials]:text-[18px]">
           <AvatarImage :src="store.profile.value?.avatarUrl ?? ''" :alt="store.displayName.value" />
           <AvatarFallback>{{ initials }}</AvatarFallback>
         </Avatar>
@@ -101,8 +110,8 @@ const initials = computed(() =>
           </p>
         </div>
         <div class="more__profile-pills flex flex-col gap-1.5 shrink-0">
-          <StatPill icon="flame" :value="store.rewards.value.streakWeeks" variant="rose" />
-          <StatPill icon="trophy" :value="store.rewards.value.badgeCount" variant="rose" />
+          <StatPill icon="flame" :value="store.rewards.value.streakWeeks" variant="secondary" />
+          <StatPill icon="trophy" :value="store.rewards.value.badgeCount" variant="secondary" />
         </div>
       </AppCard>
     </section>
@@ -119,13 +128,13 @@ const initials = computed(() =>
           </template>
           <template v-else>· top rank reached</template>
         </p>
-        <ProgressBar :value="store.rewards.value.rankProgress" :max="100" :height="6" flame />
+        <ProgressBar :value="store.rewards.value.rankProgress" :max="100" :height="6" gradient />
       </AppCard>
     </section>
 
     <section class="more__links flex flex-col gap-2.5 lg:[grid-area:links] lg:grid lg:grid-cols-2 lg:gap-3 lg:mt-1.5">
       <NuxtLink v-for="link in links" :key="link.to" :to="link.to" class="more__link flex items-center gap-3 p-[14px_16px] rounded-card bg-raised shadow-card text-(--ink) lg:transition-[translate,box-shadow] lg:duration-150 lg:ease-[ease] lg:hover:transform-[translateY(-2px)] lg:hover:shadow-raised">
-        <span class="more__link-icon grid place-items-center w-8.5 h-8.5 rounded-[50%] bg-rose-soft text-rose shrink-0">
+        <span class="more__link-icon grid place-items-center w-8.5 h-8.5 rounded-[50%] bg-primary-soft text-primary shrink-0">
           <AppIcon :name="link.icon" :size="18" />
         </span>
         <span class="more__link-text flex-1 min-w-0 flex flex-col gap-0.5 [&_strong]:text-[14px] [&_strong]:font-semibold [&_small]:text-[12px] [&_small]:text-(--violet-45)">
@@ -143,7 +152,7 @@ const initials = computed(() =>
         class="more__link more__link--action flex items-center gap-3 p-[14px_16px] rounded-card bg-raised shadow-card text-(--ink) lg:transition-[translate,box-shadow] lg:duration-150 lg:ease-[ease] lg:hover:transform-[translateY(-2px)] lg:hover:shadow-raised w-full text-left"
         @click="install.install()"
       >
-        <span class="more__link-icon grid place-items-center w-8.5 h-8.5 rounded-[50%] bg-rose-soft text-rose shrink-0">
+        <span class="more__link-icon grid place-items-center w-8.5 h-8.5 rounded-[50%] bg-primary-soft text-primary shrink-0">
           <AppIcon name="download" :size="18" />
         </span>
         <span class="more__link-text flex-1 min-w-0 flex flex-col gap-0.5 [&_strong]:text-[14px] [&_strong]:font-semibold [&_small]:text-[12px] [&_small]:text-(--violet-45)">
@@ -165,10 +174,28 @@ const initials = computed(() =>
       <AppButton variant="danger" @click="showSignOut = true">Sign out</AppButton>
     </section>
 
+    <!--
+      The build credit, at the foot of the hub.
+
+      This screen is the closest thing the app has to an About page — it is
+      where the version-and-provenance kind of information belongs — and the
+      foot of it is the one place a credit can sit without ever being in the
+      way of a member doing something. Deliberately below Sign out: that button
+      is the end of the list, and anything under it reads as a footer rather
+      than as one more thing to tap.
+    -->
+    <section class="more__credit lg:[grid-area:credit] mt-3 flex justify-center">
+      <PoweredBy class="text-(--violet-45)" />
+    </section>
+
     <BottomSheet v-model="showSignOut" title="Do you want to sign out?">
       <div class="grid grid-cols-2 gap-3">
-        <AppButton variant="secondary" @click="showSignOut = false">Cancel</AppButton>
-        <AppButton variant="danger" @click="signOut">Sign out</AppButton>
+        <AppButton variant="secondary" :disabled="signingOut" @click="showSignOut = false">
+          Cancel
+        </AppButton>
+        <AppButton variant="danger" :disabled="signingOut" @click="signOut">
+          {{ signingOut ? 'Signing out…' : 'Sign out' }}
+        </AppButton>
       </div>
     </BottomSheet>
   </div>

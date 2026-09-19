@@ -1,15 +1,18 @@
 import { Timestamp } from 'firebase/firestore'
 
+import { EDIT_WINDOW_MS, addressedUidsOf } from '~/lib/chat'
 import { storage } from '~/lib/storage'
-import { trustedTimestamp } from '~/lib/time'
+import { dateKey, trustedNow, trustedTimestamp } from '~/lib/time'
 import {
   DataSourceError,
   type ActiveSessionInput,
   type CheckInInput,
   type DataSource,
+  type DeviceClaim,
   type PendingFile,
   type PhotoInput,
   type SessionInput,
+  type Unsubscribe,
 } from './types'
 import {
   PROGRAM_ID,
@@ -19,18 +22,17 @@ import {
   badgeTierPoints,
   badges,
   cohort,
-  coreCardioDay,
   guides,
   leaderboardSeed,
   notificationSeed,
-  planDays,
   program,
   rewardValues,
+  trainingWeeks,
 } from '~/data/program'
 import { coachSeed, cohortSeed } from '~/data/community'
 import { qualifyingSessions, sessionQualifies } from '~/lib/domain/rewards'
 import { prescribedSets } from '~/lib/domain/sets'
-import { weekOf } from '~/lib/domain/challenge'
+import { resolvePlanWeek, weekOf } from '~/lib/domain/challenge'
 import type { ProcessedImage } from '~/lib/image'
 import type {
   ActiveSessionDoc,
@@ -39,8 +41,10 @@ import type {
   AuthUser,
   BadgeRuleId,
   ChatAttachment,
+  ChatMention,
   ChatMessageView,
   ChatReaction,
+  ChatReplyRef,
   CheckIn,
   Cohort,
   EarnedBadge,
@@ -58,7 +62,8 @@ import type {
   SessionLog,
   StoredImage,
   ThreadId,
-  WorkoutDay,
+  TrainingWeek,
+  TypingPeer,
 } from '~/data/types'
 
 // Storage keys, one per collection, mirroring the Firestore paths.
@@ -79,25 +84,6 @@ const KEY = {
 
 const uid = (prefix: string) =>
   `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
-
-/**
- * The fake sign-in link this implementation understands.
- *
- * Nothing issues one any more — `sendSignInLink` signs in on the spot, because
- * mock mode has no inbox to route a link through and waiting on an email that
- * will never arrive is not a flow anybody can develop against. The parsing
- * stays so the opened-link path can still be rehearsed by hand: visit
- * `/access-code?mockSignIn=you@example.com` in a browser that never asked for
- * it and you get the other-device branch, which is the one genuinely awkward
- * corner of email-link auth.
- */
-const emailFromLink = (url: string): string | null => {
-  try {
-    return new URL(url, 'http://localhost').searchParams.get('mockSignIn')
-  } catch {
-    return null
-  }
-}
 
 /**
  * The account the mock Google button signs in as.
@@ -125,8 +111,6 @@ export const emptyProfile = (): MemberProfile => ({
   // mode has no code document to carry one, and inventing a phone number that
   // looks real is worse than a blank field.
   whatsapp: '',
-  healthConditions: '',
-  injuries: '',
   avatarUrl: '',
 })
 
@@ -182,7 +166,17 @@ const withViewer = (message: Message, viewerUid: string, mine: string[]): ChatMe
     mine: mine.includes(emoji),
   }))
 
-  return { ...message, isSelf: message.authorUid === viewerUid, reactions }
+  return {
+    ...message,
+    // Seeds and anything stored before replies existed have no such field. See
+    // the note on the Firestore implementation's `viewOf`.
+    replyTo: message.replyTo ?? null,
+    editedAt: message.editedAt ?? null,
+    mentions: message.mentions ?? [],
+    addressedUids: message.addressedUids ?? [],
+    isSelf: message.authorUid === viewerUid,
+    reactions,
+  }
 }
 
 /**
@@ -195,39 +189,38 @@ const withViewer = (message: Message, viewerUid: string, mine: string[]): ChatMe
  * schema.
  */
 export class LocalDataSource implements DataSource {
+  /**
+   * Live thread listeners, by thread. See `watchMessages`.
+   *
+   * Nobody else is writing to this store, so there is nothing to listen *to*
+   * in the sense Firestore means it: the only messages that will ever arrive
+   * are the ones sent from this tab. The registry exists so the screens can be
+   * written one way regardless of which implementation is behind them — they
+   * subscribe, and this one answers with its own writes.
+   */
+  private readonly threadWatchers = new Map<ThreadId, Set<(m: ChatMessageView[]) => void>>()
+
   // =========================================================================
   // Auth
+  //
+  // There is no provider here and no account list, only the one signed-in user
+  // this browser's storage holds. So nothing below can refuse an address for
+  // not having an account, or a password for being wrong: every way in lands on
+  // the screen after it, which is what developing those screens needs.
   // =========================================================================
-
-  /** No inbox here, so the round trip through one is skipped. See below. */
-  readonly instantSignIn = true
-
-  /**
-   * Sign in, there and then.
-   *
-   * There is no email to send: this implementation is the whole backend, so a
-   * link it "sent" could only be one it also read back, and the wait in the
-   * middle would be theatre. The address is taken at face value — proving the
-   * inbox is yours is exactly the part a mock cannot do — and the member lands
-   * on the access-code half of the screen, which is the step that still means
-   * something on device.
-   */
-  async sendSignInLink(email: string): Promise<AuthUser> {
-    const normalised = email.trim().toLowerCase()
-    if (!normalised.includes('@')) {
-      throw new DataSourceError('Enter the email address you paid with.', 'invalid-code')
-    }
-    return this.signIn(normalised, 'email-link')
-  }
 
   /**
    * Offered on device too, so the button is never missing while developing.
    *
    * It cannot talk to Google — there is no Firebase here — so it stands in a
    * plausible Google account instead. The point of drawing it is that the
-   * screen either side of the button is the real one.
+   * screen either side of the button is the real one. Unlike the real one it
+   * cannot tell a new account from an old one, so it never refuses.
    */
   readonly googleSignIn = true
+
+  /** The fixture every mock redemption accepts, printed so nobody has to look. */
+  readonly demoAccessCode = accessCodes[0] ?? null
 
   async signInWithGoogle(): Promise<AuthUser> {
     return this.signIn(MOCK_GOOGLE.email, 'google', MOCK_GOOGLE)
@@ -241,32 +234,45 @@ export class LocalDataSource implements DataSource {
     return null
   }
 
-  async isSignInLink(url: string): Promise<boolean> {
-    return emailFromLink(url) !== null
-  }
-
-  async completeSignInLink(url: string, email?: string): Promise<AuthUser> {
-    const fromLink = emailFromLink(url)
-    if (!fromLink) throw new DataSourceError('That sign-in link is not valid.', 'expired-link')
-
-    // Nothing parks a pending address here, because nothing here sends a link:
-    // a hand-crafted one is by definition opened on a device that never asked
-    // for it, which is the case the caller has to confirm.
-    const known = email?.trim().toLowerCase()
-    if (!known) {
+  async checkAccessCode(code: string): Promise<string> {
+    const normalised = code.trim().toUpperCase()
+    if (!normalised) {
+      throw new DataSourceError('Enter the access code from your confirmation email.', 'invalid-code')
+    }
+    if (!accessCodes.includes(normalised)) {
       throw new DataSourceError(
-        'Confirm the email address this link was sent to.',
-        'needs-email',
+        'That code isn’t valid. Check it against your confirmation email.',
+        'invalid-code',
       )
     }
+    return normalised
+  }
 
-    return this.signIn(known)
+  /** Fixture codes carry no address, so any email makes the account. */
+  async createAccount(code: string, email: string): Promise<AuthUser> {
+    await this.checkAccessCode(code)
+    return this.signIn(this.address(email, 'Enter the email address your access code was sent to.'))
+  }
+
+  async signInWithPassword(email: string): Promise<AuthUser> {
+    return this.signIn(this.address(email, 'Enter the email address you signed up with.'))
+  }
+
+  /** No inbox to send to. The screen's "check your email" step is still the real one. */
+  async sendPasswordReset(email: string): Promise<void> {
+    this.address(email, 'Enter the email address you signed up with.')
+  }
+
+  private address(email: string, prompt: string): string {
+    const normalised = email.trim().toLowerCase()
+    if (!normalised.includes('@')) throw new DataSourceError(prompt, 'invalid-email')
+    return normalised
   }
 
   /** The signed-in state every route in above converges on. */
   private signIn(
     email: string,
-    provider: AuthProvider = 'email-link',
+    provider: AuthProvider = 'password',
     profile: { displayName?: string; photoUrl?: string } = {},
   ): AuthUser {
     const user: AuthUser = {
@@ -287,6 +293,15 @@ export class LocalDataSource implements DataSource {
 
   async signOut(): Promise<void> {
     storage.clear()
+  }
+
+  /** Signed in on this browser's storage alone, so there is no other device to lose to. */
+  async claimDevice(): Promise<DeviceClaim> {
+    return 'claimed'
+  }
+
+  async watchDevice(): Promise<Unsubscribe> {
+    return () => {}
   }
 
   // =========================================================================
@@ -313,6 +328,8 @@ export class LocalDataSource implements DataSource {
       id: user.uid,
       email: user.email,
       emailVerified: user.emailVerified,
+      // Named the way the ID token names it, as the Firestore path records it.
+      joinedWith: user.provider === 'google' ? 'google.com' : 'password',
       status: 'onboarding',
       previousStatus: null,
       pauseReason: null,
@@ -382,10 +399,21 @@ export class LocalDataSource implements DataSource {
     return program
   }
 
-  async listWorkoutDays(): Promise<WorkoutDay[]> {
-    // The finisher is authored alongside the week and marked `optional`, which
-    // is what keeps it out of the weekly quota. Same collection, same order.
-    return [...planDays, coreCardioDay].sort((a, b) => a.dayNumber - b.dayNumber)
+  async listProgramWeeks(): Promise<TrainingWeek[]> {
+    return this.weeks()
+  }
+
+  /**
+   * The fixture's block, starting the day this member joined.
+   *
+   * Not the cohort's start date, which is a fixed day in August: mock mode would
+   * be a finished challenge within weeks of it. Starting from `joinedAt` gives
+   * every fresh sign-up week 1, day 1 today, which is the screen worth
+   * developing against.
+   */
+  private async weeks(): Promise<TrainingWeek[]> {
+    const member = await this.getMember()
+    return trainingWeeks(dateKey(member?.joinedAt ?? trustedTimestamp()))
   }
 
   async listGuides(): Promise<Guide[]> {
@@ -396,8 +424,20 @@ export class LocalDataSource implements DataSource {
     return cohort
   }
 
-  async listAnnouncements(): Promise<Announcement[]> {
-    return [...announcements].sort((a, b) => b.publishedAt.toMillis() - a.publishedAt.toMillis())
+  /** A constant in the bundle: delivered once, and there is no admin to change it. */
+  async watchCohort(onCohort: (cohort: Cohort | null) => void): Promise<Unsubscribe> {
+    onCohort(cohort)
+    return () => {}
+  }
+
+  /** A constant in the bundle, like the inbox seed: delivered once and never changes. */
+  async watchAnnouncements(
+    onAnnouncements: (announcements: Announcement[]) => void,
+  ): Promise<Unsubscribe> {
+    onAnnouncements(
+      [...announcements].sort((a, b) => b.publishedAt.toMillis() - a.publishedAt.toMillis()),
+    )
+    return () => {}
   }
 
   // =========================================================================
@@ -450,10 +490,12 @@ export class LocalDataSource implements DataSource {
       program.qualifyingSetPercent,
     )
 
+    const weekNumber = weekOf(await this.weeks(), log.completedAt)
     const record: SessionLog = {
       ...log,
       id: uid('session'),
-      weekNumber: weekOf(member.joinedAt, log.completedAt, program.totalWeeks),
+      weekNumber,
+      planWeek: resolvePlanWeek(log.planWeek, weekNumber),
       qualifies,
       // A session below the threshold saves in full and still reaches the
       // coach. It just earns nothing.
@@ -492,10 +534,16 @@ export class LocalDataSource implements DataSource {
   }
 
   async saveCheckIn(input: CheckInInput): Promise<CheckIn> {
-    const member = await this.requireMember()
+    await this.requireMember()
     const all = await this.listCheckIns()
     const submittedAt = trustedTimestamp()
-    const weekNumber = weekOf(member.joinedAt, submittedAt, program.totalWeeks)
+    const weekNumber = weekOf(await this.weeks(), submittedAt)
+    if (all.some((c) => c.weekNumber === weekNumber)) {
+      throw new DataSourceError(
+        `Your week ${weekNumber} check-in is already in.`,
+        'check-in-submitted',
+      )
+    }
 
     const record: CheckIn = {
       ...input,
@@ -505,7 +553,7 @@ export class LocalDataSource implements DataSource {
       submittedAt,
       rewardPoints: rewardValues.checkIn,
     }
-    const next = [record, ...all.filter((c) => c.weekNumber !== weekNumber)]
+    const next = [record, ...all]
     storage.write(KEY.checkIns, next)
     await this.recountStats({ checkIns: next })
     return record
@@ -519,14 +567,14 @@ export class LocalDataSource implements DataSource {
   }
 
   async savePhoto(input: PhotoInput): Promise<ProgressPhoto> {
-    const member = await this.requireMember()
+    await this.requireMember()
     const all = await this.listPhotos()
     const takenAt = trustedTimestamp()
 
     const record: ProgressPhoto = {
       id: uid('photo'),
       pose: input.pose,
-      weekNumber: weekOf(member.joinedAt, takenAt, program.totalWeeks),
+      weekNumber: weekOf(await this.weeks(), takenAt),
       image: await this.uploadImage(input.image, 'progress'),
       takenAt,
     }
@@ -545,26 +593,75 @@ export class LocalDataSource implements DataSource {
   // =========================================================================
   // Notifications
   // =========================================================================
-  async listNotifications(): Promise<Notification[]> {
-    return notificationSeed
+  /** The seed is a constant in the bundle, so it is delivered once and never changes. */
+  async watchNotifications(
+    onNotifications: (notifications: Notification[]) => void,
+  ): Promise<Unsubscribe> {
+    onNotifications(notificationSeed)
+    return () => {}
+  }
+
+  /**
+   * The cohort thread, filtered, over the same registry `watchMessages` uses.
+   *
+   * Filtered with `addressedUidsOf` rather than the stored field, because the
+   * seeded thread predates the field and the point of the mock is to show the
+   * screens working. Nobody else writes here, so in practice this is whatever
+   * the seed says to this member.
+   */
+  async watchAddressedMessages(
+    onMessages: (messages: Message[]) => void,
+  ): Promise<Unsubscribe> {
+    const viewer = (await this.getAuthUser())?.uid ?? 'me'
+    return this.watchMessages('cohort', (messages) => {
+      onMessages(
+        messages
+          .filter((m) => addressedUidsOf(m).includes(viewer))
+          .reverse()
+          .slice(0, 50),
+      )
+    })
+  }
+
+  /**
+   * The cohort thread, filtered to the member's messages others reacted to.
+   *
+   * Nobody else reacts on device, so this is empty unless the seed says
+   * otherwise. Kept to the same shape as the query it stands in for.
+   */
+  async watchReactedMessages(
+    onMessages: (messages: Message[]) => void,
+  ): Promise<Unsubscribe> {
+    const viewer = (await this.getAuthUser())?.uid ?? 'me'
+    return this.watchMessages('cohort', (messages) => {
+      onMessages(
+        messages
+          .filter((m) => m.authorUid === viewer && m.reactedAt)
+          .sort((a, b) => b.reactedAt!.toMillis() - a.reactedAt!.toMillis())
+          .slice(0, 50),
+      )
+    })
   }
 
   async listNotificationReads(): Promise<Record<string, Timestamp>> {
     return storage.read<Record<string, Timestamp>>(KEY.notificationReads, {})
   }
 
+  // Marking read again moves the stamp forward rather than keeping the first
+  // one. A line that comes back unread — reactions, when somebody new joins in
+  // — is only read again once the stamp is later than it.
   async markNotificationRead(id: string): Promise<void> {
     const reads = await this.listNotificationReads()
-    if (reads[id]) return
     storage.write(KEY.notificationReads, { ...reads, [id]: trustedTimestamp() })
   }
 
-  async markAllNotificationsRead(): Promise<void> {
+  async markNotificationsRead(ids: string[]): Promise<void> {
+    if (!ids.length) return
     const now = trustedTimestamp()
     const reads = await this.listNotificationReads()
     storage.write(KEY.notificationReads, {
-      ...Object.fromEntries(notificationSeed.map((n) => [n.id, now])),
       ...reads,
+      ...Object.fromEntries(ids.map((id) => [id, now])),
     })
   }
 
@@ -582,10 +679,57 @@ export class LocalDataSource implements DataSource {
     )
   }
 
+  /**
+   * Hand every listener on this thread the thread as it now stands.
+   *
+   * Called after each write rather than from inside `storage`, because the
+   * only writes that reach a chat thread are the two below.
+   */
+  private async publishThread(threadId: ThreadId): Promise<void> {
+    const listeners = this.threadWatchers.get(threadId)
+    if (!listeners?.size) return
+    const messages = await this.listMessages(threadId)
+    for (const listener of [...listeners]) listener(messages)
+  }
+
+  async watchMessages(
+    threadId: ThreadId,
+    onMessages: (messages: ChatMessageView[]) => void,
+  ): Promise<Unsubscribe> {
+    const listeners = this.threadWatchers.get(threadId) ?? new Set()
+    this.threadWatchers.set(threadId, listeners)
+    listeners.add(onMessages)
+
+    onMessages(await this.listMessages(threadId))
+    return () => {
+      listeners.delete(onMessages)
+    }
+  }
+
+  /**
+   * The top of the thread, over the same registry `watchMessages` uses.
+   *
+   * The other two implementations read one document instead of two hundred to
+   * answer this, and that saving is the whole reason the method exists. Here
+   * the thread is already in memory, so there is nothing to save and nothing
+   * to gain from a second path through it: this subscribes like any other
+   * watcher and takes the last message off the end.
+   */
+  async watchLatestMessage(
+    threadId: ThreadId,
+    onMessage: (message: Message | null) => void,
+  ): Promise<Unsubscribe> {
+    return this.watchMessages(threadId, (messages) => {
+      onMessage(messages.at(-1) ?? null)
+    })
+  }
+
   async sendMessage(
     threadId: ThreadId,
     text: string,
     attachments: ChatAttachment[] = [],
+    replyTo: ChatReplyRef | null = null,
+    mentions: ChatMention[] = [],
   ): Promise<ChatMessageView> {
     const [user, member] = await Promise.all([this.getAuthUser(), this.getMember()])
     const message: Message = {
@@ -596,7 +740,11 @@ export class LocalDataSource implements DataSource {
       isCoach: false,
       text,
       sentAt: trustedTimestamp(),
+      editedAt: null,
       attachments,
+      replyTo,
+      mentions,
+      addressedUids: addressedUidsOf({ authorUid: user?.uid ?? 'me', mentions, replyTo }),
       reactionCounts: {},
     }
     const mine = storage.read<Record<string, Message[]>>(KEY.messages, {})
@@ -604,7 +752,88 @@ export class LocalDataSource implements DataSource {
       ...mine,
       [threadId]: [...(mine[threadId] ?? []), message],
     })
+    await this.publishThread(threadId)
     return withViewer(message, message.authorUid, [])
+  }
+
+  /**
+   * Accepted and dropped.
+   *
+   * There is one member in localStorage and nobody on the other end of the
+   * thread, so there is nothing to tell and nobody to tell it to. The method
+   * exists because the composer calls it on every keystroke and must not have
+   * to know which implementation is behind it.
+   */
+  async setTyping(): Promise<void> {}
+
+  /**
+   * Nobody is ever typing.
+   *
+   * Answered once with an empty list rather than left silent: the screen hides
+   * its indicator on the first delivery, and a watcher that never calls back
+   * would leave it waiting on an event that is not coming.
+   */
+  async watchTyping(
+    threadId: ThreadId,
+    onTyping: (peers: TypingPeer[]) => void,
+  ): Promise<Unsubscribe> {
+    onTyping([])
+    return () => {}
+  }
+
+  /**
+   * Rewrite a sent message, inside the window.
+   *
+   * Only what this device has sent can be rewritten, and that is not a rule
+   * being enforced so much as the shape of the store: the seeded half of the
+   * thread is a constant in the bundle, so there is nothing to write back to.
+   * A member who somehow aims an edit at a seeded message is told it is not
+   * theirs, which is both true and the same sentence Firestore would give.
+   */
+  async editMessage(
+    threadId: ThreadId,
+    messageId: string,
+    text: string,
+    mentions: ChatMention[] = [],
+  ): Promise<ChatMessageView> {
+    const trimmed = text.trim()
+    if (!trimmed) {
+      throw new DataSourceError('An edited message still has to say something.')
+    }
+
+    const viewer = (await this.getAuthUser())?.uid ?? 'me'
+    const all = storage.read<Record<string, Message[]>>(KEY.messages, {})
+    const thread = all[threadId] ?? []
+    const target = thread.find((m) => m.id === messageId)
+
+    if (!target) {
+      throw new DataSourceError('You can only edit your own messages.', 'not-author')
+    }
+    if (target.authorUid !== viewer) {
+      throw new DataSourceError('You can only edit your own messages.', 'not-author')
+    }
+    if (trustedNow().getTime() - target.sentAt.toMillis() >= EDIT_WINDOW_MS) {
+      throw new DataSourceError(
+        'That message is too old to edit now.',
+        'edit-window-closed',
+      )
+    }
+
+    const edited: Message = {
+      ...target,
+      text: trimmed,
+      mentions,
+      addressedUids: addressedUidsOf({ ...target, mentions }),
+      editedAt: trustedTimestamp(),
+    }
+    storage.write(KEY.messages, {
+      ...all,
+      [threadId]: thread.map((m) => (m.id === messageId ? edited : m)),
+    })
+    await this.publishThread(threadId)
+
+    const reactions = storage.read<Record<string, string[]>>(KEY.reactions, {})
+    return withViewer(edited, viewer, reactions[`${threadId}:${messageId}`] ?? [])
   }
 
   async toggleReaction(
@@ -627,6 +856,7 @@ export class LocalDataSource implements DataSource {
     storage.write(KEY.reactions, updated)
 
     const messages = await this.listMessages(threadId)
+    await this.publishThread(threadId)
     return messages.find((m) => m.id === messageId)?.reactions ?? []
   }
 
@@ -670,6 +900,18 @@ export class LocalDataSource implements DataSource {
       isSelf: true,
     }
     return [...leaderboardSeed.map((peer) => ({ ...peer, isSelf: false })), me]
+  }
+
+  /**
+   * The same roster the board is padded out with.
+   *
+   * There is only ever one real member in localStorage, so the literal answer
+   * is 1 and a chat header reading "Coach and 1 member" is not a preview of
+   * anything. The stand-in cohort is what makes mock mode usable, and counting
+   * the same list the board shows is what keeps the two screens agreeing.
+   */
+  async countCohortMembers(): Promise<number> {
+    return (await this.listLeaderboard()).length
   }
 
   // =========================================================================

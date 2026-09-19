@@ -2,72 +2,62 @@
 import type { WorkoutDayView } from '~/data/types'
 
 /**
- * A locked dot is not a link.
+ * Every dot is a link, and every day the plan has not opened wears a padlock.
  *
- * Today's session is already logged, so there is nowhere for it to go; leaving
- * it tappable only produces a screen that bounces straight back.
+ * The padlock says the Start button is not there yet; it does not say the day
+ * is a secret. Tapping through to read Thursday's session on Tuesday is a
+ * reasonable thing to want, and the session screen is the place that explains
+ * why it cannot be logged, with the date it opens.
+ *
+ * Three states, not two, now that a day left behind stays open: done, open,
+ * and not yet. Only today's dot pulses. A member two days down has three open
+ * dots and three things pulsing at once would be an alarm rather than a
+ * pointer, so the rest carry the ring and the caption says what they are.
  */
-const NuxtLinkComponent = resolveComponent('NuxtLink')
-const dotTag = (day: WorkoutDayView) => (day.status === 'locked' ? 'div' : NuxtLinkComponent)
+defineProps<{ days: WorkoutDayView[] }>()
 
-/**
- * Every locked day wears the padlock, the same as the rows on the day picker.
- *
- * Showing it on only the next one left the rest looking like ordinary days you
- * could still tap into, which is the one thing they are not. The label below
- * keeps them apart: the first locked day reads "Tomorrow", the rest keep their
- * day number.
- */
-const props = defineProps<{ days: WorkoutDayView[] }>()
-const nextUpId = computed(() => props.days.find((d) => d.status === 'locked')?.id)
+/** "Today" for today's slot, "Catch up" for a day still owed, else its number. */
+const caption = (day: WorkoutDayView) => {
+  if (day.status === 'today') return 'Today'
+  if (day.canStart) return 'Catch up'
+  return `Day ${day.dayNumber}`
+}
 </script>
 
 <template>
   <div class="flex gap-2">
-    <component
-      :is="dotTag(day)"
+    <NuxtLink
       v-for="day in days"
       :key="day.id"
-      :to="day.status === 'locked' ? undefined : `/train/${day.id}`"
+      :to="`/train/${day.id}`"
       class="flex min-w-0 flex-1 flex-col items-center gap-2"
     >
       <span
         class="relative grid aspect-square size-13.5 max-w-full place-items-center rounded-pill"
         :class="{
-          'bg-rose-fill text-on-rose': day.status === 'completed',
-          'bg-rose-softer text-rose shadow-[0_0_0_1.5px_var(--rose-ring)]':
-            day.status === 'today',
-          'bg-sunken text-muted':
-            day.status !== 'completed' && day.status !== 'today',
+          'bg-success text-on-success': day.status === 'completed',
+          'bg-primary-softer text-primary shadow-[0_0_0_1.5px_var(--primary-ring)]': day.canStart,
+          'bg-sunken text-muted': day.status !== 'completed' && !day.canStart,
         }"
       >
-        <!-- The design rings today's dot; the pulse is what makes it read as "now". -->
+        <!-- The design rings the open dot; the pulse is what makes it read as "now". -->
         <span
           v-if="day.status === 'today'"
-          class="pointer-events-none absolute inset-0 rounded-[inherit] border-[1.5px] border-rose animate-day-ping motion-reduce:animate-none motion-reduce:opacity-50"
+          class="pointer-events-none absolute inset-0 rounded-[inherit] border-[1.5px] border-primary animate-day-ping motion-reduce:animate-none motion-reduce:opacity-50"
           aria-hidden="true"
         />
 
         <AppIcon v-if="day.status === 'completed'" name="check" :size="17" />
-        <AppIcon v-else-if="day.status === 'today'" name="train" :size="22" />
-        <AppIcon v-else-if="day.status === 'locked'" name="lock" :size="16" />
-        <span v-else class="text-[13px] font-semibold tabular-nums">
-          {{ day.dayNumber }}
-        </span>
+        <AppIcon v-else-if="day.canStart" name="train" :size="22" />
+        <AppIcon v-else name="lock" :size="16" />
       </span>
 
       <span
         class="text-[11px]"
-        :class="day.status === 'today' ? 'text-rose' : 'text-muted'"
+        :class="day.canStart ? 'text-primary' : 'text-muted'"
       >
-        {{
-          day.status === 'today'
-            ? 'Today'
-            : day.id === nextUpId
-              ? 'Tomorrow'
-              : `Day ${day.dayNumber}`
-        }}
+        {{ caption(day) }}
       </span>
-    </component>
+    </NuxtLink>
   </div>
 </template>

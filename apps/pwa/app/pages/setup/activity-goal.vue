@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 08 · Setup · Activity & Goal
+// 08 · Setup · Activity & Goal: the last step, which opens the app.
 definePageMeta({ layout: 'default' })
 
 import { activityOptions, goalOptions } from '~/data/onboarding'
@@ -18,32 +18,51 @@ const showActivity = ref(false)
 
 const canContinue = computed(() => !!activity.value && !!goal.value)
 
+/*
+  Two writes, and the screen stays frozen across both.
+
+  `completeSetup` is what flips the member to `active`, so the gap between it
+  and `saveProfile` is the one moment where an edit to either answer would be
+  saved to a profile that is about to be declared finished. Released only if
+  something throws; the success path leaves for /home instead.
+*/
 const busy = ref(false)
-const next = async () => {
+const error = ref('')
+const finish = async () => {
+  if (busy.value) return
   busy.value = true
-  await store.saveProfile({
-    activity: activity.value as ActivityLevel,
-    goal: goal.value as Goal,
-  })
-  busy.value = false
-  router.push('/setup/safety-call')
+  error.value = ''
+  try {
+    await store.saveProfile({
+      activity: activity.value as ActivityLevel,
+      goal: goal.value as Goal,
+    })
+    await store.completeSetup()
+    await router.push('/home')
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Could not save that. Check your connection and try again.'
+    busy.value = false
+  }
 }
 </script>
 
 <template>
   <SetupStepShell
     :step="3"
-    :total="4"
+    :total="3"
+    back="/setup/body-metrics"
     eyebrow="Your rhythm"
     title="What's your main focus this round?"
     subtitle="This just fine-tunes your daily numbers — everyone's doing the same challenge either way."
+    cta="Save & enter app"
     :can-continue="canContinue"
     :busy="busy"
-    @continue="next"
+    :error="error"
+    @continue="finish"
   >
     <AppCard variant="raised" class="form-card flex flex-col gap-5.5">
       <div>
-        <span class="form-card__label block font-eyebrow uppercase tracking-[1px] text-[10px] font-bold text-(--violet-45) mb-2.5">How active are your days?</span>
+        <span class="form-card__label block text-[13px] text-soft mb-1.5">How active are your days?</span>
         <button
           class="dropdown w-full h-13 p-[0_16px] flex items-center justify-between [background:var(--paper)] [border:1px_solid_var(--hairline)] rounded-(--space-16) text-[15px] font-semibold text-(--ink) [&.dropdown--empty]:text-placeholder"
           :class="{ 'dropdown--empty': !activity }"
@@ -55,7 +74,7 @@ const next = async () => {
       </div>
 
       <div>
-        <span class="form-card__label block font-eyebrow uppercase tracking-[1px] text-[10px] font-bold text-(--violet-45) mb-2.5">What are you here for?</span>
+        <span class="form-card__label block text-[13px] text-soft mb-1.5">What are you here for?</span>
         <div class="goals flex flex-col gap-2.5">
           <OptionCard
             v-for="option in goalOptions"

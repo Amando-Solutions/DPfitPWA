@@ -3,7 +3,7 @@ import { RECOMP_CELLS } from '~/data/landing'
 
 const TONES = {
   neutral: 'bg-white text-soft',
-  accent: 'bg-white text-[var(--rose-fill)]',
+  accent: 'bg-white text-[var(--primary-fill)]',
   ink: 'bg-[var(--text)] text-white',
 } as const
 </script>
@@ -13,7 +13,7 @@ const TONES = {
     <PageContainer>
       <div class="grid gap-10 lg:grid-cols-2 lg:gap-[70px]">
         <div>
-          <p class="eyebrow-section text-[var(--rose-fill)]">
+          <p class="eyebrow-section text-[var(--primary-fill)]">
             The problem with most programs
           </p>
           <h2 class="title-section mt-5 text-ink">

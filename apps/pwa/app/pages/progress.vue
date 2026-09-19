@@ -4,19 +4,26 @@ definePageMeta({ layout: 'app' })
 
 import { processImage } from '~/lib/image'
 import { formatDate } from '~/lib/time'
-import type { PhotoPose, ProgressPhoto } from '~/data/types'
+import type { BadgeDef, PhotoPose, ProgressPhoto } from '~/data/types'
 
 const store = useAppStore()
 
 const poses: PhotoPose[] = ['front', 'side', 'back']
 const pose = ref<PhotoPose>('front')
-const poseTabs = poses.map((id) => ({ id, label: id }))
+const poseTabs = poses.map((id) => ({ id, label: id.toUpperCase() }))
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const error = ref('')
-const busy = ref(false)
 
-/** Newest week first, each with its three poses. */
+/**
+ * Which write is open. One ref for both, because the pose picker and the
+ * lightbox are the same library seen twice and neither should move while the
+ * other is writing.
+ */
+const pending = ref<'' | 'add' | 'delete'>('')
+const busy = computed(() => pending.value !== '')
+
+/** Newest week first, each with every photo taken that week. */
 const byWeek = computed(() => {
   const weeks = new Map<number, ProgressPhoto[]>()
   for (const photo of store.photos.value) {
@@ -29,32 +36,78 @@ const byWeek = computed(() => {
 
 const add = () => fileInput.value?.click()
 
+/**
+ * A badge the upload just unlocked. Celebrated here, where it was earned:
+ * Final Photo Proof comes after the last session, so there is no later Saved
+ * screen for it to wait for.
+ */
+const celebrated = ref<BadgeDef | null>(null)
+const showCelebration = ref(false)
+
+/**
+ * The upload that just landed was the first photo on file, which is the one
+ * thing Start workout waits on.
+ *
+ * The celebration then carries a way through to the session, because this
+ * screen is where that gate sent them: a member who came here to be let in and
+ * is handed nothing but "Nice" has to find their own way back to the workout
+ * they were trying to start.
+ */
+const unlockedTraining = ref(false)
+
+/** The session Home leads with, or the week itself when nothing is authored. */
+const workoutTo = computed(() =>
+  store.today.value ? `/train/${store.today.value.id}` : '/train',
+)
+
 const onFile = async (event: Event) => {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
-  if (!file) return
+  if (!file || pending.value) return
   error.value = ''
-  busy.value = true
+  pending.value = 'add'
+  // Read before the write: the photo lands in the store during `addPhoto`, and
+  // `firstPhotoDue` is false from that moment on.
+  const wasFirstPhoto = store.firstPhotoDue.value
   try {
     // Decode and downscale here; the store hands the result to the data
     // source, which is what decides where the bytes actually live.
     await store.addPhoto({ pose: pose.value, image: await processImage(file) })
+    unlockedTraining.value = wasFirstPhoto
+    const badge = store.consumePendingBadge()
+    if (badge) {
+      celebrated.value = badge
+      showCelebration.value = true
+    }
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Could not add that photo.'
   } finally {
-    busy.value = false
+    pending.value = ''
     input.value = ''
   }
 }
 
 // --- Lightbox --------------------------------------------------------------
 const active = ref<ProgressPhoto | null>(null)
-const close = () => (active.value = null)
+// Refuses to close mid-delete: the panel is the only thing naming the photo
+// that is being removed, and Escape and the scrim both land here.
+const close = () => {
+  if (pending.value) return
+  active.value = null
+}
 
 const remove = async () => {
-  if (!active.value) return
-  await store.deletePhoto(active.value.id)
-  close()
+  if (!active.value || pending.value) return
+  error.value = ''
+  pending.value = 'delete'
+  try {
+    await store.deletePhoto(active.value.id)
+    active.value = null
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Could not delete that photo.'
+  } finally {
+    pending.value = ''
+  }
 }
 
 const takenLabel = formatDate
@@ -70,8 +123,16 @@ const takenLabel = formatDate
       class="progress__header lg:[grid-area:header]"
     />
 
-    <AppCard variant="raised" class="progress__capture flex flex-col gap-3.5 lg:[grid-area:capture] lg:sticky lg:top-0">
-      <SegmentedTabs v-model="pose" :tabs="poseTabs" />
+    <!-- The pose picker is frozen alongside the button: it names what is being
+         uploaded, and a tab that still moves while the bytes are in the air
+         says the photo is being filed somewhere it is not. -->
+    <AppCard
+      variant="raised"
+      class="progress__capture flex flex-col gap-3.5 transition-opacity duration-150 lg:[grid-area:capture] lg:sticky lg:top-0"
+      :class="busy && 'opacity-60'"
+      :aria-busy="busy || undefined"
+    >
+      <SegmentedTabs v-model="pose" :tabs="poseTabs" :disabled="busy" />
       <input
         ref="fileInput"
         class="progress__file hidden"
@@ -80,10 +141,16 @@ const takenLabel = formatDate
         capture="environment"
         @change="onFile"
       />
-      <AppButton icon="camera" :disabled="busy" @click="add">
-        {{ busy ? 'Adding…' : `Add ${pose} photo · Week ${store.clock.value.week}` }}
+      <AppButton :disabled="busy" @click="add">
+        {{
+          pending === 'add'
+            ? 'Adding…'
+            : pending === 'delete'
+              ? 'Deleting…'
+              : `Add ${pose} photo · Week ${store.clock.value.week}`
+        }}
       </AppButton>
-      <p v-if="error" class="progress__error -mt-1 mx-0 mb-0 text-[12px] leading-[1.45] text-muted text-center text-rose font-bold">{{ error }}</p>
+      <p v-if="error" role="alert" class="progress__error -mt-1 mx-0 mb-0 text-[12px] leading-[1.45] text-muted text-center text-primary font-bold">{{ error }}</p>
       <p v-else class="progress__note -mt-1 mx-0 mb-0 text-[12px] leading-[1.45] text-muted text-center">
         Stored on this device only. Your coach sees them when you share a check-in.
       </p>
@@ -93,9 +160,13 @@ const takenLabel = formatDate
       <section v-for="group in byWeek" :key="group.weekNumber" class="progress__week">
       <div class="progress__week-head flex items-center justify-between mb-2.5">
         <EyebrowLabel tone="muted">Week {{ group.weekNumber }}</EyebrowLabel>
-        <span class="progress__week-count tabular-nums text-[12.5px] text-rose">{{ group.photos.length }}/3</span>
+        <span class="progress__week-count tabular-nums text-[12.5px] text-primary">{{ group.photos.length }} {{ group.photos.length === 1 ? 'photo' : 'photos' }}</span>
       </div>
-        <div class="progress__grid grid grid-cols-[repeat(3,_1fr)] gap-2.5 lg:grid-cols-[repeat(4,_1fr)] lg:gap-3.5">
+        <div
+          class="progress__grid grid grid-cols-[repeat(3,_1fr)] gap-2.5 transition-opacity duration-150 lg:grid-cols-[repeat(4,_1fr)] lg:gap-3.5"
+          :class="busy && 'opacity-60'"
+          :inert="busy"
+        >
           <button
             v-for="photo in group.photos"
             :key="photo.id"
@@ -148,7 +219,13 @@ const takenLabel = formatDate
         <!-- Close is first in the DOM so it, and not Delete, is what the focus
              trap lands on when the lightbox opens. It is absolutely positioned,
              so the order costs nothing visually. -->
-        <DialogClose class="lightbox__close absolute top-2.5 right-2.5 w-9 h-9 rounded-full bg-overlay-medium text-on-photo grid place-items-center" aria-label="Close">
+        <!-- Disabled, not just ignored by `close`: the button has to look shut
+             while the delete it would interrupt is still running. -->
+        <DialogClose
+          class="lightbox__close absolute top-2.5 right-2.5 w-9 h-9 rounded-full bg-overlay-medium text-on-photo grid place-items-center disabled:opacity-45"
+          aria-label="Close"
+          :disabled="busy"
+        >
           <AppIcon name="close" :size="20" :stroke="2.4" />
         </DialogClose>
 
@@ -163,9 +240,46 @@ const takenLabel = formatDate
             <span class="lightbox__pose font-display font-black text-[15px] text-ink capitalize">{{ active.pose }} · Week {{ active.weekNumber }}</span>
             <span class="lightbox__date tabular-nums text-[12px] text-muted">{{ takenLabel(active.takenAt) }}</span>
           </div>
-          <button class="lightbox__delete text-[13px] font-bold text-rose" @click="remove">Delete</button>
+          <button
+            class="lightbox__delete text-[13px] font-bold text-primary disabled:opacity-45"
+            :disabled="busy"
+            @click="remove"
+          >
+            {{ pending === 'delete' ? 'Deleting…' : 'Delete' }}
+          </button>
         </div>
+        <!-- The same `error` the capture card prints, repeated here because a
+             delete that failed happened behind a modal and the card is not on
+             screen to carry it. -->
+        <p
+          v-if="error"
+          role="alert"
+          class="lightbox__error m-0 px-4 pb-3.5 text-[12.5px] font-bold text-primary"
+        >
+          {{ error }}
+        </p>
       </DialogContent>
     </Dialog>
+
+    <BottomSheet v-model="showCelebration" title="Badge unlocked">
+      <div v-if="celebrated" class="celebrate flex flex-col items-center text-center gap-2.5">
+        <span class="celebrate__emoji text-[56px] leading-none">{{ celebrated.emoji }}</span>
+        <h2 class="celebrate__name m-0 font-display font-black text-[22px] text-ink">{{ celebrated.name }}</h2>
+        <p class="celebrate__desc mt-0 mx-0 mb-2 text-[14px] text-muted">{{ celebrated.description }}</p>
+        <!-- Photo Proof is the badge that opens training, so it hands the
+             session over the way Saved hands back the week. Dismissing is kept
+             alongside it: the photo is filed either way. -->
+        <div
+          v-if="unlockedTraining"
+          class="celebrate__actions w-full flex flex-col gap-1"
+        >
+          <AppButton :to="workoutTo" @click="showCelebration = false">
+            Go to workout
+          </AppButton>
+          <AppButton variant="ghost" @click="showCelebration = false">Not now</AppButton>
+        </div>
+        <AppButton v-else @click="showCelebration = false">Nice</AppButton>
+      </div>
+    </BottomSheet>
   </div>
 </template>

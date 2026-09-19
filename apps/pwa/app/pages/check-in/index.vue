@@ -1,6 +1,17 @@
 <script setup lang="ts">
 // 21 · Weekly Check-in
-definePageMeta({ layout: 'app' })
+definePageMeta({
+  layout: 'app',
+  // One check-in a week, and a sent one is final. Once this week's is in, the
+  // form has nothing to offer, so the route shows what was sent instead. In
+  // middleware rather than on mount so the form never paints first; the store
+  // is hydrated before any navigation runs.
+  middleware: () => {
+    if (useAppStore().currentCheckIn.value) {
+      return navigateTo('/check-in/saved', { replace: true })
+    }
+  },
+})
 
 import { trainingFeelOptions } from '~/data/onboarding'
 import type { TrainingFeel } from '~/data/types'
@@ -8,37 +19,62 @@ import type { TrainingFeel } from '~/data/types'
 const router = useRouter()
 const store = useAppStore()
 
-const existing = computed(() => store.currentCheckIn.value)
-
-// Prefill from a previous submission for this week, otherwise from what we
-// already know: the sessions they've actually logged.
-const workoutsDone = ref(existing.value?.workoutsDone ?? store.sessionsThisWeek.value.length)
-const nutritionPct = ref(existing.value?.nutritionPct ?? 80)
-const energy = ref<number | null>(existing.value?.energy ?? null)
-const trainingFeel = ref<TrainingFeel | null>(existing.value?.trainingFeel ?? null)
+// Prefilled from what we already know: the sessions they've actually logged.
+const workoutsDone = ref(store.sessionsThisWeek.value.length)
+const nutritionPct = ref(80)
+const energy = ref<number | null>(null)
+const trainingFeel = ref<TrainingFeel | null>(null)
 const showFeel = ref(false)
 const feelLabel = computed(
   () => trainingFeelOptions.find((o) => o.id === trainingFeel.value)?.label ?? 'Choose one',
 )
-const pain = ref(existing.value?.pain ?? '')
-const note = ref(existing.value?.note ?? '')
+const pain = ref('')
+const note = ref('')
 
 const canSubmit = computed(() => energy.value !== null && trainingFeel.value !== null)
 
+/*
+  The form is frozen for the length of the write, not just the button.
+
+  Every field below feeds one document, and they are all read in the same tick
+  the request is built. A stepper that still moves, or a textarea that still
+  takes keys, after that read means the member is editing a check-in that has
+  already gone — and a sent check-in is final, so there is no second press to
+  put it right.
+
+  `saving` only goes back to false when something throws. On the way through,
+  /check-in/saved replaces this screen, and unfreezing first would hand the form
+  back for a frame. The same goes for a refusal because the week is already in:
+  the store has pulled that check-in down by then, so the member is shown it
+  rather than a form that can only be refused again.
+*/
 const saving = ref(false)
+const error = ref('')
 const submit = async () => {
   if (!canSubmit.value || saving.value) return
   saving.value = true
-  await store.saveCheckIn({
-    workoutsDone: workoutsDone.value,
-    nutritionPct: nutritionPct.value,
-    energy: energy.value,
-    trainingFeel: trainingFeel.value,
-    pain: pain.value.trim(),
-    note: note.value.trim(),
-  })
-  saving.value = false
-  router.replace('/check-in/saved')
+  error.value = ''
+  try {
+    await store.saveCheckIn({
+      workoutsDone: workoutsDone.value,
+      nutritionPct: nutritionPct.value,
+      energy: energy.value,
+      trainingFeel: trainingFeel.value,
+      pain: pain.value.trim(),
+      note: note.value.trim(),
+    })
+    await router.replace('/check-in/saved')
+  } catch (cause) {
+    if (store.currentCheckIn.value) {
+      await router.replace('/check-in/saved')
+      return
+    }
+    error.value =
+      cause instanceof Error
+        ? cause.message
+        : 'Could not save your check-in. Check your connection and try again.'
+    saving.value = false
+  }
 }
 </script>
 
@@ -57,7 +93,17 @@ const submit = async () => {
       Stamped automatically · week {{ store.clock.value.week }}
     </span>
 
-    <form class="checkin__card flex flex-col gap-3 p-4.5 bg-raised border border-hairline rounded-card filter-(--drop-md) lg:p-6 lg:gap-4" @submit.prevent="submit">
+    <!-- `inert` while saving, so the whole card stops taking input rather than
+         only the button dimming. It also closes the one way the picker sheet
+         could be opened mid-write: the sheet is teleported out of this form, so
+         freezing its trigger is what keeps it shut. -->
+    <form
+      class="checkin__card flex flex-col gap-3 p-4.5 bg-raised border border-hairline rounded-card filter-(--drop-md) transition-opacity duration-150 lg:p-6 lg:gap-4"
+      :class="saving && 'opacity-60'"
+      :inert="saving"
+      :aria-busy="saving || undefined"
+      @submit.prevent="submit"
+    >
       <div class="checkin__row grid grid-cols-[1fr_1fr] gap-3">
         <NumberStepper v-model="workoutsDone" label="Workouts done" :max="14" />
         <NumberStepper v-model="nutritionPct" label="Nutrition (%)" :max="100" :step="5" />
@@ -85,7 +131,7 @@ const submit = async () => {
 
       <div class="checkin__field flex flex-col">
         <label class="checkin__label text-[13px] text-soft pb-2" for="pain">Pain or discomfort</label>
-        <textarea id="pain" v-model="pain" class="checkin__area w-full py-3.5 px-3.75 bg-surface border border-hairline rounded-(--space-16) font-body text-[13.5px] leading-[1.45] text-ink outline-none resize-none placeholder:text-placeholder focus:border-rose" placeholder="none" rows="2" />
+        <textarea id="pain" v-model="pain" class="checkin__area w-full py-3.5 px-3.75 bg-surface border border-hairline rounded-(--space-16) font-body text-[13.5px] leading-[1.45] text-ink outline-none resize-none placeholder:text-placeholder focus:border-primary" placeholder="none" rows="2" />
       </div>
 
       <div class="checkin__field flex flex-col">
@@ -93,7 +139,7 @@ const submit = async () => {
         <textarea
           id="note"
           v-model="note"
-          class="checkin__area w-full py-3.5 px-3.75 bg-surface border border-hairline rounded-(--space-16) font-body text-[13.5px] leading-[1.45] text-ink outline-none resize-none placeholder:text-placeholder focus:border-rose"
+          class="checkin__area w-full py-3.5 px-3.75 bg-surface border border-hairline rounded-(--space-16) font-body text-[13.5px] leading-[1.45] text-ink outline-none resize-none placeholder:text-placeholder focus:border-primary"
           placeholder="Say something"
           rows="2"
         />
@@ -103,12 +149,27 @@ const submit = async () => {
            `@submit.prevent` already calls `submit`, and a button carrying both
            ran it twice on every click. -->
       <AppButton type="submit" :disabled="!canSubmit || saving">
-        {{ saving ? 'Submitting…' : existing ? 'Update check-in' : 'Submit check-in' }}
+        {{ saving ? 'Submitting…' : 'Submit check-in' }}
       </AppButton>
-      <p v-if="!canSubmit" class="checkin__hint m-0 text-center text-[12px] text-muted">
-        Rate your energy and how training felt to submit.
+      <p class="checkin__hint m-0 text-center text-[12px] text-muted">
+        {{
+          canSubmit
+            ? 'You can’t change a check-in once it’s sent.'
+            : 'Rate your energy and how training felt to submit.'
+        }}
       </p>
     </form>
+
+    <!-- Outside the card on purpose: `inert` takes the form out of the
+         accessibility tree, so a message printed inside it would not be
+         announced on the one occasion it matters. -->
+    <p
+      v-if="error"
+      role="alert"
+      class="checkin__error mt-3 mb-0 mx-0 text-center text-[13px] font-bold text-primary"
+    >
+      {{ error }}
+    </p>
 
     <BottomSheet v-model="showFeel" title="How did training feel?">
       <div class="checkin__options flex flex-col gap-2.5">

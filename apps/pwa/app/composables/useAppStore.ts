@@ -1,11 +1,26 @@
 import { Timestamp } from 'firebase/firestore'
 
 import { DataSourceError, useDataSourceClient } from '~/lib/datasource'
-import type { ActiveSessionInput, CheckInInput } from '~/lib/datasource'
+import type { ActiveSessionInput, CheckInInput, DeviceClaim } from '~/lib/datasource'
 import { defaultPreferences } from '~/lib/datasource/local'
-import { challengeClock, challengeShapeOf } from '~/lib/domain/challenge'
+import {
+  challengeClock,
+  daysBetween,
+  isDateKey,
+  planDaysOf,
+  planWeekOf,
+  weekAt,
+} from '~/lib/domain/challenge'
+import { chatNotificationFor, chatNotificationId, reactionsNotificationFor } from '~/lib/chat'
+import { liveCallFrom, todaysLiveCall } from '~/lib/domain/liveCall'
 import { nutritionTargetsFor } from '~/lib/domain/nutrition'
-import { rankLeaderboard, rewardsContextOf, rewardsSnapshot } from '~/lib/domain/rewards'
+import {
+  finalPhotoOf,
+  finalSessionOf,
+  rankLeaderboard,
+  rewardsContextOf,
+  rewardsSnapshot,
+} from '~/lib/domain/rewards'
 
 import {
   dateKey,
@@ -17,6 +32,7 @@ import {
   trustedTimestamp,
 } from '~/lib/time'
 import type { ProcessedImage } from '~/lib/image'
+import { DEVICE_PREFIX, storage } from '~/lib/storage'
 import type {
   ActiveSessionDoc,
   Announcement,
@@ -28,17 +44,19 @@ import type {
   EarnedBadge,
   Guide,
   LeaderboardEntry,
+  LoggedExercise,
   Member,
   MemberGate,
   MemberPreferences,
   MemberProfile,
+  Message,
   Notification,
   NotificationView,
   PhotoPose,
   Program,
   ProgressPhoto,
   SessionLog,
-  WorkoutDay,
+  TrainingWeek,
   WorkoutDayView,
 } from '~/data/types'
 
@@ -80,21 +98,32 @@ interface AppState {
    * numbers a member is shown are the coach's or they are not shown.
    */
   program: Program | null
-  workoutDays: WorkoutDay[]
+  /** The dated schedule: every week, each with its days. See `listProgramWeeks`. */
+  weeks: TrainingWeek[]
   guides: Guide[]
   cohort: Cohort | null
-  announcements: Announcement[]
+  // The announcement deck is not here either, for the reason the notifications
+  // below are not: it is live. See `announcementFeed`.
   sessions: SessionLog[]
   activeSession: ActiveSessionDoc | null
   checkIns: CheckIn[]
   photos: ProgressPhoto[]
-  notifications: Notification[]
+  // The notifications themselves are not here. They are live, not loaded — see
+  // `watchInbox` — and a re-hydrate for the same member would wipe them with
+  // nothing to bring them back until that member changed.
   /** Notification id → when this member read it. Absent means unread. */
   notificationReads: Record<string, Timestamp>
   /** Badge id → award record. */
   earnedBadges: Record<string, EarnedBadge>
   /** The cohort, as the last load saw it. Never ordered here: see `rankLeaderboard`. */
   leaderboard: LeaderboardEntry[]
+  /**
+   * The roster size, counted by the data source. `null` until something asks.
+   *
+   * Not part of `hydrate`: one screen shows it, so it is read when that screen
+   * opens rather than on every boot. See `refreshCohortMemberCount`.
+   */
+  cohortMemberCount: number | null
   prefs: MemberPreferences
   /** Badge waiting to be celebrated, consumed by the celebration screen. */
   pendingBadge: BadgeRuleId | null
@@ -112,6 +141,16 @@ interface AppState {
 const readMessage = (cause: unknown): string =>
   cause instanceof DataSourceError ? cause.message : 'Couldn’t load your account. Try again.'
 
+/** Whether the tour has been seen on this device. A device key: sign-out keeps it. */
+const ONBOARDED_KEY = `${DEVICE_PREFIX}onboarded`
+
+/** Whether any account has been signed in on this device. A device key, like the tour's. */
+const SIGNED_IN_BEFORE_KEY = `${DEVICE_PREFIX}signed-in-before`
+
+/** What a device signed out by a later sign-in is told, on the sign-in screen. */
+const SIGNED_IN_ELSEWHERE =
+  'Your account was signed in on another device, so you’ve been signed out here.'
+
 const emptyState = (): AppState => ({
   hydrated: false,
   nowMs: Date.now(),
@@ -119,18 +158,17 @@ const emptyState = (): AppState => ({
   member: null,
   memberUnreadable: false,
   program: null,
-  workoutDays: [],
+  weeks: [],
   guides: [],
   cohort: null,
-  announcements: [],
   sessions: [],
   activeSession: null,
   checkIns: [],
   photos: [],
-  notifications: [],
   notificationReads: {},
   earnedBadges: {},
   leaderboard: [],
+  cohortMemberCount: null,
   prefs: defaultPreferences(),
   pendingBadge: null,
 })
@@ -156,22 +194,125 @@ const buildStore = () => {
    * it — which runs in a plugin, before the app mounts, so it is not an error
    * message, it is a 500 page instead of an app.
    *
-   * `/access-code` picks this up on mount, which is the screen a member in
-   * either state is looking at anyway.
+   * `/sign-in` picks this up on mount, which is where `doorRoute` sends a
+   * visitor carrying one: both are about an account that already exists.
    */
   const startupError = ref('')
 
   /** `resumeSignIn` answers for the whole load, so it runs once per load. */
   let resumed = false
 
+  /**
+   * Whether this device has been through the onboarding tour.
+   *
+   * Kept on the device rather than the member document, because the tour is
+   * shown to somebody who is not signed in: there is no document to read at the
+   * moment the question is asked. A device key, so signing out does not replay
+   * it. Once true it never goes back.
+   */
+  const isOnboarded = useState<boolean>('onboarded', () =>
+    storage.read<boolean>(ONBOARDED_KEY, false),
+  )
+
+  const markOnboarded = () => {
+    if (isOnboarded.value) return
+    isOnboarded.value = true
+    storage.write(ONBOARDED_KEY, true)
+  }
+
+  /**
+   * Whether this device has had an account signed in on it.
+   *
+   * What decides which door a signed-out visitor is shown. Somebody who has
+   * never signed in here is most likely new and holding a code; somebody who
+   * has, signed out or was signed out, and has an account to go back to. The
+   * tour flag cannot answer that — a member who closes the app halfway through
+   * sign-up has seen the tour and still has no account.
+   */
+  const signedInBefore = useState<boolean>('signed-in-before', () =>
+    storage.read<boolean>(SIGNED_IN_BEFORE_KEY, false),
+  )
+
   // --- Loading -------------------------------------------------------------
-  const hydrate = async (force = false) => {
-    if (state.value.hydrated && !force) return
+  //
+  // A load has two halves, and only the first of them decides anything.
+  //
+  // `identify` answers who is signed in and whether they hold a membership.
+  // That is the whole of `gate`, which is the whole of what route middleware
+  // and the door screens need in order to know where somebody belongs.
+  //
+  // `loadContent` is the app itself: a dozen reads, several of them queued
+  // behind the program document before they can even start. It decides
+  // nothing. It was awaited on the sign-in path all the same, which left a
+  // member who had already been authenticated — and whose destination was
+  // already known — watching "Signing in…" for the length of the entire
+  // payload before the screen moved.
+  //
+  // `hydrate` still runs both, and the boot path still awaits it whole: the
+  // splash in `spa-loading-template.html` is already covering that wait and
+  // there is nothing to gain by finishing early underneath it. The sign-in
+  // path awaits only `identify` and lets the content land behind Home, which
+  // skeletons on `loading` while it does.
+
+  /**
+   * Which load the state belongs to.
+   *
+   * The sign-in path leaves a content load in flight on purpose, so a read
+   * from it can now resolve after a newer load has already replaced the state
+   * — a sign-out, or a redemption a second later. Every write below is stamped
+   * with the load that asked for it and dropped if it is no longer the current
+   * one, so the slower answer cannot overwrite the truer one.
+   */
+  let generation = 0
+
+  /**
+   * Whether the app's own content is still on its way in.
+   *
+   * True only in the window this file opened deliberately: signed in, routed,
+   * and reading. Screens skeleton on it rather than render a member's account
+   * as a row of zeros they have to watch correct themselves.
+   */
+  const loading = ref(false)
+
+  /**
+   * Why the content load came back with nothing, in the member's words.
+   *
+   * Separate from `startupError`, which is the door's: that one is about
+   * getting in — a Google redirect that failed, a device signed out from
+   * elsewhere — and the screens that show it clear it on their way past. This
+   * one belongs to somebody already inside, whose account would otherwise
+   * render as an empty one, and it is cleared by the read that succeeds rather
+   * than by whoever happened to display it. Sharing a single ref between the
+   * two meant a retry that worked left its own failure message on screen.
+   */
+  const loadError = ref('')
+
+  /**
+   * Who this is, and whether they hold a membership. The half `gate` reads.
+   *
+   * Resolves `true` when there is a member document, and therefore an app
+   * worth loading for it. Everything that stops the load short — an auth read
+   * that failed, a device signed out from elsewhere, no membership yet —
+   * resolves `false` and has already written its own reason into the state.
+   */
+  const identify = async (): Promise<boolean> => {
+    const gen = ++generation
 
     // A re-run re-answers the question, so the previous answer's failure does
     // not survive it. Without this a retry that succeeds still hands the screen
     // the error that prompted it.
     startupError.value = ''
+    loadError.value = ''
+
+    /** Was this load overtaken while it waited? Then it has nothing left to say. */
+    const stale = () => gen !== generation
+
+    // Any content load still out belongs to a member this one is replacing, and
+    // its `finally` will decline to touch this flag because its generation is
+    // gone. So the flag is cleared here, by the load taking over, and set again
+    // a moment later by the `loadContent` this one hands off to — in the same
+    // tick, so nothing renders in between.
+    loading.value = false
 
     // Before anything asks who is signed in. A load returning from a Google
     // redirect carries its credentials in the URL, and they have to be
@@ -191,6 +332,11 @@ const buildStore = () => {
     // paint already has the right date. The network sync lands later.
     restoreClock()
 
+    /** The state a load with nowhere further to go leaves behind. */
+    const settleEmpty = () => {
+      state.value = { ...emptyState(), hydrated: true, nowMs: trustedNow().getTime() }
+    }
+
     // Read behind a catch, all the way down. `plugins/store.client.ts` awaits
     // this before the app mounts, so anything that escapes is not a message on
     // a screen — there is no screen yet — it is the error page. A member whose
@@ -200,9 +346,58 @@ const buildStore = () => {
     try {
       authUser = await data.getAuthUser()
     } catch (cause) {
+      if (stale()) return false
       startupError.value = readMessage(cause)
-      state.value = { ...emptyState(), hydrated: true, nowMs: trustedNow().getTime() }
-      return
+      settleEmpty()
+      return false
+    }
+    if (stale()) return false
+
+    // Anybody signed in here is past the tour, however they got in: members
+    // signed in from before the flag existed never set it. Recorded now, so
+    // signing out later does not send them back through it — and so the door
+    // they are shown afterwards is the one for an account they already have.
+    if (authUser) {
+      markOnboarded()
+      if (!signedInBefore.value) {
+        signedInBefore.value = true
+        storage.write(SIGNED_IN_BEFORE_KEY, true)
+      }
+    }
+
+    // One device at a time, settled before anything is read as this member.
+    // The rules refuse every read from a device that has lost the account, and
+    // finding that out through a failed member read would look like a broken
+    // account rather than a sign-in somewhere else. See `claimDevice`.
+    //
+    // Strictly before the member read, not beside it. `firestore.rules` gates
+    // every member rule on `signedIn()`, which calls `onLatestSignIn()`: a read
+    // of `members/{uid}` is refused until `signIns/{uid}` carries this token's
+    // `auth_time`. On a fresh sign-in that claim has not been written yet, so a
+    // member read racing the claim is not merely early — it is denied, and a
+    // denial here is indistinguishable from an account that cannot be read.
+    // These two round trips are the price of one device at a time.
+    if (authUser) {
+      let claim: DeviceClaim = 'claimed'
+      try {
+        claim = await data.claimDevice()
+      } catch (cause) {
+        // Not fatal. If the claim really is lost, the member read below is
+        // refused and reports it the way any unreadable account does.
+        console.warn('[store] could not claim this device for the account', cause)
+      }
+      if (claim === 'superseded') {
+        try {
+          await data.signOut()
+        } catch (cause) {
+          console.warn('[store] could not sign out a superseded device', cause)
+        }
+        if (stale()) return false
+        startupError.value = SIGNED_IN_ELSEWHERE
+        settleEmpty()
+        return false
+      }
+      if (stale()) return false
     }
 
     // Two reads, in order, rather than one `Promise.all`.
@@ -230,6 +425,7 @@ const buildStore = () => {
         memberUnreadable = true
       }
     }
+    if (stale()) return false
 
     // Everything past this point hangs off the member document — their logs,
     // their photos, their cohort's notifications and leaderboard — and every
@@ -239,130 +435,180 @@ const buildStore = () => {
     // account yet" for each. On the boot path that took the whole app down,
     // sign-in screen included, which is the one screen a visitor in exactly
     // that state needs. So the load stops here for them, with the rest of the
-    // state at its defaults and eight round trips not made.
-    if (!member) {
-      state.value = {
-        ...emptyState(),
-        hydrated: true,
-        nowMs: trustedNow().getTime(),
-        authUser,
-        memberUnreadable,
-      }
-      return
+    // state at its defaults and twelve round trips not made.
+    state.value = {
+      ...emptyState(),
+      hydrated: true,
+      nowMs: trustedNow().getTime(),
+      authUser,
+      member,
+      memberUnreadable,
     }
+    return member !== null
+  }
 
-    // The authored half of the load, alongside the member's own.
-    //
-    // It is not a second round trip: the program, the training week, the guide
-    // library, the cohort and the announcement deck go out with the member's
-    // logs and settle together, because every screen needs both halves and
-    // there is nothing worth painting with only one of them. They are also the
-    // reads that used to be `import` statements, which is why they cost nothing
-    // before and are the whole of the difference now.
-    /**
-     * A read the app can do without.
-     *
-     * The deck, the guide library and the cohort document are each one screen
-     * or one card, and none of them is load-bearing: an empty deck renders its
-     * empty state, an empty library renders its own, and a missing cohort costs
-     * the live-call card and the board. Inside `Promise.all` they were none of
-     * those things — a single rejection takes the whole array down and blanks
-     * the app, so a rules file that had not been deployed for one collection
-     * would present as a member's entire account failing to load.
-     *
-     * The training data below is deliberately *not* wrapped this way. A member
-     * with no sessions and no program has nothing to be shown, and pretending
-     * otherwise would replace an error message with a screen quietly claiming
-     * they had done nothing.
-     */
-    const optional = async <T>(read: Promise<T>, fallback: T, what: string): Promise<T> => {
-      try {
-        return await read
-      } catch (cause) {
-        console.warn(`[store] ${what} could not be read; continuing without it.`, cause)
-        return fallback
-      }
-    }
+  /**
+   * The app itself, read for whoever `identify` just named.
+   *
+   * Never throws, on either path it is used from: awaited at boot, where an
+   * escape is the error page rather than a message, and unawaited behind the
+   * sign-in, where an escape is an unhandled rejection nobody sees.
+   */
+  const loadContent = async (): Promise<void> => {
+    const gen = generation
+    const authUser = state.value.authUser
+    const member = state.value.member
+    if (!member) return
 
-    let loaded
+    loading.value = true
+    loadError.value = ''
     try {
-      loaded = await Promise.all([
+      // The authored half of the load, alongside the member's own.
+      //
+      // It is not a second round trip: the program, the training week, the guide
+      // library and the cohort go out with the member's logs and settle together,
+      // because every screen needs both halves and there is nothing worth
+      // painting with only one of them. They are also the
+      // reads that used to be `import` statements, which is why they cost nothing
+      // before and are the whole of the difference now.
+      /**
+       * A read the app can do without.
+       *
+       * The guide library and the cohort document are each one screen or one
+       * card, and neither is load-bearing: an empty library renders its empty
+       * state, and a missing cohort costs the live-call card and the board.
+       * Inside `Promise.all` they were neither — a single rejection takes the
+       * whole array down and blanks the app, so a rules file that had not been deployed for one collection
+       * would present as a member's entire account failing to load.
+       *
+       * The training data below is deliberately *not* wrapped this way. A member
+       * with no sessions and no program has nothing to be shown, and pretending
+       * otherwise would replace an error message with a screen quietly claiming
+       * they had done nothing.
+       */
+      const optional = async <T>(read: Promise<T>, fallback: T, what: string): Promise<T> => {
+        try {
+          return await read
+        } catch (cause) {
+          console.warn(`[store] ${what} could not be read; continuing without it.`, cause)
+          return fallback
+        }
+      }
+
+      const [
+        sessions,
+        activeSession,
+        checkIns,
+        photos,
+        notificationReads,
+        earnedBadges,
+        leaderboard,
+        prefs,
+        program,
+        weeks,
+        guides,
+        cohort,
+      ] = await Promise.all([
         data.listSessions(),
         data.getActiveSession(),
         data.listCheckIns(),
         data.listPhotos(),
-        data.listNotifications(),
         data.listNotificationReads(),
         data.listEarnedBadges(),
         data.listLeaderboard(),
         data.getPreferences(),
         data.getProgram(),
-        data.listWorkoutDays(),
+        data.listProgramWeeks(),
         optional(data.listGuides(), [], 'the guide library'),
         optional(data.getCohort(), null, 'the cohort'),
-        optional(data.listAnnouncements(), [], 'the announcement deck'),
       ])
-    } catch (cause) {
-      // The member document was readable and the rest was not, so keep them:
-      // being signed in is a fact worth not throwing away over a failed read,
-      // and it is the difference between a reload fixing this and the member
-      // having to sign in again.
-      startupError.value = readMessage(cause)
+
+      if (gen !== generation) return
+
       state.value = {
-        ...emptyState(),
         hydrated: true,
         nowMs: trustedNow().getTime(),
         authUser,
         member,
+        memberUnreadable: false,
+        program,
+        weeks,
+        guides,
+        // Whatever the listener has already delivered, if this read came back
+        // with nothing. The cohort watcher keys off the member id, which
+        // `identify` now sets a beat before this read is even sent, so for the
+        // first time the listener can be ahead of the load — and `optional`
+        // reports a cohort it could not read as `null`, which would take the
+        // live one down with it. A cohort that genuinely does not exist is
+        // `null` on both sides, so this can only preserve.
+        cohort: cohort ?? state.value.cohort,
+        sessions,
+        activeSession,
+        checkIns,
+        photos,
+        notificationReads,
+        earnedBadges,
+        leaderboard,
+        // Read on the screen that shows it, not here. See `refreshCohortMemberCount`.
+        cohortMemberCount: null,
+        prefs,
+        pendingBadge: null,
       }
+    } catch (cause) {
+      // The member document was readable and the rest was not. `identify` has
+      // already left them signed in with the state at its defaults, which is
+      // what this branch used to have to rebuild: being signed in is a fact
+      // worth not throwing away over a failed read, and it is the difference
+      // between a reload fixing this and the member having to sign in again.
+      //
+      // Reported through `startupError` as it always was, but it now has a
+      // second reader. This used to be reachable only under the boot splash,
+      // where the door screens picked the message up on the way past; a member
+      // signing in never got here, because the sign-in screen was still on
+      // screen and failed in front of them. Now they are on Home by the time
+      // this lands, so Home shows it — and offers `retryLoad` rather than
+      // asking somebody to reload an installed app.
+      if (gen !== generation) return
+      loadError.value = readMessage(cause)
       return
-    }
-
-    const [
-      sessions,
-      activeSession,
-      checkIns,
-      photos,
-      notifications,
-      notificationReads,
-      earnedBadges,
-      leaderboard,
-      prefs,
-      program,
-      workoutDays,
-      guides,
-      cohort,
-      announcements,
-    ] = loaded
-
-    state.value = {
-      hydrated: true,
-      nowMs: trustedNow().getTime(),
-      authUser,
-      member,
-      memberUnreadable: false,
-      program,
-      workoutDays,
-      guides,
-      cohort,
-      announcements,
-      sessions,
-      activeSession,
-      checkIns,
-      photos,
-      notifications,
-      notificationReads,
-      earnedBadges,
-      leaderboard,
-      prefs,
-      pendingBadge: null,
+    } finally {
+      if (gen === generation) loading.value = false
     }
 
     // Two badges turn on the calendar as much as on the logs ("reach Week 3
     // with…"), so their moment can arrive with no RP event to notice it. Catch
     // up quietly here: a celebration hours after the fact is worse than none.
-    await syncBadges({ celebrate: false })
+    //
+    // Swallowed rather than thrown: a badge that could not be written is worth
+    // a line in the console, and it is not worth the error page it used to
+    // cost when this ran on the boot path and rejected.
+    try {
+      if (gen === generation) await syncBadges({ celebrate: false })
+    } catch (cause) {
+      console.warn('[store] could not catch up on badges', cause)
+    }
   }
+
+  /**
+   * Both halves, in order. The boot path, and anything that needs the store
+   * whole before it carries on.
+   */
+  const hydrate = async (force = false) => {
+    if (state.value.hydrated && !force) return
+    if (await identify()) await loadContent()
+  }
+
+  /**
+   * Read the app again, for a member already signed in and already on a screen.
+   *
+   * Not `hydrate(true)`: who they are is not in question — `identify` answered
+   * that and the session is still good — so re-asking would re-claim the device
+   * and re-read the member document to arrive back where it already is. This is
+   * the half that failed, retried on its own. `loading` goes back to true, so
+   * the screen returns to its placeholders rather than sitting on stale zeros
+   * while it runs.
+   */
+  const retryLoad = () => loadContent()
 
   /** Re-read the trusted clock. Cheap, and what the midnight rollover calls. */
   const tick = () => {
@@ -387,9 +633,10 @@ const buildStore = () => {
   /**
    * How far through the door this visitor is.
    *
-   * Auth and cohort membership are separate facts now that sign-in is an email
-   * link, so "signed in" is no longer the same question as "has an account
-   * here". Route middleware branches on this rather than re-deriving it.
+   * Auth and cohort membership are separate facts — an account exists a moment
+   * before its code is redeemed, and a sign-up cut off in that moment stays
+   * there — so "signed in" is not the same question as "has an account here".
+   * Route middleware branches on this rather than re-deriving it.
    *
    * The three states before `needs-setup` are the ones worth keeping apart. A
    * missing member document used to mean all three at once, so a signed-in
@@ -412,6 +659,21 @@ const buildStore = () => {
       gate.value === 'needs-auth' || gate.value === 'needs-code' || gate.value === 'unknown',
   )
 
+  /**
+   * The screen a visitor at the door belongs on.
+   *
+   * Signed in without a readable membership, only `/access-code` has anything
+   * for them: it redeems a code for the session they have, or retries the read.
+   * Signed out, it is a guess between two doors, each with a link to the other:
+   * `/sign-in` for a device that has had an account on it, or for a load that
+   * has something to say about one — signed out by another device, a Google
+   * sign-in refused — and `/access-code` for everybody new.
+   */
+  const doorRoute = computed(() => {
+    if (gate.value === 'needs-code' || gate.value === 'unknown') return '/access-code'
+    return signedInBefore.value || startupError.value ? '/sign-in' : '/access-code'
+  })
+
   const displayName = computed(() => profile.value?.displayName?.trim() || 'there')
 
   /** Trusted now, as a Date. Everything date-shaped derives from this. */
@@ -424,27 +686,38 @@ const buildStore = () => {
   const program = computed(() => state.value.program)
   const cohort = computed(() => state.value.cohort)
   const guides = computed(() => state.value.guides)
-  const announcements = computed(() => state.value.announcements)
+  /**
+   * `cohorts/{id}/announcements`, as the listener last delivered them.
+   *
+   * Live rather than loaded, and fed by the inbox's listeners below. The admin
+   * announces a new card with a notification, and the inbox links to the deck:
+   * a deck read once at boot would not have the card the bell just announced
+   * until the member happened to reload.
+   */
+  const announcementFeed = ref<Announcement[]>([])
+  const announcements = computed(() => announcementFeed.value)
 
   /** The coach, off the cohort document. `null` before the cohort has loaded. */
   const coach = computed(() => state.value.cohort?.coach ?? null)
 
   /**
-   * The weekly call, or `null` when this cohort has none set.
+   * The weekly call as it stands today, or `null` when today has none.
    *
-   * Null is the common case, not an error: a cohort between blocks has no call
-   * to advertise, and Home renders nothing rather than a card whose button goes
-   * nowhere. Set it on the cohort document — see FIREBASE.md.
+   * Null is the common case, not an error: six days a week there is no call,
+   * and a cohort between blocks has none at all. Set on the cohort document by
+   * the admin app — see FIREBASE.md.
    *
-   * Both halves are required here as well as in `FirestoreDataSource`, which is
-   * not redundant: Home's `v-if` is the one thing standing between a member and
-   * a "Join the call" button that navigates nowhere, and it should hold whatever
-   * implementation answered and whatever a coach half-typed into the console.
+   * Read through `liveCallFrom` here as well as in `FirestoreDataSource`, which
+   * is not redundant: Home's `v-if` is the one thing standing between a member
+   * and a "Join the call" button that navigates nowhere, and it should hold
+   * whichever implementation answered.
+   *
+   * `now` does not tick by the minute, so the phase can be stale by the time
+   * it is read. `LiveCallCard` wakes the store at each change; see there.
    */
-  const liveCall = computed(() => {
-    const call = state.value.cohort?.liveCall
-    return call?.when?.trim() && call?.joinUrl?.trim() ? call : null
-  })
+  const liveCallToday = computed(() =>
+    todaysLiveCall(liveCallFrom(state.value.cohort?.liveCall), now.value),
+  )
 
   /** Whether the cohort's board is switched on, and the week it was promised for. */
   const leaderboardVisible = computed(() => state.value.cohort?.leaderboardVisible === true)
@@ -470,15 +743,11 @@ const buildStore = () => {
     ...[...new Set(state.value.guides.map((g) => g.category).filter(Boolean))].sort(),
   ])
 
-  const challengeShape = computed(() => challengeShapeOf(state.value.program))
+  /** Where the challenge is today, off the dated weeks. The same for the whole cohort. */
+  const clock = computed(() => challengeClock(state.value.weeks, now.value))
 
-  const clock = computed(() =>
-    challengeClock(
-      state.value.member?.joinedAt ?? nowTs.value,
-      now.value,
-      challengeShape.value,
-    ),
-  )
+  /** The week today falls in, with its days. `null` until a schedule has loaded. */
+  const currentWeek = computed(() => weekAt(state.value.weeks, clock.value.today))
 
   const targets = computed(() =>
     nutritionTargetsFor(profile.value ?? ({} as MemberProfile)),
@@ -489,32 +758,30 @@ const buildStore = () => {
   )
 
   /**
-   * The session already logged on today's date, if there is one.
+   * Everything logged on today's date, newest first.
    *
-   * The plan is one session a day. Without this the four days of a week can all
-   * be logged back to back in a single sitting, which is not training, and it
-   * makes the previous-session column meaningless from week two onwards.
+   * No longer a gate. A member catching up on a day they missed will log two
+   * sessions in one afternoon, and that is the point of catching up; what stops
+   * the whole week going down in a single sitting is the calendar ceiling in
+   * `days` below, not a cap on how many sessions a date may hold.
    */
-  const sessionToday = computed(() => {
+  const sessionsToday = computed(() => {
     const key = dateKey(now.value)
-    return state.value.sessions.find((s) => dateKey(s.completedAt) === key) ?? null
+    return state.value.sessions.filter((s) => dateKey(s.completedAt) === key)
   })
 
-  /** No further sessions until tomorrow. */
-  const trainingLocked = computed(() => sessionToday.value !== null)
-
-  /** Local midnight after today, when the next session opens up. */
-  const nextSessionAt = computed(() => startOfNextDay(now.value))
+  /** The latest session logged today, if there is one. Read for copy, not gating. */
+  const sessionToday = computed(() => sessionsToday.value[0] ?? null)
 
   /**
-   * The training week: the authored days that count toward the weekly quota.
+   * This week's training days: the ones that count toward the weekly quota.
    *
    * `optional` days — the core & cardio finisher is the one that exists — are
    * not in it. They are still resolvable by id through `getDay`, so a member
    * who opens one can log it, but they are not part of "3 of 4 sessions" and a
    * week is not incomplete for skipping one.
    */
-  const planDays = computed(() => state.value.workoutDays.filter((day) => !day.optional))
+  const planDays = computed(() => planDaysOf(currentWeek.value))
 
   /**
    * The plan for this week, with each day's status resolved from the log.
@@ -525,34 +792,129 @@ const buildStore = () => {
    *
    * A plain array, where this used to be a non-empty tuple. The tuple was
    * honest about a hard-coded four-day week and is a lie about an authored one:
-   * a program whose `workoutDays` have not been written yet has no days, and
-   * the screens have to be able to say so rather than index into nothing.
+   * a week whose days have not been written yet has none, and the screens have
+   * to be able to say so rather than index into nothing.
    */
-  const days = computed<WorkoutDayView[]>(() => {
-    const loggedIds = new Set(sessionsThisWeek.value.map((s) => s.dayId))
-    const locked = trainingLocked.value
-    let markedNext = false
-    return planDays.value.map((day) => {
-      if (loggedIds.has(day.id)) return { ...day, status: 'completed' as const }
-      // Every remaining day locks, not just the next one: the rule is one
-      // session a day, so skipping ahead to day 4 is the same spam by another
-      // route. Screens single out the first of them as the one that opens next.
-      if (locked) return { ...day, status: 'locked' as const }
-      if (!markedNext) {
-        markedNext = true
-        return { ...day, status: 'today' as const }
+  const days = computed<WorkoutDayView[]>(() => resolveWeek(currentWeek.value))
+
+  /**
+   * Any week's plan, resolved against the sessions logged for that week's days.
+   *
+   * What Train's week switcher reads. The current week is `days` itself, so
+   * the list on Train and the dots on Home cannot drift apart.
+   */
+  const weekDays = (weekNumber: number): WorkoutDayView[] =>
+    weekNumber === clock.value.week
+      ? days.value
+      : resolveWeek(state.value.weeks.find((w) => w.weekNumber === weekNumber) ?? null)
+
+  function resolveWeek(week: TrainingWeek | null): WorkoutDayView[] {
+    if (!week) return []
+    // By the week the session was *for*, not by id alone and not by the week it
+    // was logged in: ids repeat across weeks, and week 1's `day-1` caught up in
+    // week 3 must not mark week 3's `day-1` done.
+    const loggedIds = new Set(
+      state.value.sessions
+        .filter((s) => planWeekOf(s) === week.weekNumber)
+        .map((s) => s.dayId),
+    )
+    const today = clock.value.today
+
+    return planDaysOf(week).map((day) => {
+      const opensInNights = daysBetween(today, day.date)
+
+      if (loggedIds.has(day.id)) {
+        return { ...day, status: 'completed' as const, canStart: false, opensInNights }
       }
-      return { ...day, status: 'upcoming' as const }
+      // Everything the calendar has reached is open: today's session, and every
+      // day behind it that was never logged, in this week or any before it. A
+      // missed session does not close with its week; a member who fell behind
+      // in week 1 can still do week 1's sessions in week 3.
+      if (opensInNights <= 0) {
+        const status = opensInNights === 0 ? ('today' as const) : ('missed' as const)
+        return { ...day, status, canStart: true, opensInNights }
+      }
+      // Ahead of them. The one thing the calendar still withholds, and the
+      // reason the block cannot be finished in an afternoon.
+      return { ...day, status: 'upcoming' as const, canStart: false, opensInNights }
     })
+  }
+
+  /**
+   * Nothing in the plan can be started right now.
+   *
+   * True once every day the week has reached is logged, and on a rest day where
+   * the plan schedules nothing and nothing was left behind — the two ways the
+   * calendar says "not now" — so screens have one thing to ask rather than two.
+   */
+  const trainingLocked = computed(() => !days.value.some((d) => d.canStart))
+
+  /**
+   * The next training day whose date is still ahead, in this week or a later one.
+   *
+   * What the screens name when they have to say which session is next. It
+   * crosses into next week, because the days are dated: a member who finished
+   * the week on Friday is waiting on next Wednesday's session, and that is a
+   * real document with a real date rather than this week's day 1 wrapped round.
+   * `null` once the schedule has nothing left in it.
+   */
+  const nextUp = computed<WorkoutDayView | null>(() => {
+    const inWeek = days.value.find((d) => d.status === 'upcoming')
+    if (inWeek) return inWeek
+
+    const today = clock.value.today
+    for (const week of state.value.weeks) {
+      if (week.weekNumber <= clock.value.week) continue
+      const day = planDaysOf(week).find((d) => d.date > today)
+      if (day) {
+        return {
+          ...day,
+          status: 'upcoming' as const,
+          canStart: false,
+          opensInNights: daysBetween(today, day.date),
+        }
+      }
+    }
+    return null
   })
 
   /**
-   * The next session waiting on them, which is what Home leads with. `null`
-   * when the program has no training days authored yet.
+   * Local midnight on the date the next session opens.
+   *
+   * Not simply tomorrow. Sessions are pinned to their dates, so after Monday's
+   * day 1 the next one is whenever day 2 is dated; a member on a three-day plan
+   * finishing day 3 is waiting four nights, not one, and telling them "back
+   * tomorrow" would be a promise the picker then breaks.
+   *
+   * Floored at tomorrow, because this is only ever read while nothing is open:
+   * a day whose slot is today but whose session is spent opens again at
+   * midnight, not now.
+   */
+  const nextSessionAt = computed(() => {
+    const nights = Math.max(nextUp.value?.opensInNights ?? 1, 1)
+    const at = startOfNextDay(now.value)
+    at.setDate(at.getDate() + nights - 1)
+    return at
+  })
+
+  /**
+   * The session Home leads with. `null` when the program has no training days
+   * authored yet.
+   *
+   * Today's scheduled day first. Then the earliest day still open behind it:
+   * somebody who has already logged today but is a day down has one session
+   * left to do this week and that is the one to lead with, not the one they
+   * finished this morning. `days` arrives ordered by date, so the first match
+   * is the oldest debt. Only when nothing at all is open does this fall
+   * through to a day finished today, and then to the next one they are waiting
+   * on.
    */
   const today = computed<WorkoutDayView | null>(
     () =>
-      days.value.find((d) => d.status === 'today' || d.status === 'locked') ??
+      days.value.find((d) => d.status === 'today') ??
+      days.value.find((d) => d.canStart) ??
+      days.value.find((d) => d.status === 'completed' && d.opensInNights === 0) ??
+      nextUp.value ??
       days.value[0] ??
       null,
   )
@@ -563,7 +925,7 @@ const buildStore = () => {
   )
 
   const rewardsContext = computed(() =>
-    rewardsContextOf(state.value.program, state.value.workoutDays),
+    rewardsContextOf(state.value.program, state.value.weeks),
   )
 
   const rewards = computed(() =>
@@ -618,10 +980,176 @@ const buildStore = () => {
    * `cohorts/{id}/leaderboard`, written when they set a display name in setup,
    * and it is deleted with them on `reset()`. That also makes it exactly the
    * set of people who can be in the thread: a member who has not finished that
-   * step has not reached Chat either. `leaderboard` above guarantees the
-   * viewer's own row is in the count whether or not the fetch returned it.
+   * step has not reached Chat either.
+   *
+   * The counted answer is preferred over the board's `length` because the board
+   * is one page of at most 200 rows read once at boot, and the header this
+   * feeds tells a member how many people are about to read what they type. The
+   * board stands in until `refreshCohortMemberCount` lands, so the header has a
+   * plausible number immediately rather than a blank; `leaderboard` above
+   * guarantees the viewer's own row is in that fallback whether or not the
+   * fetch returned it.
    */
-  const cohortMemberCount = computed(() => leaderboard.value.length)
+  const cohortMemberCount = computed(
+    () => state.value.cohortMemberCount ?? leaderboard.value.length,
+  )
+
+  // --- Inbox ---------------------------------------------------------------
+  //
+  // Three sources, all live: the coach's notifications, cohort chat messages
+  // aimed at this member, and this member's own messages others reacted to. Held outside `state` for the reason given on
+  // `AppState`: they belong to a subscription, not to a load. The announcement
+  // deck rides on the same listeners without being a source; see
+  // `announcementFeed`.
+
+  /** `cohorts/{id}/notifications`, as the listener last delivered them. */
+  const broadcasts = ref<Notification[]>([])
+
+  /** Cohort chat messages that name or answer this member. See `addressedUidsOf`. */
+  const addressed = ref<Message[]>([])
+
+  /** This member's cohort chat messages others have reacted to. See `MessageDoc.reactors`. */
+  const reacted = ref<Message[]>([])
+
+  let stopInbox: Array<() => void> = []
+
+  const unwatchInbox = () => {
+    stopInbox.forEach((stop) => stop())
+    stopInbox = []
+  }
+
+  /**
+   * Open every inbox listener for `memberId`.
+   *
+   * Each on its own, so a failure in one leaves the others working: an index
+   * that has not built yet costs the member their mentions, not their coach's
+   * notifications or the deck.
+   */
+  const watchInbox = async (memberId: string) => {
+    const subscriptions: Array<[string, () => Promise<() => void>]> = [
+      [
+        'coach notifications',
+        () =>
+          data.watchNotifications(
+            (next) => {
+              broadcasts.value = next
+            },
+            (error) => console.error('[inbox] the coach notifications listener stopped', error),
+          ),
+      ],
+      [
+        'announcements',
+        () =>
+          data.watchAnnouncements(
+            (next) => {
+              announcementFeed.value = next
+            },
+            (error) => console.error('[inbox] the announcements listener stopped', error),
+          ),
+      ],
+      [
+        'mentions',
+        () =>
+          data.watchAddressedMessages(
+            (next) => {
+              addressed.value = next
+            },
+            (error) => console.error('[inbox] the mentions listener stopped', error),
+          ),
+      ],
+      [
+        'reactions',
+        () =>
+          data.watchReactedMessages(
+            (next) => {
+              reacted.value = next
+            },
+            (error) => console.error('[inbox] the reactions listener stopped', error),
+          ),
+      ],
+    ]
+
+    for (const [what, subscribe] of subscriptions) {
+      try {
+        const stop = await subscribe()
+        // Signed out, or in as somebody else, while this was resolving. Nothing
+        // else would ever stop it.
+        if (state.value.member?.id !== memberId) stop()
+        else stopInbox.push(stop)
+      } catch (cause) {
+        console.error(`[inbox] could not watch ${what}`, cause)
+      }
+    }
+  }
+
+  /**
+   * Follow the signed-in member, like the chat tab's dot does.
+   *
+   * Keyed on the member rather than on the auth user because every listener
+   * resolves its path through the member's cohort. A re-hydrate for the same
+   * member leaves them alone; a different member, or nobody, drops them and
+   * what they delivered, so the next person in does not inherit an inbox.
+   */
+  watch(
+    () => state.value.member?.id ?? null,
+    (memberId) => {
+      unwatchInbox()
+      broadcasts.value = []
+      announcementFeed.value = []
+      addressed.value = []
+      reacted.value = []
+      if (memberId) void watchInbox(memberId)
+    },
+    { immediate: true },
+  )
+
+  onScopeDispose(unwatchInbox)
+
+  // --- Cohort --------------------------------------------------------------
+  //
+  // Loaded at boot with everything else, then followed. The admin turns the
+  // leaderboard on and off, and sets the live call, on a document members
+  // already have open — see `DataSource.watchCohort`. It writes straight into
+  // `state.cohort` rather than a ref of its own, because unlike the inbox a
+  // re-hydrate re-reads it and never leaves it empty.
+
+  let stopCohort: (() => void) | null = null
+  /** Bumped per subscription, so a slow one that resolves late cannot win. */
+  let cohortWatch = 0
+
+  const unwatchCohort = () => {
+    stopCohort?.()
+    stopCohort = null
+  }
+
+  watch(
+    () => state.value.member?.id ?? null,
+    async (memberId) => {
+      unwatchCohort()
+      const current = ++cohortWatch
+      if (!memberId) return
+      try {
+        const stop = await data.watchCohort(
+          (next) => {
+            if (current === cohortWatch) state.value.cohort = next
+          },
+          // The last cohort delivered stays. A stopped listener means changes
+          // arrive on the next load again, not that the board should vanish.
+          (error) => console.error('[cohort] the cohort listener stopped', error),
+        )
+        if (current === cohortWatch) stopCohort = stop
+        else stop()
+      } catch (cause) {
+        console.error('[cohort] could not watch the cohort', cause)
+      }
+    },
+    { immediate: true },
+  )
+
+  onScopeDispose(() => {
+    cohortWatch++
+    unwatchCohort()
+  })
 
   /**
    * The inbox, with read state and a relative label folded in.
@@ -630,19 +1158,50 @@ const buildStore = () => {
    * `notificationState`, and the label is rendered against the trusted clock on
    * every tick rather than stored, because "2h ago" written into a document is
    * wrong within the hour.
+   *
+   * Mentions, replies and reactions are never pinned, so they sit in date order
+   * among the coach's unpinned notifications. Each one links to its message.
+   *
+   * Reactions are the one line that can be read and then unread again. It is
+   * one line per message however many people react, so it has to light the
+   * bell again when somebody new does: it counts as read only while this
+   * member's read stamp is later than the newest reaction. Everything else is
+   * read once and stays read, even when the coach edits it.
+   *
+   * Announcements are not a source. Publishing one is not the same act as
+   * notifying the cohort about it, so the admin writes a notification alongside
+   * any announcement that should light the bell.
    */
-  const notifications = computed<NotificationView[]>(() =>
-    [...state.value.notifications]
+  const notifications = computed<NotificationView[]>(() => {
+    const viewerUid = state.value.member?.id ?? ''
+    const items: Array<Notification & { to: string | null; reopens: boolean }> = [
+      ...broadcasts.value.map((n) => ({ ...n, to: null, reopens: false })),
+      ...addressed.value.map((m) => ({
+        ...chatNotificationFor(m, viewerUid),
+        to: `/chat?message=${encodeURIComponent(m.id)}`,
+        reopens: false,
+      })),
+      ...reacted.value.flatMap((m) => {
+        const n = reactionsNotificationFor(m, viewerUid)
+        return n ? [{ ...n, to: `/chat?message=${encodeURIComponent(m.id)}`, reopens: true }] : []
+      }),
+    ]
+    return items
       .sort((a, b) => {
         if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
         return b.publishedAt.toMillis() - a.publishedAt.toMillis()
       })
-      .map((n) => ({
-        ...n,
-        read: state.value.notificationReads[n.id] !== undefined,
-        timeLabel: relativeLabel(n.publishedAt, now.value),
-      })),
-  )
+      .map(({ reopens, ...n }) => {
+        const readAt = state.value.notificationReads[n.id]
+        return {
+          ...n,
+          read:
+            readAt !== undefined &&
+            (!reopens || readAt.toMillis() >= n.publishedAt.toMillis()),
+          timeLabel: relativeLabel(n.publishedAt, now.value),
+        }
+      })
+  })
 
   const unreadNotifications = computed(
     () => notifications.value.filter((n) => !n.read).length,
@@ -655,19 +1214,114 @@ const buildStore = () => {
   const checkInDue = computed(() => currentCheckIn.value === null)
 
   /**
+   * No progress photo on file yet, so there is no "before" to measure against.
+   *
+   * Any photo lifts it, from any week and in any pose: the rule is that the
+   * block starts with a picture, not that the member keeps a full set. Members
+   * already training are held to it too, deliberately; there is no exemption
+   * for having logged sessions before the rule existed. Home
+   * leads with the card while it holds, and Start workout refuses until it
+   * does not. Photos are read from the data source, not the device, so a
+   * member on a new phone is not asked a second time.
+   */
+  const firstPhotoDue = computed(() => state.value.photos.length === 0)
+
+  /**
+   * The block's last session is logged and no photo has been taken since.
+   *
+   * The bookend to `firstPhotoDue`, and the last thing the block asks for. Home
+   * leads with it and Saved turns its main action over to it. It locks nothing:
+   * all that is left to start by then is a catch-up or the finisher, and
+   * holding those back would cost the member sessions the block still counts.
+   *
+   * Deleting that photo brings it back. The badge stays, as every badge does,
+   * but the coach is still owed the picture.
+   */
+  const finalPhotoDue = computed(
+    () =>
+      finalSessionOf(state.value.sessions, rewardsContext.value) !== null &&
+      finalPhotoOf(state.value, rewardsContext.value) === null,
+  )
+
+  /** Final Photo Proof as the program authors it, for the RP its card quotes. */
+  const finalPhotoBadge = computed(() => {
+    const def = badgeDefs.value.find((b) => b.id === 'final-photo')
+    return def ? { ...def, points: badgeTierPoints.value?.[def.tier] ?? 0 } : null
+  })
+
+  /**
    * Any authored day by id, whether or not it is part of the weekly quota.
    *
+   * This week's first, because ids repeat across weeks and this week's copy is
+   * the one with a status that means something today.
+   *
    * `days` only carries the quota, so an optional day — the core & cardio
-   * finisher — resolves from the full list with a neutral status: it is never
-   * "today", and locking it would be locking a session that was never counted
-   * against the one-a-day rule in the first place.
+   * finisher — resolves from the rest of the week with a neutral status: it
+   * holds no slot, so it is never "today" and the calendar has nothing to open
+   * or close for it. The one rule it is under is its own: once a day. It is the
+   * finisher, so it is meant to be stacked on top of a session rather than
+   * counted against one, but a day that could be logged twice over would be a
+   * way to farm the same session all afternoon.
+   *
+   * A day that exists only in another week — a week whose ids were authored
+   * differently, or a session resumed across the rollover — resolves readable
+   * and shut: it is not this week's to start.
+   *
+   * `weekNumber` asks for a particular week's copy, which is how a day picked
+   * off Train's week switcher opens as itself rather than as this week's day
+   * of the same id. Omitted, or naming the current week, it changes nothing.
    */
-  const getDay = (id: string): WorkoutDayView | undefined => {
+  const getDay = (id: string, weekNumber?: number): WorkoutDayView | undefined => {
+    if (weekNumber !== undefined && weekNumber !== clock.value.week) {
+      const picked = weekDays(weekNumber).find((d) => d.id === id)
+      if (picked) return picked
+    }
+
     const inWeek = days.value.find((d) => d.id === id)
     if (inWeek) return inWeek
-    const optional = state.value.workoutDays.find((d) => d.id === id)
-    return optional ? { ...optional, status: 'upcoming' as const } : undefined
+
+    const optional = currentWeek.value?.days.find((d) => d.id === id && d.optional)
+    if (optional) {
+      return {
+        ...optional,
+        status: 'upcoming' as const,
+        canStart: !sessionsToday.value.some((s) => s.dayId === id),
+        opensInNights: null,
+      }
+    }
+
+    const elsewhere = state.value.weeks.flatMap((w) => w.days).find((d) => d.id === id)
+    if (!elsewhere) return undefined
+    const opensInNights = isDateKey(elsewhere.date)
+      ? daysBetween(clock.value.today, elsewhere.date)
+      : null
+    return {
+      ...elsewhere,
+      status: opensInNights !== null && opensInNights < 0 ? ('missed' as const) : ('upcoming' as const),
+      canStart: false,
+      opensInNights,
+    }
   }
+
+  /**
+   * The week whose day the session in progress is for. `null` with none open.
+   *
+   * The current week for a session opened before `planWeek` was written, which
+   * is the only week it could have been opened in.
+   */
+  const activeSessionWeek = computed(() => {
+    const active = state.value.activeSession
+    return active ? (active.planWeek ?? clock.value.week) : null
+  })
+
+  /**
+   * Whether the session in progress is this day, in this week.
+   *
+   * Both halves, because ids repeat across weeks: with week 3's `day-3` half
+   * logged, opening week 1's `day-3` is a different session, not a resume.
+   */
+  const isActiveDay = (dayId: string, weekNumber: number = clock.value.week) =>
+    state.value.activeSession?.dayId === dayId && activeSessionWeek.value === weekNumber
 
   /**
    * What they hit last time on this exercise, shown in the "previous" column.
@@ -689,60 +1343,101 @@ const buildStore = () => {
     return undefined
   }
 
-  // --- Actions: auth -------------------------------------------------------
   /**
-   * Start sign-in for `email`.
+   * Every logged session that did this exercise, newest first, with only the
+   * sets that were ticked done.
    *
-   * Normally that means emailing a link and resolving to `null`: the flow
-   * resumes when they open it, which may be minutes later and on a different
-   * device. On device there is no inbox, so the data source signs them in on
-   * the spot and hands back the user — the same state `completeSignInLink`
-   * would have reached, so it re-hydrates for the same reason.
+   * Matched by exercise id across days and weeks, the same way `previousFor`
+   * matches, so the history follows the lift rather than the day it sat on. A
+   * session where the exercise was on the plan but no set of it was done is
+   * left out: it is not history of doing the exercise.
    */
-  const sendSignInLink = async (email: string) => {
-    const user = await data.sendSignInLink(email)
-    if (user) await hydrate(true)
-    return user
-  }
+  const historyFor = (
+    exerciseId: string,
+  ): { log: SessionLog; exercise: LoggedExercise }[] =>
+    state.value.sessions.flatMap((log) => {
+      const logged = log.exercises?.find((e) => e.id === exerciseId)
+      const sets = logged?.sets?.filter((s) => s.done) ?? []
+      return logged && sets.length ? [{ log, exercise: { ...logged, sets } }] : []
+    })
 
-  /** Whether `sendSignInLink` signs in outright instead of emailing a link. */
-  const instantSignIn = data.instantSignIn
-
+  // --- Actions: auth -------------------------------------------------------
   /** Whether the Google button has anything behind it. */
   const googleSignIn = data.googleSignIn
 
+  /** A code to print on the screen, where the data source has one. */
+  const demoAccessCode = data.demoAccessCode
+
   /**
-   * Sign in with Google.
+   * Sign in with Google, to an account that already exists.
    *
    * Resolves to `null` when the data source had to hand the page over to a
    * full-page redirect: there is no user yet and this document is about to
    * stop existing, so there is nothing to hydrate and nothing for the caller
-   * to do. The other branch is a popup that came back with a user, which is
-   * the same state `completeSignInLink` reaches and re-hydrates for the same
-   * reason — the member document and everything derived from it belong to
-   * whoever just signed in, and none of it was loaded for them.
+   * to do. The other branch is a popup that came back with a user, and the
+   * member document and everything derived from it belong to whoever just
+   * signed in, none of it loaded for them — so it re-hydrates.
+   *
+   * Awaits `identify` rather than the whole of `hydrate`, for the reason
+   * `signInWithPassword` does: the destination is decided by the time it
+   * resolves, and the rest is the app loading behind the screen it goes to.
    */
   const signInWithGoogle = async () => {
     startupError.value = ''
     const user = await data.signInWithGoogle()
-    if (user) await hydrate(true)
+    if (user && (await identify())) void loadContent()
     return user
   }
 
-  const isSignInLink = (url: string) => data.isSignInLink(url)
+  /** Is this code good for a new account? Resolves to the code as stored. */
+  const checkAccessCode = (code: string) => data.checkAccessCode(code)
 
   /**
-   * Finish sign-in from an opened link.
+   * Make the account a code pays for, and redeem the code on it.
    *
-   * Re-hydrates rather than just setting `authUser`: the member document, their
-   * logs and everything derived from them all belong to whoever just signed in,
-   * and none of it was loaded for them.
+   * Two steps with a load between them, because the redemption is refused to
+   * a session that has not claimed this device yet — and `identify` is what
+   * claims it. It also answers whether there is anything left to redeem: an
+   * account from an earlier, interrupted sign-up may have got further than
+   * this one knows.
+   *
+   * `identify` rather than `hydrate`, because the usual path through here
+   * redeems immediately afterwards and `redeemAccessCode` loads the app for
+   * the membership it creates. Hydrating first read the whole payload for a
+   * member who was about to get a different one a moment later. The other
+   * branch — an account that already held its membership — has nothing left to
+   * redeem, so it is the one that starts the load itself.
+   *
+   * If the redemption fails, the account stays. The member is then signed in
+   * without a membership, which is `needs-code`, and the access-code screen
+   * redeems for exactly that session when they try again — deleting the account
+   * would only make them choose a password a second time.
    */
-  const completeSignInLink = async (url: string, email?: string) => {
-    const user = await data.completeSignInLink(url, email)
-    await hydrate(true)
+  const createAccount = async (code: string, email: string, password: string) => {
+    startupError.value = ''
+    await data.createAccount(code, email, password)
+    const hasMember = await identify()
+    if (gate.value === 'needs-code') await redeemAccessCode(code)
+    else if (hasMember) void loadContent()
+  }
+
+  /**
+   * Sign in with an email and password, and load whoever that is.
+   *
+   * Resolves as soon as the member is identified, not once the app has
+   * finished loading for them. Those are two different waits and only the
+   * first one has an answer the screen needs: `gate` is settled, so the
+   * sign-in screen knows where to send them and can send them there. The
+   * content is started, not awaited, and lands behind the screen it lands on.
+   */
+  const signInWithPassword = async (email: string, password: string) => {
+    startupError.value = ''
+    const user = await data.signInWithPassword(email, password)
+    if (await identify()) void loadContent()
     return user
   }
+
+  const sendPasswordReset = (email: string) => data.sendPasswordReset(email)
 
   // --- Actions: membership -------------------------------------------------
   /**
@@ -778,19 +1473,86 @@ const buildStore = () => {
     await hydrate(true)
   }
 
+  // --- One device at a time ------------------------------------------------
+  //
+  // `hydrate` checks on every load. This is the other half: a device that is
+  // already open when the account signs in somewhere else. Keyed on the auth
+  // user rather than the member, because the account is claimed at sign-in,
+  // before there is a member document.
+
+  const nuxtApp = useNuxtApp()
+
+  let stopDevice: (() => void) | null = null
+  /** Bumped per subscription, so a slow one that resolves late cannot win. */
+  let deviceWatch = 0
+
+  const unwatchDevice = () => {
+    stopDevice?.()
+    stopDevice = null
+  }
+
+  /** Signed out by a later sign-in, and told why on the screen it lands on. */
+  const signedInElsewhere = async () => {
+    try {
+      await signOut()
+    } catch (cause) {
+      console.error('[device] could not sign out a superseded device', cause)
+    }
+    // After the sign-out, because `hydrate` clears it on the way in.
+    startupError.value = SIGNED_IN_ELSEWHERE
+    await nuxtApp.runWithContext(() => navigateTo('/sign-in', { replace: true }))
+  }
+
+  watch(
+    () => state.value.authUser?.uid ?? null,
+    async (uid) => {
+      unwatchDevice()
+      const current = ++deviceWatch
+      if (!uid) return
+      try {
+        const stop = await data.watchDevice(
+          () => {
+            if (current === deviceWatch) void signedInElsewhere()
+          },
+          (error) => console.error('[device] the sign-in listener stopped', error),
+        )
+        if (current === deviceWatch) stopDevice = stop
+        else stop()
+      } catch (cause) {
+        console.error('[device] could not watch this account’s sign-ins', cause)
+      }
+    },
+    { immediate: true },
+  )
+
+  onScopeDispose(() => {
+    deviceWatch++
+    unwatchDevice()
+  })
+
   // --- Actions: workout logging -------------------------------------------
   /**
-   * Open a session for `day`, or return null if today's is already logged.
+   * Open a session for `day`, or return null if the plan does not open it today.
    *
    * The gate lives here rather than only in the screens, so a deep link into
-   * `/train/<id>` cannot walk around it. Finishing is deliberately *not* gated:
-   * a session opened before midnight has to be able to close after it.
+   * `/train/<id>` cannot walk around it: `canStart` is false on every day the
+   * member's calendar has not reached, so nobody starts Friday's session on
+   * Tuesday and a new member cannot run the whole week off in one evening. What
+   * it no longer refuses is a day left behind — that one is theirs to pick up
+   * whenever they get to it.
+   *
+   * Two things are deliberately *not* gated. A session already in flight for
+   * this day is handed back whatever the calendar now says — it may have been
+   * opened before midnight — and finishing one is not gated at all, for the
+   * same reason.
    */
   const startSession = async (day: WorkoutDayView) => {
-    if (trainingLocked.value && state.value.activeSession?.dayId !== day.id) return null
+    if (isActiveDay(day.id, day.weekNumber)) return state.value.activeSession
+    if (!day.canStart) return null
 
     const session: ActiveSessionInput = {
       dayId: day.id,
+      planWeek: day.weekNumber,
       startedAt: null,
       elapsedSeconds: 0,
       running: false,
@@ -862,7 +1624,8 @@ const buildStore = () => {
   const finishSession = async () => {
     const active = state.value.activeSession
     if (!active) return null
-    const day = getDay(active.dayId)
+    const planWeek = activeSessionWeek.value ?? clock.value.week
+    const day = getDay(active.dayId, planWeek)
 
     const setsTotal = active.exercises.reduce((n, e) => n + e.sets.length, 0)
     const setsDone = active.exercises.reduce(
@@ -883,11 +1646,14 @@ const buildStore = () => {
       )
 
     // `weekNumber`, `qualifies` and `rewardPoints` are deliberately not sent:
-    // the data source resolves them against the member's join date and their
-    // program's threshold. A client that could name its own reward points
+    // the data source resolves them against the program's dated weeks and its
+    // threshold. A client that could name its own reward points
     // could name any number, and the Firestore rules reject the attempt.
+    // `planWeek` is sent, unlike those three. It earns nothing, and the data
+    // source still refuses a week the calendar has not reached.
     const log = await data.saveSession({
       dayId: active.dayId,
+      planWeek,
       dayNumber: day?.dayNumber ?? 0,
       label: day?.label ?? 'Workout',
       completedAt: trustedTimestamp(),
@@ -911,13 +1677,24 @@ const buildStore = () => {
 
   // --- Actions: check-ins & photos ----------------------------------------
   const saveCheckIn = async (input: CheckInInput) => {
-    const record = await data.saveCheckIn(input)
-    state.value.checkIns = [
-      record,
-      ...state.value.checkIns.filter((c) => c.weekNumber !== record.weekNumber),
-    ]
-    await syncBadges()
-    return record
+    try {
+      const record = await data.saveCheckIn(input)
+      state.value.checkIns = [record, ...state.value.checkIns]
+      await syncBadges()
+      return record
+    } catch (cause) {
+      // Refused because the week is already in, sent from another device since
+      // this one loaded. Pull it down so `currentCheckIn` shows what was sent
+      // instead of leaving a form that can only be refused again. A failed
+      // reload keeps the list as it was; the refusal is still the error.
+      if (cause instanceof DataSourceError && cause.code === 'check-in-submitted') {
+        await data
+          .listCheckIns()
+          .then((checkIns) => (state.value.checkIns = checkIns))
+          .catch(() => {})
+      }
+      throw cause
+    }
   }
 
   const addPhoto = async (input: { pose: PhotoPose; image: ProcessedImage }) => {
@@ -944,12 +1721,62 @@ const buildStore = () => {
     }
   }
 
+  /**
+   * Everything in the inbox that is still unread, in one write.
+   *
+   * The new stamps win over any already held, since a line that has come back
+   * unread already has one — see `notifications`. And each is at least as late
+   * as the line it marks: the server stamps its own time, but this copy is the
+   * device's reckoning of it, and one a few milliseconds behind a reaction
+   * would leave that line unread, and the inbox marking it read again forever.
+   */
   const markAllNotificationsRead = async () => {
-    await data.markAllNotificationsRead()
+    const unread = notifications.value.filter((n) => !n.read)
+    if (!unread.length) return
+    await data.markNotificationsRead(unread.map((n) => n.id))
     const now = trustedTimestamp()
     state.value.notificationReads = {
-      ...Object.fromEntries(state.value.notifications.map((n) => [n.id, now])),
       ...state.value.notificationReads,
+      ...Object.fromEntries(
+        unread.map((n) => [
+          n.id,
+          n.publishedAt.toMillis() > now.toMillis() ? n.publishedAt : now,
+        ]),
+      ),
+    }
+  }
+
+  /**
+   * The member has scrolled past these cohort chat messages.
+   *
+   * A mention read in the thread is a mention read, and the bell should not go
+   * on announcing it. Chat calls this as its read marker moves, with the
+   * messages aimed at the member that just came above the fold.
+   *
+   * Drawn before it is written, unlike the inbox's own receipts, because the
+   * caller is a scroll: a slow write would otherwise let the next scroll event
+   * send the same ids again. A failure puts them back to unread, and never
+   * throws — a read receipt that did not land is not the member's problem, and
+   * there is no screen to tell them on.
+   */
+  const markChatMessagesSeen = async (messageIds: string[]) => {
+    const reads = state.value.notificationReads
+    const ids = messageIds.map(chatNotificationId).filter((id) => reads[id] === undefined)
+    if (!ids.length) return
+
+    const now = trustedTimestamp()
+    state.value.notificationReads = {
+      ...reads,
+      ...Object.fromEntries(ids.map((id) => [id, now])),
+    }
+
+    try {
+      await data.markNotificationsRead(ids)
+    } catch (cause) {
+      const rolledBack = { ...state.value.notificationReads }
+      for (const id of ids) delete rolledBack[id]
+      state.value.notificationReads = rolledBack
+      console.error('[inbox] could not mark chat mentions read', cause)
     }
   }
 
@@ -988,6 +1815,22 @@ const buildStore = () => {
     state.value.leaderboard = await data.listLeaderboard()
   }
 
+  /**
+   * Re-count the roster. Called by Chat when the thread opens.
+   *
+   * Swallows its failure on purpose: the fallback in `cohortMemberCount` is a
+   * number that was true at boot, and a header that keeps a slightly old count
+   * is better than one that shows an error where a subtitle should be. The
+   * cause still reaches the console.
+   */
+  const refreshCohortMemberCount = async () => {
+    try {
+      state.value.cohortMemberCount = await data.countCohortMembers()
+    } catch (cause) {
+      console.error('[cohort] could not count members', cause)
+    }
+  }
+
   const consumePendingBadge = () => {
     const id = state.value.pendingBadge
     state.value.pendingBadge = null
@@ -998,6 +1841,10 @@ const buildStore = () => {
     // state
     state,
     hydrated: computed(() => state.value.hydrated),
+    /** The app's content is still arriving. What screens skeleton on. See `identify`. */
+    loading: computed(() => loading.value),
+    /** Why it did not arrive, for the screen the member is already on. */
+    loadError: computed(() => loadError.value),
     authUser,
     member,
     profile,
@@ -1014,11 +1861,12 @@ const buildStore = () => {
     program,
     cohort,
     coach,
-    liveCall,
+    liveCallToday,
     guides,
     guideCategories,
     announcements,
-    workoutDays: computed(() => state.value.workoutDays),
+    weeks: computed(() => state.value.weeks),
+    currentWeek,
     planDays,
     rewardValues,
     badgeDefs,
@@ -1033,6 +1881,9 @@ const buildStore = () => {
     isSetupComplete,
     gate,
     atTheDoor,
+    doorRoute,
+    isOnboarded: computed(() => isOnboarded.value),
+    markOnboarded,
     displayName,
     now,
     nowTs,
@@ -1043,6 +1894,7 @@ const buildStore = () => {
     targets,
     days,
     today,
+    nextUp,
     weekComplete,
     sessionsThisWeek,
     rewards,
@@ -1051,24 +1903,34 @@ const buildStore = () => {
     unreadNotifications,
     currentCheckIn,
     checkInDue,
-    /** Sessions the whole block asks for. Zero until the program has loaded. */
-    totalSessions: computed(
-      () => challengeShape.value.totalWeeks * challengeShape.value.sessionsPerWeek,
+    firstPhotoDue,
+    finalPhotoDue,
+    finalPhotoBadge,
+    /** Sessions the whole block asks for: every quota day of every week. Zero until loaded. */
+    totalSessions: computed(() =>
+      state.value.weeks.reduce((n, week) => n + planDaysOf(week).length, 0),
     ),
     getDay,
+    weekDays,
+    activeSessionWeek,
+    isActiveDay,
     previousFor,
+    historyFor,
 
     // actions
     hydrate,
+    retryLoad,
     tick,
     refreshClock,
-    instantSignIn,
+    refreshCohortMemberCount,
     googleSignIn,
+    demoAccessCode,
     signInWithGoogle,
     startupError,
-    sendSignInLink,
-    isSignInLink,
-    completeSignInLink,
+    checkAccessCode,
+    createAccount,
+    signInWithPassword,
+    sendPasswordReset,
     redeemAccessCode,
     saveProfile,
     completeSetup,
@@ -1084,6 +1946,7 @@ const buildStore = () => {
     deletePhoto,
     markNotificationRead,
     markAllNotificationsRead,
+    markChatMessagesSeen,
     savePreferences,
     refreshLeaderboard,
     consumePendingBadge,

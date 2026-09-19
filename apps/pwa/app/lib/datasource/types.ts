@@ -5,8 +5,10 @@ import type {
   Announcement,
   AuthUser,
   ChatAttachment,
+  ChatMention,
   ChatMessageView,
   ChatReaction,
+  ChatReplyRef,
   CheckIn,
   CheckInDoc,
   Cohort,
@@ -17,6 +19,7 @@ import type {
   MemberDoc,
   MemberPreferences,
   MemberProfile,
+  Message,
   Notification,
   PhotoPose,
   Program,
@@ -25,7 +28,8 @@ import type {
   SessionLogDoc,
   StoredImage,
   ThreadId,
-  WorkoutDay,
+  TrainingWeek,
+  TypingPeer,
 } from '~/data/types'
 import type { ProcessedImage } from '~/lib/image'
 
@@ -40,10 +44,10 @@ import type { ProcessedImage } from '~/lib/image'
  *
  * Three responsibilities live behind this seam that used not to:
  *
- *   - **Auth.** Passwordless, either way in. Google settles inside a single
- *     gesture; the email link is a two-step flow with a round trip through the
- *     member's inbox in the middle — except on device, where there is no inbox
- *     and `instantSignIn` says so.
+ *   - **Auth.** An account is made from an access code and nothing else: the
+ *     code is checked first, then an email and password create the account.
+ *     Coming back is the email and password again, or Google — which signs in
+ *     to an account but never makes one.
  *   - **Uploads.** Documents cap at 1 MiB, so anything binary goes to Cloud
  *     Storage first and the document holds the reference. Callers hand over a
  *     `ProcessedImage` and get back a `StoredImage`; where that actually lands
@@ -54,28 +58,18 @@ import type { ProcessedImage } from '~/lib/image'
  */
 export interface DataSource {
   // =========================================================================
-  // Auth — Firebase Auth: email link ("magic link") and Google
+  // Auth — Firebase Auth: email and password, and Google
   //
-  // No passwords anywhere in the system. Signing in and being a cohort member
-  // are separate facts: a valid `AuthUser` with no member document is somebody
-  // who opened their link but has not redeemed an access code yet, which is
-  // what `MemberGate` distinguishes.
+  // Nothing here leaves the app. Every step finishes in the window that started
+  // it, which is the point: the email link it replaces had to come back through
+  // an inbox, and on iOS a link tapped in an email opens in Safari, never in the
+  // home-screen app — so the app that asked was never the one signed in.
   //
-  // The two providers differ only in how long they take. Google settles inside
-  // one gesture; the email link leaves the app entirely and comes back through
-  // an inbox, possibly on another device. Everything after the `AuthUser` is
-  // identical, so nothing downstream asks which one was used.
+  // Signing in and being a cohort member are still separate facts. A valid
+  // `AuthUser` with no member document is an account whose code was never
+  // redeemed — a sign-up interrupted between its two halves, or an account from
+  // before this flow — which is what `MemberGate` distinguishes.
   // =========================================================================
-
-  /**
-   * Whether this implementation can sign a member in without an inbox.
-   *
-   * Only the on-device one can: it has no email to send, so it signs in on the
-   * spot instead. Screens read this to know which half of the flow they are
-   * about to run — whether the button says "email me a link" and is followed
-   * by a wait, or says "continue" and lands straight on the access code.
-   */
-  readonly instantSignIn: boolean
 
   /**
    * Whether Google is on offer at all.
@@ -89,7 +83,21 @@ export interface DataSource {
   readonly googleSignIn: boolean
 
   /**
-   * Sign in with Google.
+   * A code that redeems against this implementation, to print on the screen.
+   *
+   * Only the on-device one has such a thing: its codes are fixtures, and a
+   * developer should not have to go looking for one. `null` everywhere real
+   * codes are sold.
+   */
+  readonly demoAccessCode: string | null
+
+  /**
+   * Sign in to an existing account with Google.
+   *
+   * Never creates one. A Google account with no DP Fitness account behind it is
+   * refused with `no-account`, and the account Firebase made for it on the way
+   * through is deleted again — the only way to get an account is an access code,
+   * and a Google sign-in that could skip it would be a free seat.
    *
    * Resolves to the signed-in user on the popup path, which is the normal one.
    * Resolves to `null` when the implementation had to fall back to a full-page
@@ -108,38 +116,93 @@ export interface DataSource {
    * the load returning from a Google redirect, where the credentials arrive in
    * the URL and have to be consumed before route middleware can decide where
    * this member belongs. Throws the same user-facing errors `signInWithGoogle`
-   * does, because from the member's side it is the same attempt.
+   * does, `no-account` included, because from the member's side it is the same
+   * attempt.
    */
   resumeSignIn(): Promise<AuthUser | null>
 
   /**
-   * Email a sign-in link.
+   * Whether `code` can start a new account, asked before there is one.
    *
-   * Resolves to `null` once the link is away; the flow then continues when the
-   * member opens it, which may be minutes later and on another device. An
-   * implementation with `instantSignIn` set has no inbox to route through and
-   * resolves to the signed-in user instead, so the caller has nothing to wait
-   * for. Either way the *next* thing outstanding is the access code.
+   * Resolves to the code as it is stored — trimmed and upper-cased — so the
+   * caller carries that forward rather than what was typed. Throws
+   * `invalid-code`, `code-claimed` or `code-expired`, each with a sentence the
+   * member can act on.
+   *
+   * Says nothing about who the code was issued to. That is checked when the
+   * email is given, in `createAccount`, without handing the address back.
    */
-  sendSignInLink(email: string): Promise<AuthUser | null>
-
-  /** Whether `url` is a sign-in link this app issued. Cheap, synchronous-ish. */
-  isSignInLink(url: string): Promise<boolean>
+  checkAccessCode(code: string): Promise<string>
 
   /**
-   * Finish sign-in from an opened link.
+   * Create the account a code pays for, and sign in to it.
    *
-   * `email` is only needed when the link was opened on a different device from
-   * the one that requested it, where the pending address is not in storage to
-   * be read back. Throws `DataSourceError('needs-email')` in exactly that case,
-   * so the caller knows to ask rather than to show a failure.
+   * The code is checked again, and `email` has to be the address it was issued
+   * to — `code-wrong-email` otherwise, before any account exists. It does not
+   * redeem the code: that is `redeemAccessCode`, which needs the session this
+   * returns. Keeping them apart is what lets an interrupted sign-up finish.
+   *
+   * An address that already has an account is not necessarily a stranger's.
+   * The likeliest owner is this same member, whose last attempt created the
+   * account and was cut off before the code was redeemed — so the password is
+   * tried against it, and a match signs them back in to finish. Anything else is
+   * `account-exists`, and the way forward is signing in.
    */
-  completeSignInLink(url: string, email?: string): Promise<AuthUser>
+  createAccount(code: string, email: string, password: string): Promise<AuthUser>
+
+  /**
+   * Sign in with an email and password.
+   *
+   * A wrong password and an unknown address are the same `invalid-credentials`
+   * on purpose: telling them apart tells a stranger which addresses have
+   * accounts.
+   */
+  signInWithPassword(email: string, password: string): Promise<AuthUser>
+
+  /**
+   * Email a link that sets a new password.
+   *
+   * The link is finished on the provider's own page, in whatever browser opens
+   * it, and nothing comes back to the app — which is why this one survives iOS
+   * where the sign-in link did not. It is also how an account made with the old
+   * sign-in link gets a password at all.
+   *
+   * Resolves whether or not the address has an account, for the same reason
+   * `signInWithPassword` does not distinguish them.
+   */
+  sendPasswordReset(email: string): Promise<void>
 
   /** The signed-in Firebase user, before any member document is involved. */
   getAuthUser(): Promise<AuthUser | null>
 
   signOut(): Promise<void>
+
+  /**
+   * Make this device the one the account is signed in on, unless a later
+   * sign-in already is.
+   *
+   * One device at a time: the most recent sign-in holds the account, and every
+   * older one is signed out. Called on every load with somebody signed in,
+   * before anything else is read, which covers both a sign-in that has just
+   * happened and a device that signed in before this rule existed.
+   *
+   * `superseded` means the account has signed in somewhere else since this
+   * device did, and the caller should sign it out. Anything the check cannot
+   * settle — no connection — answers `claimed` and leaves it to `watchDevice`,
+   * because a load that waited for a network would not start in a gym.
+   */
+  claimDevice(): Promise<DeviceClaim>
+
+  /**
+   * Calls `onSuperseded` once, when the account signs in on another device.
+   *
+   * Same contract as `watchMessages`: callers must call the unsubscribe, and
+   * `onError` means the subscription has stopped.
+   */
+  watchDevice(
+    onSuperseded: () => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe>
 
   // =========================================================================
   // Membership — `members/{uid}`
@@ -169,10 +232,10 @@ export interface DataSource {
   // it is member state, so none of it is derived here — it is read as authored
   // and the screens render it.
   //
-  // All five are read once per load, in `hydrate`, because they change on the
-  // coach's timescale rather than the member's. Nothing polls them; a member
-  // who reloads gets the current version, which is the same guarantee the
-  // program has always had.
+  // Most of it is read once per load, in `hydrate`, because it changes on the
+  // coach's timescale rather than the member's; a member who reloads gets the
+  // current version, which is the same guarantee the program has always had.
+  // The exceptions are watched, and each says why.
   // =========================================================================
 
   /**
@@ -186,14 +249,15 @@ export interface DataSource {
   getProgram(): Promise<Program>
 
   /**
-   * The training week, in `dayNumber` order.
+   * The schedule: every week in `weekNumber` order, each with its days in date
+   * order.
    *
    * Includes the optional core & cardio finisher, which is a day like any
    * other with `optional: true` — `days` in the store filters it out of the
    * weekly quota, and `getDay` can still resolve it by id for a member who
    * opens it deliberately.
    */
-  listWorkoutDays(): Promise<WorkoutDay[]>
+  listProgramWeeks(): Promise<TrainingWeek[]>
 
   /** The guide library. Unlocking is per member and stays in the store. */
   listGuides(): Promise<Guide[]>
@@ -208,8 +272,35 @@ export interface DataSource {
    */
   getCohort(): Promise<Cohort | null>
 
-  /** The announcement deck, newest first. Empty is a normal answer. */
-  listAnnouncements(): Promise<Announcement[]>
+  /**
+   * The cohort document, live. Delivers what `getCohort` would, then again on
+   * every change.
+   *
+   * Watched as well as read at boot, because the admin flips
+   * `leaderboardVisible` on a cohort that members already have open, and an
+   * installed PWA can go days between reloads. A board switched off would stay
+   * on screen until somebody happened to close the app. Same contract as
+   * `watchMessages`: callers must call the unsubscribe, and `onError` means the
+   * subscription has stopped.
+   */
+  watchCohort(
+    onCohort: (cohort: Cohort | null) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe>
+
+  /**
+   * The announcement deck, live, newest first. Empty is a normal answer.
+   *
+   * Watched rather than read at boot, because a new card is announced by a
+   * notification that lands live. A bell announcing a card the deck does not
+   * have until the next reload would send the member to a screen without it. Same contract
+   * as `watchMessages`: callers must call the unsubscribe, and `onError` means
+   * the subscription has stopped.
+   */
+  watchAnnouncements(
+    onAnnouncements: (announcements: Announcement[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe>
 
   // =========================================================================
   // Uploads — Cloud Storage
@@ -241,6 +332,11 @@ export interface DataSource {
 
   // --- Check-ins --------------------- `members/{uid}/checkIns/week-{n}` ----
   listCheckIns(): Promise<CheckIn[]>
+  /**
+   * One a week, and final once sent. A second submission for a week that
+   * already has one is refused with `check-in-submitted` — it does not
+   * overwrite, and it does not pay out twice.
+   */
   saveCheckIn(input: CheckInInput): Promise<CheckIn>
 
   // --- Progress photos ------------------- `members/{uid}/photos/{id}` -----
@@ -254,11 +350,63 @@ export interface DataSource {
   // Authored per cohort, read state per member, so marking one read never
   // writes to a document the whole cohort is watching.
   // =========================================================================
-  listNotifications(): Promise<Notification[]>
+  /**
+   * The cohort's announcements, live, newest first.
+   *
+   * Watched rather than read at boot, because an inbox that only learns about a
+   * coach's message on the next reload is not telling anybody anything.
+   * Delivered immediately and then on every change. Same contract as
+   * `watchMessages`: callers must call the unsubscribe, and `onError` means the
+   * subscription has stopped.
+   */
+  watchNotifications(
+    onNotifications: (notifications: Notification[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe>
+
+  /**
+   * Cohort chat messages aimed at this member, live, newest first.
+   *
+   * "Aimed at" is `MessageDoc.addressedUids`: named with an `@`, or answered
+   * with a reply. These are the inbox's mentions and replies. Derived from the
+   * thread rather than written to the member as a notification of its own, so
+   * nothing about them can drift from the message: an edit that drops the name
+   * drops the notification, and a deleted message takes its notification with it.
+   *
+   * Capped at the newest 50, like the announcements. Same contract as
+   * `watchMessages`.
+   */
+  watchAddressedMessages(
+    onMessages: (messages: Message[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe>
+
+  /**
+   * This member's own cohort chat messages that others have reacted to, live,
+   * most recently reacted to first.
+   *
+   * The inbox's reactions, one line per message — see `MessageDoc.reactors` and
+   * `reactedAt`. Read off the message rather than the reactions under it, so a
+   * message forty people react to is one document here, not forty.
+   *
+   * Capped at the newest 50. Same contract as `watchMessages`.
+   */
+  watchReactedMessages(
+    onMessages: (messages: Message[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe>
+
   /** Notification id → when this member read it. Absent means unread. */
   listNotificationReads(): Promise<Record<string, Timestamp>>
   markNotificationRead(id: string): Promise<void>
-  markAllNotificationsRead(): Promise<void>
+  /**
+   * Mark each of `ids` read, in one write.
+   *
+   * The ids rather than "everything", because the caller decides what "all"
+   * means. It is what the member can see, and that is two live lists the
+   * store holds, not something this layer can re-query and get the same answer.
+   */
+  markNotificationsRead(ids: string[]): Promise<void>
 
   // =========================================================================
   // Chat — `cohorts/{cohortId}/threads/{threadId}/messages`
@@ -274,11 +422,99 @@ export interface DataSource {
    */
   listMessages(threadId: ThreadId): Promise<ChatMessageView[]>
 
-  /** `text` may be empty when the member is only sharing photos or files. */
+  /**
+   * The same thread, but kept live.
+   *
+   * A chat that is read once on mount is a chat where the other half of the
+   * conversation only exists after a reload, which is not a conversation. This
+   * subscribes instead: `onMessages` is called with the whole thread as it
+   * stands, immediately and then again on every change to it — anyone's
+   * message, anyone's reaction.
+   *
+   * The whole list every time rather than a delta, deliberately. The list is
+   * capped at the same 200 messages `listMessages` reads, a screen holds one
+   * array either way, and reconciling a stream of adds and removes against a
+   * local copy is where duplicated and missing bubbles come from.
+   *
+   * This member's own writes come back through here too, so a caller that has
+   * subscribed does not have to append what `sendMessage` returns — though one
+   * that does should merge by id rather than push, since the send may already
+   * have arrived this way.
+   *
+   * `onError` is for a subscription that has *stopped*: a rules refusal or a
+   * connection the SDK gave up on. There is no more `onMessages` after it.
+   *
+   * Resolves to the unsubscribe function. Callers must call it on unmount; a
+   * listener nobody has stopped keeps a socket open and a page alive.
+   */
+  watchMessages(
+    threadId: ThreadId,
+    onMessages: (messages: ChatMessageView[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe>
+
+  /**
+   * The newest message in a thread, and nothing else, live.
+   *
+   * For the unread dot on the chat tab, which has to stay right on every
+   * screen in the app — not only the one showing the thread. `watchMessages`
+   * would answer the same question, but it reads and re-reads the last 200
+   * documents to do it, on every load, for a badge that only ever needs the
+   * top one.
+   *
+   * `null` means the thread has nothing in it yet. Delivered immediately and
+   * then on every new message, like `watchMessages`, and the raw document
+   * rather than the view: a badge needs `sentAt` and `authorUid`, and resolving
+   * the viewer's reactions for it would be work nothing renders.
+   *
+   * Resolves to the unsubscribe function. Same contract as `watchMessages`:
+   * callers must call it, and `onError` means the subscription has stopped.
+   */
+  watchLatestMessage(
+    threadId: ThreadId,
+    onMessage: (message: Message | null) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe>
+
+  /**
+   * `text` may be empty when the member is only sharing photos or files.
+   *
+   * `replyTo` is stored as given rather than resolved from an id — see
+   * `ChatReplyRef` for why the quote is a snapshot. Callers should build it
+   * with `replyRefFor`, so every implementation excerpts the same way.
+   *
+   * `mentions` is the same kind of snapshot and is stored the same way. It is
+   * the sender's record of who they named, not a claim this layer re-derives:
+   * scanning the text for `@` here would highlight names nobody picked and
+   * would have to guess where a name with a space in it ends.
+   */
   sendMessage(
     threadId: ThreadId,
     text: string,
     attachments?: ChatAttachment[],
+    replyTo?: ChatReplyRef | null,
+    mentions?: ChatMention[],
+  ): Promise<ChatMessageView>
+
+  /**
+   * Rewrite the text of a message this member already sent.
+   *
+   * Text only. The attachments, the reply it answers and everyone's reactions
+   * stay exactly as they are — none of them is the thing being corrected, and a
+   * reaction left on a message whose words have changed is still a reaction to
+   * that message. Resolves to the message as it now stands.
+   *
+   * Throws `edit-window-closed` once the message is older than
+   * `EDIT_WINDOW_MS`, and `not-author` for somebody else's. Both are checked
+   * here *and* in the security rules, deliberately: the check here is what
+   * gives the member a sentence they can read, and the rule is what makes the
+   * window real, since anything a client enforces a client can skip.
+   */
+  editMessage(
+    threadId: ThreadId,
+    messageId: string,
+    text: string,
+    mentions?: ChatMention[],
   ): Promise<ChatMessageView>
 
   /**
@@ -291,6 +527,41 @@ export interface DataSource {
     messageId: string,
     emoji: string,
   ): Promise<ChatReaction[]>
+
+  /**
+   * Say whether the member is composing in this thread right now.
+   *
+   * Safe to call on every keystroke: implementations rate-limit the write, so
+   * the caller's job is only to describe the state honestly — `true` while
+   * there is something in the composer, `false` on send, on an idle pause, and
+   * on the way off the screen. A marker that is never turned off is the one
+   * failure mode this has, so `false` is also what a reader falls back to after
+   * `TYPING_TTL_MS` of silence.
+   *
+   * Never throws. A typing indicator that could take the composer down with it
+   * would be a bad trade, and there is nothing a member could do about it.
+   */
+  setTyping(threadId: ThreadId, typing: boolean): Promise<void>
+
+  /**
+   * Everyone *else* composing in this thread, live.
+   *
+   * The viewer is filtered out here rather than in the screen: their own
+   * marker is written by the same object that reads it back, so it would
+   * otherwise arrive a beat later and tell them they are typing.
+   *
+   * Stale markers are the reader's problem, not the writer's — see `TypingDoc`
+   * — so the list is filtered by age on delivery and re-delivered when the
+   * oldest entry in it expires, which is what makes an abandoned tab's
+   * indicator go away on its own.
+   *
+   * Resolves to the unsubscribe function, like `watchMessages`.
+   */
+  watchTyping(
+    threadId: ThreadId,
+    onTyping: (peers: TypingPeer[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe>
 
   // --- Rewards ------------------------- `members/{uid}/badges/{badgeId}` --
   /** Badge id → the award record, keyed so a lookup is not a scan. */
@@ -307,6 +578,21 @@ export interface DataSource {
    * `rankLeaderboard`.
    */
   listLeaderboard(): Promise<LeaderboardEntry[]>
+
+  /**
+   * How many members are in this cohort right now.
+   *
+   * Separate from `listLeaderboard().length`, which was standing in for it and
+   * cannot answer it honestly: that query is capped at 200 rows and is read
+   * once at boot, so a cohort larger than the cap undercounts and every cohort
+   * goes stale the moment anyone joins. Chat puts this number in front of
+   * members as "who can see what I am about to say", so it is worth one read of
+   * its own on the screen that shows it.
+   *
+   * The coach is not counted. They are the cohort's `coach`, not a member
+   * document, and the header names them separately.
+   */
+  countCohortMembers(): Promise<number>
 
   // --- Device ---------------------------------------------------------------
   /**
@@ -336,6 +622,22 @@ export interface DataSource {
 // and — the ones that matter — `qualifies`, `rewardPoints` and `weekNumber`. A
 // client that could name its own reward points could award itself any number.
 // =============================================================================
+
+/**
+ * The shortest password a new account may have.
+ *
+ * Firebase's own floor is six, and a project can raise it under Authentication
+ * → Settings → Password policy. Checked on the screen so the member hears it
+ * before a round trip; if the policy is ever set higher than this, the provider
+ * refuses with `weak-password` and the screen shows that instead.
+ */
+export const MIN_PASSWORD_LENGTH = 8
+
+/** Stops a live subscription. Idempotent — calling it twice is not an error. */
+export type Unsubscribe = () => void
+
+/** Whether this device holds the account. See `claimDevice`. */
+export type DeviceClaim = 'claimed' | 'superseded'
 
 /** A non-image file picked on the device, before anything has stored it. */
 export interface PendingFile {
@@ -376,14 +678,24 @@ export class DataSourceError extends Error {
       | 'code-wrong-email'
       | 'not-found'
       | 'unauthenticated'
-      /** The link was opened on a device that never requested it. */
-      | 'needs-email'
-      | 'expired-link'
+      /** The fifteen minutes a sent message can be rewritten in are up. */
+      | 'edit-window-closed'
+      /** An edit aimed at somebody else's message. */
+      | 'not-author'
+      /** This week's check-in is already in, and a sent one is never rewritten. */
+      | 'check-in-submitted'
+      | 'invalid-email'
+      /** Too short, or refused by the project's password policy. */
+      | 'weak-password'
+      /** A wrong password or an unknown address — deliberately one answer. */
+      | 'invalid-credentials'
+      /** A Google account with no DP Fitness account behind it. See `signInWithGoogle`. */
+      | 'no-account'
       /** The member closed the provider window themselves. Not an error to shout about. */
       | 'popup-cancelled'
       /** The provider is not enabled for this project, or there is no provider at all. */
       | 'provider-disabled'
-      /** This address is already held by a different sign-in method. */
+      /** This address already has an account, and the way in is signing in. */
       | 'account-exists'
       | 'unknown' = 'unknown',
   ) {

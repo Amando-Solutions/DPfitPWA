@@ -32,8 +32,8 @@ const forwarded = useForwardPropsEmits(delegated, emits)
     :class="
       cn(
         'inline-flex h-[27px] w-[46px] shrink-0 items-center rounded-pill p-[3px] transition-colors duration-[180ms] ease-out',
-        'bg-hairline-strong data-[state=checked]:bg-rose-fill',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-ring focus-visible:ring-offset-2 focus-visible:ring-offset-raised',
+        'bg-hairline-strong data-[state=checked]:bg-primary-fill',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring focus-visible:ring-offset-2 focus-visible:ring-offset-raised',
         'disabled:cursor-not-allowed disabled:opacity-45',
         props.class,
       )

@@ -192,7 +192,11 @@ export interface RegistrationDoc {
   email: string
   /** As typed. Not normalised to E.164 — see `MemberProfile.whatsapp`. */
   whatsapp: string
-  /** Free text: "Lagos, WAT". A human answer, because it picks a call slot. */
+  /**
+   * IANA zone, e.g. `Africa/Lagos`, picked from a list on the landing form —
+   * so it can be read against `Cohort.timezone` rather than only by a person.
+   * Registrations taken before the picker hold free text: "Lagos, WAT".
+   */
   timezone: string
   cohortId: string
   source: RegistrationSource
@@ -238,19 +242,35 @@ export interface CoachRef {
 }
 
 /**
- * The weekly live call, set by the coach on the cohort document.
+ * The weekly live call, as the admin app writes it on the cohort document.
  *
- * One time for the whole cohort: there are no slots to assign, no attendance
- * to record and nothing to mark as done, so every member sees the same card
- * every week. `null` on the cohort means there is no call this block, and Home
- * renders nothing rather than a card with a dead button — which is the whole
- * reason this is a nullable object rather than two nullable strings. A `when`
- * with no `joinUrl` is not a state anybody should have to render.
+ * One call for the whole cohort: there are no slots to assign, no attendance
+ * to record and nothing to mark as done, so every member sees the same card.
+ *
+ * `startsAt` is one occurrence and the call repeats every seven days from it,
+ * so it is set once rather than every week. Moving the call is moving that
+ * instant, and the weeks after follow it. Skipping a week is moving it a week
+ * later, because nothing before `startsAt` is a call.
+ *
+ * Every field is nullable because the map exists before anybody has filled it
+ * in: a new cohort carries it empty, so the admin app edits fields that are
+ * already there. A map missing `startsAt` or `joinUrl` is no call at all — a
+ * time with no link is a button that goes nowhere, and a link with no time is
+ * a meeting nobody knows to attend. `Cohort.liveCall` is that reading of it.
  */
-export interface LiveCall {
-  /** As it reads on the card, e.g. "Tuesday, 7:00 PM WAT". Carries its own zone. */
-  when: string
+export interface LiveCallDoc {
+  /** When one occurrence starts. The same instant for every member, whatever their zone. */
+  startsAt: Timestamp | null
+  /** How long the join button stays open after `startsAt`. 60 when unset. */
+  durationMinutes: number | null
   /** Zoom, Meet, whatever the coach uses. Opened in a new tab. */
+  joinUrl: string | null
+}
+
+/** A live call complete enough to put on Home. See `liveCallFrom`. */
+export interface LiveCall {
+  startsAt: Timestamp
+  durationMinutes: number
   joinUrl: string
 }
 
@@ -274,11 +294,11 @@ export interface CohortDoc extends Audited {
   programVersion: number | null
   archivedAt: Timestamp | null
   /**
-   * The weekly call, or `null` when this cohort has none. Set from the console
-   * — see FIREBASE.md — and read on Home, which renders no card at all when it
-   * is absent.
+   * The weekly call, or `null` when this cohort has none. Set by the admin app
+   * — see FIREBASE.md — and read on Home, which shows it on the day it happens
+   * and nothing on any other day.
    */
-  liveCall: LiveCall | null
+  liveCall: LiveCallDoc | null
   /**
    * Whether the cohort leaderboard is visible to members yet.
    *
@@ -290,13 +310,17 @@ export interface CohortDoc extends Audited {
    * Per cohort rather than per program: it is a decision about *these* members
    * and when they are ready for it, and a coach has to be able to move it
    * without re-versioning the plan everyone is training against.
+   *
+   * Set by the admin app — see FIREBASE.md. This app watches the document, so
+   * flipping it reaches members with it open.
    */
   leaderboardVisible: boolean
   /** The week it is meant to appear in, used only for the reveal notice. */
   leaderboardRevealWeek: number
 }
 
-export type Cohort = WithId<CohortDoc>
+/** The cohort as the app handles it: the live call already read as complete or absent. */
+export type Cohort = WithId<Omit<CohortDoc, 'liveCall'> & { liveCall: LiveCall | null }>
 
 // =============================================================================
 // Programs — `programs/{programId}`
@@ -306,13 +330,16 @@ export type Cohort = WithId<CohortDoc>
 // prescribed.
 // =============================================================================
 
-export interface WeekTheme {
-  weekNumber: number
-  /** "Overload" */
-  title: string
-  /** "Push intensity, prove the work" */
-  subtitle: string
-}
+/**
+ * A calendar date, `YYYY-MM-DD`, with no time and no zone.
+ *
+ * Not a `Timestamp`, because a training day is a date and not an instant.
+ * Midnight in Lagos is 23:00 the evening before in UTC, so a timestamp typed
+ * into the console reads back a day early anywhere that renders it in UTC, and
+ * a day late for a member abroad. A string is the same day for everyone and
+ * compares directly against `dateKey(now)`.
+ */
+export type DateKey = string
 
 /** What each action pays out, in reward points. */
 export interface RewardValues {
@@ -333,6 +360,7 @@ export type BadgeRuleId =
   | 'foundation-complete'
   | 'peak-performer'
   | 'no-days-off'
+  | 'final-photo'
 
 export interface BadgeDef {
   id: BadgeRuleId
@@ -383,16 +411,41 @@ export interface ProgramDoc extends Audited {
    * session to earn anything. The gate the whole reward system hangs off.
    */
   qualifyingSetPercent: number
-  /** How many documents are in the `workoutDays` subcollection. */
-  workoutDayCount: number
-  weekThemes: WeekTheme[]
   rewards: RewardConfig
   publishedAt: Timestamp | null
 }
 
 export type Program = WithId<ProgramDoc>
 
-// --- Workout days -------------- `programs/{programId}/workoutDays/{dayId}` --
+// --- Weeks -------------------------- `programs/{programId}/weeks/{weekId}` --
+//
+// The schedule. Each week is a document with its dates on it, and its training
+// days are documents beneath it, so "which week is the challenge in" and "what
+// is on today" are both a date comparison rather than arithmetic off whenever
+// a member happened to join. Ids are `week-1`, `week-2`, … by convention;
+// nothing reads the id, `weekNumber` is what orders them.
+
+export interface ProgramWeekDoc extends Audited {
+  /** 1-based. The number sessions, check-ins and photos are stamped with. */
+  weekNumber: number
+  /** "Overload". Empty renders "Week 3" on its own. */
+  title: string
+  /** "Push intensity, prove the work" */
+  subtitle: string
+  /** The week's first calendar day. */
+  startDate: DateKey
+  /** Its last, inclusive. Rest days count: a week is its span, not its sessions. */
+  endDate: DateKey
+}
+
+export type ProgramWeek = WithId<ProgramWeekDoc>
+
+/** A week with its days read in beneath it, ordered by date. */
+export interface TrainingWeek extends ProgramWeek {
+  days: WorkoutDay[]
+}
+
+// --- Workout days ------- `programs/{programId}/weeks/{weekId}/days/{dayId}` --
 
 /** One prescribed set. No `done` flag: completion is member state, not plan. */
 export interface PrescribedSet {
@@ -410,12 +463,40 @@ export interface Exercise {
   targetReps: string
   restSeconds: number
   videoThumbUrl: string | null
+  /**
+   * The demo clip the How to tab plays, in a `<video>` element. An https link to
+   * the video file itself, from any host — UploadThing, a storage bucket, a CDN.
+   * Not a page that shows a video: a YouTube, Vimeo or Google Drive share link
+   * is HTML, and will not play.
+   *
+   * Any format can be stored, but only what the member's browser decodes will
+   * play. MP4 (H.264) plays everywhere; an iPhone's HEVC `.mov` does not play in
+   * Chrome on Android. When a link will not play, the tab offers to open it.
+   *
+   * Null shows the "Video coming soon" placeholder. Always written, null when
+   * there is no video, so every exercise has the same shape. The app still
+   * treats it absent as null, and `firestore.staging.rules` still accepts it
+   * absent, because a database that has not been backfilled has none.
+   */
+  videoUrl: string | null
   cues: string[]
   sets: PrescribedSet[]
 }
 
+/**
+ * One training day in one week.
+ *
+ * **Reuse the id across weeks.** Week 1's quad day and week 4's quad day are
+ * both `day-1`, which is what lets a session logged against one count toward
+ * "every training day three times each" — that badge counts by id — and lets a
+ * session resumed across a week boundary still find its day.
+ */
 export interface WorkoutDayDoc extends Audited {
-  /** Position in the training week, 1-based. */
+  /** The week it belongs to. Matches the parent `weeks` document. */
+  weekNumber: number
+  /** The date it is scheduled for. It is open from this date to the week's end. */
+  date: DateKey
+  /** Its position in the week's sessions, 1-based: the "Day 2" on the card. */
   dayNumber: number
   /** "Upper (Push Focus)" */
   label: string
@@ -505,13 +586,6 @@ export interface MemberProfile {
   activity: ActivityLevel | ''
   goal: Goal | ''
   trainingDaysPerWeek: number
-  /**
-   * Anything medical the coach should train around: conditions, medication,
-   * dietary restrictions. Replaced the narrower `allergies` field, which only
-   * ever collected a subset of what members actually needed to tell us.
-   */
-  healthConditions: string
-  injuries: string
   avatarUrl: string
 }
 
@@ -549,9 +623,25 @@ export interface MemberStats {
 export type MemberStatus = 'onboarding' | 'active' | 'paused' | 'completed'
 
 export interface MemberDoc extends UpdatedBy {
-  /** From Firebase Auth. The address the sign-in link was sent to. */
+  /**
+   * From Firebase Auth, at redemption: the address the access code was issued
+   * to. Fixed after that — `firestore.rules` refuses an account whose email no
+   * longer matches it, so an email change made through the Auth API cannot take
+   * the membership with it. Support changing a member's email changes both.
+   */
   email: string
   emailVerified: boolean
+  /**
+   * The sign-in the membership was made under, as the ID token names it:
+   * `password`, or `google.com` for an account from before access codes came
+   * first. Fixed once written.
+   *
+   * Absent on memberships made before the field existed, and the rules read that
+   * absence: those members may sign in with Google on any address, where a
+   * newer membership needs Firebase to have verified it. See `trustsSignIn` in
+   * `firestore.rules`.
+   */
+  joinedWith?: string
   status: MemberStatus
   /** What to return to on resume. Only set while `status === 'paused'`. */
   previousStatus: Exclude<MemberStatus, 'paused'> | null
@@ -666,12 +756,26 @@ export interface StoredImage {
 }
 
 export interface SessionLogDoc {
-  /** The `workoutDays` document this session was logged against. */
+  /** The `days` document this session was logged against. Shared across weeks. */
   dayId: string
   dayNumber: number
   label: string
-  /** 1-based challenge week, resolved at write time against `joinedAt`. */
+  /** 1-based challenge week, resolved at write time against the program's dated weeks. */
   weekNumber: number
+  /**
+   * The week whose copy of `dayId` this session was for.
+   *
+   * Not always `weekNumber`: a day missed in week 1 stays open, and when it is
+   * caught up in week 3 the session is *filed* under week 3 — that is when the
+   * member trained, and what streaks count — but it is week 1's day that is now
+   * logged. Day ids repeat across weeks, so without this the catch-up would
+   * mark week 3's day of the same id as done instead.
+   *
+   * Absent on sessions written before catch-ups could cross a week, and for
+   * those `weekNumber` is the right answer: a day could only be logged in its
+   * own week. Read it through `planWeekOf`.
+   */
+  planWeek?: number
   completedAt: Timestamp
   durationSeconds: number
   volumeKg: number
@@ -710,6 +814,11 @@ export type SessionLog = WithId<SessionLogDoc>
 
 export interface ActiveSessionDoc {
   dayId: string
+  /**
+   * The week whose copy of `dayId` is in progress. See `SessionLogDoc.planWeek`.
+   * Absent on a session opened before it existed, which was the current week's.
+   */
+  planWeek?: number
   startedAt: Timestamp | null
   elapsedSeconds: number
   running: boolean
@@ -724,7 +833,8 @@ export type ActiveSession = WithId<ActiveSessionDoc>
 // --- Check-ins ----------------------- `members/{uid}/checkIns/week-{n}` -----
 //
 // The document id is the week (`week-3`), so one check-in per week is enforced
-// by the key and a resubmit is a natural overwrite.
+// by the key. Once sent it is final: the rules allow the create and nothing
+// after it.
 
 export type TrainingFeel = 'too-easy' | 'just-right' | 'too-hard'
 
@@ -821,6 +931,48 @@ export interface ChatAttachment {
   downloadUrl: string
 }
 
+/**
+ * The message a reply is answering, snapshotted onto the reply itself.
+ *
+ * A copy rather than an id to look up, for two reasons. A thread is read as
+ * its last 200 messages, so a reply to something older would have nothing to
+ * resolve against and would render an empty quote. And a quote is a record of
+ * what was said at the time: the original's author can delete it, and the
+ * reply still has to read as an answer to something.
+ *
+ * `messageId` is kept anyway, because tapping a quote jumps to the original
+ * when it is still on screen. It is a hint, not a dependency.
+ */
+export interface ChatReplyRef {
+  messageId: string
+  authorUid: string
+  authorName: string
+  /** Trimmed to a preview length at send time; empty for a photos-only message. */
+  text: string
+  /** What the quoted message carried, when there was no text to excerpt. */
+  attachmentKind: 'image' | 'file' | null
+}
+
+/**
+ * One person named in a message, snapshotted onto it.
+ *
+ * The name is stored beside the uid for the reason `ChatReplyRef` stores the
+ * quoted text: a mention is a record of who was named *at the time*, and the
+ * roster it was picked from is not guaranteed to still hold them. A member who
+ * leaves the cohort loses their leaderboard projection, and a mention that
+ * resolved its label through that would degrade from "@Tomi" to nothing on
+ * every message that ever named her.
+ *
+ * It is also what makes the highlight findable at all. Display names contain
+ * spaces — "Coach Dayo" — so `@`-tokens cannot be recovered from the text by
+ * splitting it; the stored name is the span to look for. See `mentionSegments`.
+ */
+export interface ChatMention {
+  uid: string
+  /** Exactly as it appears after the `@` in `text`. */
+  name: string
+}
+
 export interface MessageDoc {
   authorUid: string
   authorName: string
@@ -829,7 +981,45 @@ export interface MessageDoc {
   /** May be empty when the member is only sharing photos or files. */
   text: string
   sentAt: Timestamp
+  /**
+   * When the author last rewrote this message, or `null` if they never have.
+   *
+   * A stamp rather than a count or a history, because the thread renders
+   * "Edited" and nothing else: what a reader needs to know is that the words
+   * they are looking at are not the words that were sent, and a revision log
+   * nobody can open is weight on every document for a label that never changes.
+   *
+   * Absent entirely on every message sent before editing existed, so it is
+   * normalised on the way out like `replyTo`. See `EDIT_WINDOW_MS` for how long
+   * it can be set, and `firestore.rules` for what makes that true.
+   */
+  editedAt: Timestamp | null
   attachments: ChatAttachment[]
+  /** What this message is answering, or `null` when it starts its own thread. */
+  replyTo: ChatReplyRef | null
+  /**
+   * Everyone named in `text`, in no particular order.
+   *
+   * Absent on every message sent before mentions existed, and normalised to an
+   * empty list on the way out like `replyTo` and `editedAt`.
+   */
+  mentions: ChatMention[]
+  /**
+   * Everyone this message is aimed at, as uids: the people it names, and the
+   * author of the message it answers. Never the sender.
+   *
+   * A derived copy of `mentions` and `replyTo`, and only there to be queried.
+   * The inbox asks "which messages are for me", and Firestore cannot answer
+   * that off a list of `{ uid, name }` maps — `array-contains` matches a whole
+   * element, and the name half is a snapshot that stops matching the moment
+   * somebody renames themselves. A flat list of uids is one indexed query.
+   *
+   * Written by `addressedUidsOf` on send and again on every edit, so a name
+   * added or removed in an edit moves the notification with it. Absent on every
+   * message sent before it existed, which is also what keeps those out of the
+   * inbox: a reply from three weeks ago arriving as new would be noise.
+   */
+  addressedUids: string[]
   /**
    * Everyone's reactions, as emoji → count.
    *
@@ -839,6 +1029,36 @@ export interface MessageDoc {
    * `reactions` subcollection below.
    */
   reactionCounts: Record<string, number>
+  /**
+   * Everyone other than the author with a reaction on this message, keyed by
+   * uid. What the author's inbox says: "Tomi and 4 others reacted".
+   *
+   * A second record of who reacted, next to the `reactions` subcollection,
+   * because the inbox reads the author's own messages and cannot afford a read
+   * per reactor behind each one. Keyed by uid rather than listed, so the rules
+   * can hold a member to their own entry with a map diff.
+   *
+   * Absent until somebody reacts, and on every message reacted to only before
+   * it existed.
+   */
+  reactors?: Record<string, MessageReactor>
+  /**
+   * When somebody last started reacting to this message, author aside.
+   *
+   * Moves when a member goes from no reaction to some, and at no other time: a
+   * second emoji, or a reaction taken back, is not news for the author. Absent
+   * until then, which is what keeps unreacted messages out of the query the
+   * inbox runs on it.
+   */
+  reactedAt?: Timestamp
+}
+
+/** One member's entry in `MessageDoc.reactors`. */
+export interface MessageReactor {
+  /** Their name as the cohort sees it, when they reacted. */
+  name: string
+  /** When they went from no reaction to some. */
+  at: Timestamp
 }
 
 export type Message = WithId<MessageDoc>
@@ -847,6 +1067,31 @@ export type Message = WithId<MessageDoc>
 export interface MessageReactionDoc {
   emojis: string[]
   updatedAt: Timestamp
+}
+
+/**
+ * `…/threads/{threadId}/typing/{uid}` — one document per person composing.
+ *
+ * Ephemeral, and treated as such at both ends. The writer refreshes it while
+ * the composer has something in it and deletes it the moment it doesn't; the
+ * reader ignores anything older than `TYPING_TTL_MS`, so a tab that was closed
+ * mid-sentence leaves an indicator that expires on its own rather than one that
+ * hangs there until somebody else writes.
+ *
+ * The name is denormalised for the same reason a message's is: rendering
+ * "Tomi is typing…" must not cost a read of Tomi's member document, which this
+ * member is not allowed to make anyway.
+ */
+export interface TypingDoc {
+  name: string
+  at: Timestamp
+}
+
+/** Somebody other than the viewer with the composer open, as the UI sees them. */
+export interface TypingPeer {
+  uid: string
+  name: string
+  at: Timestamp
 }
 
 // =============================================================================
@@ -862,7 +1107,14 @@ export interface MessageReactionDoc {
 // =============================================================================
 
 /** How this session proved the address. */
-export type AuthProvider = 'email-link' | 'google'
+/**
+ * How this session signed in.
+ *
+ * `password` covers every account the old sign-in link made, too: Firebase files
+ * the link and the password under the same provider, which is also why a
+ * password reset gives those accounts a password without touching anything else.
+ */
+export type AuthProvider = 'password' | 'google'
 
 /** The signed-in Firebase Auth user, before any member document is involved. */
 export interface AuthUser {
@@ -872,8 +1124,8 @@ export interface AuthUser {
   /**
    * What the provider already knew about them.
    *
-   * Google hands over a name and an avatar; an email link hands over nothing
-   * but the address, so both are empty strings on that path. `redeemAccessCode`
+   * Google hands over a name and an avatar; an email and password hand over
+   * nothing but the address, so both are empty strings on that path. `redeemAccessCode`
    * seeds the new member's profile from these, which is the difference between
    * arriving at setup with your name already in the field and typing it again.
    */
@@ -882,15 +1134,25 @@ export interface AuthUser {
   provider: AuthProvider
 }
 
-export type SignInLinkStatus =
-  /** Nothing pending; show the email field. */
-  | 'idle'
-  /** Link sent, waiting for them to open it. */
-  | 'sent'
-  /** Opened on a different device, so the address has to be re-entered. */
-  | 'needs-email'
-  | 'expired'
-  | 'invalid'
+/**
+ * `signIns/{uid}` — the account's most recent sign-in. One per account.
+ *
+ * An account is signed in on one device at a time, and this is how that is
+ * decided: the latest sign-in holds the account, and every device holding an
+ * older one is signed out.
+ *
+ * A sign-in is identified by `auth_time` from its ID token — the moment that
+ * device signed in, in seconds. Firebase keeps it unchanged every time the token
+ * is refreshed, so it names the sign-in rather than the token, and it is
+ * something the rules can read too (`request.auth.token.auth_time`). That is
+ * what lets `firestore.rules` refuse an older device outright rather than
+ * trusting it to sign itself out.
+ */
+export interface SignInDoc {
+  /** `auth_time` of the sign-in that holds the account, in epoch seconds. */
+  authTime: number
+  signedInAt: Timestamp
+}
 
 /**
  * Where a member lands after sign-in.
@@ -898,9 +1160,11 @@ export type SignInLinkStatus =
  * The first three exist because auth and cohort membership are separate facts,
  * and the routing goes wrong in a different way for each:
  *
- *   `needs-auth`  nobody is signed in. The sign-in half of `/access-code`.
- *   `needs-code`  signed in, and the member document is *known* to be absent.
- *                 The code half.
+ *   `needs-auth`  nobody is signed in. `/access-code` to make an account,
+ *                 `/sign-in` to use one.
+ *   `needs-code`  signed in, and the member document is *known* to be absent:
+ *                 a sign-up cut off before its code was redeemed. `/access-code`,
+ *                 which redeems for the session already there.
  *   `unknown`     signed in, and the member document could not be read at all
  *                 — offline, blocked, or refused. Not the same as not having
  *                 one, and it must never be answered with the code prompt: a
@@ -926,8 +1190,41 @@ export type MemberGate =
 
 /** A plan day with this member's progress resolved against it. */
 export interface WorkoutDayView extends WorkoutDay {
-  /** `locked`: next in the plan, but today's session is already logged. */
-  status: 'completed' | 'today' | 'upcoming' | 'rest' | 'locked'
+  /**
+   * Where this day sits on the member's calendar, not whether they may train.
+   *
+   *   `completed`  this week's copy of the day is logged.
+   *   `today`      the day the plan schedules for today.
+   *   `upcoming`   still ahead of them.
+   *   `missed`     its date has passed and nothing was logged against it.
+   *
+   * The schedule is the day's own `date`, the same for the whole cohort.
+   * `missed` is a statement about the date, not a verdict: a day behind them,
+   * in this week or an earlier one, is still open to log — see `canStart`.
+   */
+  status: 'completed' | 'today' | 'upcoming' | 'missed'
+  /**
+   * Whether logging can begin on this day right now.
+   *
+   * The one thing the screens gate the Start button on. True on today's day and
+   * on every day behind it the member never logged, whichever week it is in, so
+   * falling behind is something they can train their way out of. False only on
+   * days the calendar has not reached and on days already logged — the first
+   * of which is what keeps the block from being run off in one evening.
+   *
+   * Opening a day to read it is never gated; only starting one is.
+   */
+  canStart: boolean
+  /**
+   * Nights until this day's date: `0` when it is today, negative once it has
+   * passed.
+   *
+   * Carried on the view because the screens all want to say *when* rather than
+   * just "locked", and date arithmetic is not something a template should be
+   * doing. `null` for a day with no slot on the calendar — the optional
+   * finisher, resolved through `getDay`.
+   */
+  opensInNights: number | null
 }
 
 export interface GuideView extends Guide {
@@ -938,6 +1235,13 @@ export interface NotificationView extends Notification {
   read: boolean
   /** "2h ago", rendered against the trusted clock. */
   timeLabel: string
+  /**
+   * Where tapping it goes, or `null` for one that is only there to be read.
+   *
+   * Coach announcements have nowhere to go. A mention or a reply does: the
+   * message itself, which is the only place it can be answered.
+   */
+  to: string | null
 }
 
 /** One emoji on one message, with how many people picked it. */
@@ -1010,6 +1314,11 @@ export interface AnnouncementDoc extends Audited {
   cta: string | null
   /** Where `cta` goes. Ignored, and the button not rendered, when `cta` is null. */
   ctaUrl: string | null
+  /**
+   * Named for the palette this shipped under and stored as such, so the
+   * values keep their names: `rose` now renders as the primary purple and
+   * `orange` as the violet.
+   */
   accent: 'rose' | 'orange' | 'ink'
   /** An instant. Newest first, like the inbox. */
   publishedAt: Timestamp
@@ -1027,5 +1336,4 @@ export interface NutritionTargets {
   fatG: number
   carbsG: number
   approach: string
-  plateStructure: string
 }

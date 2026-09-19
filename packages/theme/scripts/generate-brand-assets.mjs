@@ -5,12 +5,12 @@
  * — `BrandLogo` and `BrandIcon` next door. What has to be raster is the set a
  * browser, an OS or a mail client will not take an SVG for: the ICO a legacy
  * tab bar wants, the PNG iOS pins to a home screen, the manifest icons Android
- * renders, the share card a link unfurls into, and the two lockups the
- * access-code email hangs off an `<img>`. Those are what this writes, and
- * nothing else, because every other use of the logo should be reaching for the
- * components.
+ * renders, the share card a link unfurls into, and the two lockups plus the
+ * two build credits the access-code email hangs off an `<img>`. Those are what
+ * this writes, and nothing else, because every other use of the logo should be
+ * reaching for the components.
  *
- * Run it after changing anything in `/logo`:
+ * Run it after changing anything in `/logo` or `/poweredBy`:
  *
  *   bun run --filter @dpfit/theme brand:assets
  *
@@ -37,36 +37,73 @@ const markPath = readFileSync(repo('logo/Colored icon.svg'), 'utf8')
 if (!markPath) throw new Error('logo/Colored icon.svg: no path found')
 
 /**
- * The full lockup, for the share card and the email mastheads. Its mark is a
- * separately positioned copy rather than `markPath` under a transform, so it
- * is read from the export too: the spacing between mark and wordmark is the
- * designer's, not ours.
+ * The wordmark — FITNESS, on its own. Seven paths, one per letter.
  *
- * Each path is read with the fill it was exported with, so a colourway is
- * picked by naming a file rather than by choosing colours here. All four
- * lockup exports are the same ten paths in the same order, the mark last.
+ * The brand keeps the wordmark and the mark in separate files, in the same
+ * 90-wide coordinate space, which is what lets the lockup below be composed
+ * rather than pasted.
  */
-const lockupOf = (file) => {
-  const paths = [
-    ...readFileSync(repo(file), 'utf8').matchAll(
-      /<path d="([^"]+)" fill="([^"]+)"/g,
-    ),
-  ].map((m) => ({ d: m[1], fill: m[2] }))
-  if (paths.length !== 10) {
-    throw new Error(`${file}: expected 10 paths, found ${paths.length}`)
-  }
-  return paths
+const wordmarkPaths = [
+  ...readFileSync(repo('logo/Colored wordmark.svg'), 'utf8').matchAll(
+    /<path d="([^"]+)"/g,
+  ),
+].map((m) => m[1])
+if (wordmarkPaths.length !== 7) {
+  throw new Error(
+    `logo/Colored wordmark.svg: expected 7 paths, found ${wordmarkPaths.length}`,
+  )
 }
 
-const lockupPaths = lockupOf('logo/White full logo.svg').map((p) => p.d)
+/**
+ * amando's wordmark — the build credit, and the one piece of artwork here that
+ * is not DP Fitness's.
+ *
+ * Read for the same reason everything else on this page is read rather than
+ * pasted: `poweredBy/Main logo.svg` stays the single source of the geometry,
+ * shared with `PoweredBy.vue` and the PWA's boot template. One path, 117 x 21.
+ */
+const creditPath = readFileSync(repo('poweredBy/Main logo.svg'), 'utf8')
+  .match(/<path d="([^"]+)"/)?.[1]
+if (!creditPath) throw new Error('poweredBy/Main logo.svg: no path found')
+
+const CREDIT_W = 117
+const CREDIT_H = 21
 
 const MARK_W = 90
 const MARK_H = 57
-const LOCKUP_W = 119
-const LOCKUP_H = 93
+const WORDMARK_H = 10
+
+/**
+ * The lockup: the mark, with FITNESS set under it.
+ *
+ * COMPOSED, not read from a file, because the brand ships the combined lockup
+ * as a PNG only — there is no `logo & wordmark` SVG to take paths out of. What
+ * is composed is only the arrangement; both pieces of artwork still come from
+ * their own exports untouched.
+ *
+ * The arrangement is measured off the designer's PNGs rather than invented.
+ * `logo & black wordmark.png` and its siblings are 270x227, which is exactly
+ * 3x the 90-wide source: a 171px mark (3 x 57), a 26px gap, then a 30px
+ * wordmark (3 x 10). So the lockup is authored in that same 3x space, which
+ * keeps every number here an integer and the gap exact.
+ */
+const LOCKUP_SCALE = 3
+const LOCKUP_W = MARK_W * LOCKUP_SCALE // 270
+const LOCKUP_H = 227
+/** Where the wordmark's own box starts: the mark, plus the measured 26px gap. */
+const WORDMARK_Y = MARK_H * LOCKUP_SCALE + 26 // 197
+
+/** The lockup's inner markup, at `viewBox="0 0 270 227"`, in two colours. */
+const lockup = (markFill, wordFill) => `<g transform="scale(${LOCKUP_SCALE})">
+    <path d="${markPath}" fill="${markFill}"/>
+  </g>
+  <g transform="translate(0 ${WORDMARK_Y}) scale(${LOCKUP_SCALE})">
+    ${wordmarkPaths.map((d) => `<path d="${d}" fill="${wordFill}"/>`).join('\n    ')}
+  </g>`
+
 const PLUM = '#430f32'
 /** `--surface-raised`, and the manifest's `background_color`. */
-const CREAM = '#fbf6f2'
+const GROUND = '#fcfbff'
 
 /**
  * The mark, centred in a square.
@@ -94,10 +131,10 @@ const targets = [
   // Transparent: the tab bar supplies its own ground, in either theme.
   { file: 'favicon-32.png', size: 32, scale: 0.78, bg: null },
   // iOS composites a home-screen icon onto black, so this one needs a ground.
-  { file: 'apple-touch-icon.png', size: 180, scale: 0.64, bg: CREAM },
-  { file: 'icon-192.png', size: 192, scale: 0.64, bg: CREAM },
-  { file: 'icon-512.png', size: 512, scale: 0.64, bg: CREAM },
-  { file: 'icon-512-maskable.png', size: 512, scale: 0.5, bg: CREAM },
+  { file: 'apple-touch-icon.png', size: 180, scale: 0.64, bg: GROUND },
+  { file: 'icon-192.png', size: 192, scale: 0.64, bg: GROUND },
+  { file: 'icon-512.png', size: 512, scale: 0.64, bg: GROUND },
+  { file: 'icon-512-maskable.png', size: 512, scale: 0.5, bg: GROUND },
 ]
 
 const browser = await chromium.launch()
@@ -159,20 +196,20 @@ const lockupW = (lockupH * LOCKUP_W) / LOCKUP_H
 const og = `<svg xmlns="http://www.w3.org/2000/svg" width="${OG_W}" height="${OG_H}" viewBox="0 0 ${OG_W} ${OG_H}">
   <rect width="${OG_W}" height="${OG_H}" fill="#0f0a14"/>
   <defs>
-    <radialGradient id="rose" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#c81e5c" stop-opacity="0.34"/>
-      <stop offset="45%" stop-color="#c81e5c" stop-opacity="0.05"/>
-      <stop offset="70%" stop-color="#c81e5c" stop-opacity="0"/>
+    <radialGradient id="primary" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#9333ea" stop-opacity="0.34"/>
+      <stop offset="45%" stop-color="#9333ea" stop-opacity="0.05"/>
+      <stop offset="70%" stop-color="#9333ea" stop-opacity="0"/>
     </radialGradient>
-    <radialGradient id="amber" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#e8a33d" stop-opacity="0.18"/>
-      <stop offset="66%" stop-color="#e8a33d" stop-opacity="0"/>
+    <radialGradient id="violet" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#9d7fea" stop-opacity="0.2"/>
+      <stop offset="66%" stop-color="#9d7fea" stop-opacity="0"/>
     </radialGradient>
   </defs>
-  <ellipse cx="${OG_W / 2}" cy="60" rx="700" ry="440" fill="url(#rose)"/>
-  <ellipse cx="${OG_W - 60}" cy="${OG_H - 40}" rx="420" ry="420" fill="url(#amber)"/>
+  <ellipse cx="${OG_W / 2}" cy="60" rx="700" ry="440" fill="url(#primary)"/>
+  <ellipse cx="${OG_W - 60}" cy="${OG_H - 40}" rx="420" ry="420" fill="url(#violet)"/>
   <g transform="translate(${(OG_W - lockupW) / 2} ${(OG_H - lockupH) / 2}) scale(${lockupH / LOCKUP_H})">
-    ${lockupPaths.map((d) => `<path d="${d}" fill="#ffffff"/>`).join('\n    ')}
+    ${lockup('#ffffff', '#ffffff')}
   </g>
 </svg>`
 
@@ -192,10 +229,11 @@ console.log(`✓ og.png  ${OG_W}x${OG_H}`)
  * `data:` URI on an `<img>`, so a hosted raster is the only way an email
  * carries the real artwork rather than a typeset approximation of it.
  *
- * Two colourways, because the email has two grounds: the all-white export for
- * the night masthead (and for the footer of a client in dark mode), the plum
- * mark over a black wordmark for the footer on paper. Both fills come from the
- * designer's own exports, so nothing about the colour is decided here.
+ * Two colourways, because the email has two grounds: all-white for the night
+ * masthead (and for the footer of a client in dark mode), the plum mark over a
+ * black wordmark for the footer on paper. Both are colourways the brand ships
+ * as PNGs — `White logo & wordmark` and `logo & black wordmark` — rebuilt here
+ * as vector so they rasterise crisply at whatever size the email asks for.
  *
  * 192px wide is 3x the 64px the masthead shows it at, which is what a retina
  * inbox asks for. Transparent, so each one sits on whichever ground it lands.
@@ -203,14 +241,12 @@ console.log(`✓ og.png  ${OG_W}x${OG_H}`)
 const EMAIL_LOGO_W = 192
 const EMAIL_LOGO_H = Math.round((EMAIL_LOGO_W * LOCKUP_H) / LOCKUP_W)
 
-for (const [file, source] of [
-  ['logo-white.png', 'logo/White full logo.svg'],
-  ['logo-color.png', 'logo/Colored full logo black wordmark.svg'],
+for (const [file, markFill, wordFill] of [
+  ['logo-white.png', '#ffffff', '#ffffff'],
+  ['logo-color.png', PLUM, '#000000'],
 ]) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${EMAIL_LOGO_W}" height="${EMAIL_LOGO_H}" viewBox="0 0 ${LOCKUP_W} ${LOCKUP_H}">
-  ${lockupOf(source)
-    .map(({ d, fill }) => `<path d="${d}" fill="${fill}"/>`)
-    .join('\n  ')}
+  ${lockup(markFill, wordFill)}
 </svg>`
   await page.setViewportSize({ width: EMAIL_LOGO_W, height: EMAIL_LOGO_H })
   await page.setContent(
@@ -224,6 +260,47 @@ for (const [file, source] of [
     }),
   )
   console.log(`✓ ${file}  ${EMAIL_LOGO_W}x${EMAIL_LOGO_H}  (transparent)`)
+}
+
+/**
+ * The build credit's wordmark, for the footer of that same email.
+ *
+ * Only the wordmark: "Powered by" stays live text in the email, because it is
+ * the half that should be selectable and read aloud, and because it then takes
+ * the footer's own muted ink rather than being baked into a raster at one
+ * colour. What has to be a raster is amando's artwork, for the reason above —
+ * a mail client will not take the SVG.
+ *
+ * Two colourways, and the same pair `--credit-mark` carries in the design
+ * system: the terracotta for the footer on paper, and the lifted version for
+ * the night panel a dark-mode client swaps in, where #8f4d2a measures 2.5:1
+ * and reads as a smudge. The email trades the two the way it trades the
+ * lockups, with a class and an inline `display`.
+ *
+ * 186px wide is 3x the 62px the footer shows it at.
+ */
+const CREDIT_PNG_W = 186
+const CREDIT_PNG_H = Math.round((CREDIT_PNG_W * CREDIT_H) / CREDIT_W)
+
+for (const [file, fill] of [
+  ['credit-color.png', '#8f4d2a'],
+  ['credit-lifted.png', '#c4794f'],
+]) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${CREDIT_PNG_W}" height="${CREDIT_PNG_H}" viewBox="0 0 ${CREDIT_W} ${CREDIT_H}">
+  <path d="${creditPath}" fill="${fill}"/>
+</svg>`
+  await page.setViewportSize({ width: CREDIT_PNG_W, height: CREDIT_PNG_H })
+  await page.setContent(
+    `<style>html,body{margin:0;padding:0;background:transparent}</style>${svg}`,
+  )
+  writeFileSync(
+    OUT + file,
+    await page.screenshot({
+      omitBackground: true,
+      clip: { x: 0, y: 0, width: CREDIT_PNG_W, height: CREDIT_PNG_H },
+    }),
+  )
+  console.log(`✓ ${file}  ${CREDIT_PNG_W}x${CREDIT_PNG_H}  (transparent)`)
 }
 
 await browser.close()

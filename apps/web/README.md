@@ -50,7 +50,7 @@ POST /api/register               writes registrations/{reference}, pending
         ↓                        ┌────────────────────────────────────┐
         ↓                        │ POST /api/payment/webhook          │
 pages/registration/complete.vue  │   utils/fulfilment.ts              │
-   polls GET /api/payment/status │     mints accessCodes/{CODE}       │
+   polls GET /api/payment/status │     asks apps/functions for a code │
    until a code exists           │     marks the registration paid    │
                                  │     emails the code via Brevo      │
                                  └────────────────────────────────────┘

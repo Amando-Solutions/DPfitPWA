@@ -92,7 +92,7 @@ export const HERO_STATS: HeroStat[] = [
 /**
  * The three-cell diagram under the problem statement: fat down, muscle up, and
  * the word for doing both. `tone` is what the middle and last cells are drawn
- * differently for — rose for the thing that goes up, ink for the conclusion.
+ * differently for — purple for the thing that goes up, ink for the conclusion.
  */
 export interface RecompCell {
   symbol: string
@@ -117,7 +117,7 @@ export interface PackageItem {
   title: string
   description: string
   release: string
-  /** Held-back items get the rose chip instead of the quiet one. */
+  /** Held-back items get the purple chip instead of the quiet one. */
   staged?: boolean
 }
 
@@ -170,7 +170,7 @@ export interface Phase {
   weeks: string
   title: string
   description: string
-  /** The middle phase is the turn of the challenge, so it is drawn in rose. */
+  /** The middle phase is the turn of the challenge, so it is drawn in purple. */
   featured?: boolean
 }
 

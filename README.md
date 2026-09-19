@@ -7,6 +7,7 @@ they are both built from.
 apps/
   pwa/        the member-facing PWA — the 6-week challenge itself   → :3000
   web/        the public landing site people arrive on              → :3001
+  functions/  Cloud Functions — the one writer of access codes
 packages/
   theme/      @dpfit/theme — the design system, as a Nuxt layer
 ```
@@ -39,8 +40,8 @@ cp apps/web/.env.example apps/web/.env
 ```
 
 The landing site's is much shorter and only one thing needs it: the registration
-form, which issues the member's access code and therefore needs a Firebase
-service account. Every other word on that page renders without any of it.
+form, which records the buyer and asks `apps/functions` for their access code,
+and therefore needs a Firebase service account. Every other word on that page renders without any of it.
 
 | Script | What it does |
 | --- | --- |
@@ -50,6 +51,7 @@ service account. Every other word on that page renders without any of it.
 | `bun run typecheck` | `vue-tsc` across both apps |
 | `bun run rules:diff` | Whether the staging Firestore rules still match production |
 | `bun run deploy:rules` | Publish Firestore and Storage rules |
+| `bun run deploy:functions` | Build and publish `apps/functions` — read "Deploying the function" in `FIREBASE.md` first |
 
 > Run a build with that app's dev server **stopped**. Both write to `.nuxt`, and
 > a concurrent dev server leaves a dev shell in `.output`.
