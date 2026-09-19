@@ -1386,11 +1386,15 @@ export class FirestoreDataSource implements DataSource {
   }
 
   private viewOf(message: Message, viewerUid: string, mine: string[]): ChatMessageView {
-    const reactions: ChatReaction[] = Object.entries(message.reactionCounts ?? {})
+    const reactions: ChatReaction[] = (Object.entries(message.reactionCounts ?? {}) as [string, number][])
       .filter(([, count]) => count > 0)
       .map(([emoji, count]) => ({ emoji, count, mine: mine.includes(emoji) }))
 
-    return { ...message, isSelf: message.authorUid === viewerUid, reactions }
+    const visibleMessage = message.isCoach
+      ? { ...message, authorName: 'Coach' }
+      : message
+
+    return { ...visibleMessage, isSelf: message.authorUid === viewerUid, reactions }
   }
 
   private async requireUser(): Promise<User> {
