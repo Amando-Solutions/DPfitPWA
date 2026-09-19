@@ -182,7 +182,11 @@ const withViewer = (message: Message, viewerUid: string, mine: string[]): ChatMe
     mine: mine.includes(emoji),
   }))
 
-  return { ...message, isSelf: message.authorUid === viewerUid, reactions }
+  const visibleMessage = message.isCoach
+    ? { ...message, authorName: 'Coach' }
+    : message
+
+  return { ...visibleMessage, isSelf: message.authorUid === viewerUid, reactions }
 }
 
 /**

@@ -351,6 +351,7 @@ const rows = computed(() =>
       shape: bubbleShape(m),
       variant: bubbleVariant(m),
       time: formatTime(m.sentAt),
+      authorLabel: m.isCoach ? 'Coach' : m.authorName,
     }
   }),
 )
@@ -408,14 +409,14 @@ const TOOL =
       -->
       <div class="flex min-h-full flex-col justify-end gap-3.5">
         <div
-          v-for="{ message: m, images, files, shape, time, variant } in rows"
+          v-for="{ message: m, images, files, shape, time, variant, authorLabel } in rows"
           :key="m.id"
           class="flex max-w-[82%] gap-2 lg:max-w-[68%]"
           :class="m.isSelf && 'flex-row-reverse self-end'"
         >
           <Avatar v-if="!m.isSelf" size="xs" class="mt-4">
-            <AvatarImage :src="m.authorAvatarUrl ?? ''" :alt="m.authorName" loading="lazy" />
-            <AvatarFallback>{{ m.authorName.charAt(0).toUpperCase() }}</AvatarFallback>
+            <AvatarImage :src="m.authorAvatarUrl ?? ''" :alt="authorLabel" loading="lazy" />
+            <AvatarFallback>{{ authorLabel.charAt(0).toUpperCase() }}</AvatarFallback>
           </Avatar>
 
           <div class="flex min-w-0 flex-col gap-1">
@@ -424,7 +425,7 @@ const TOOL =
               class="font-eyebrow text-[8.5px] font-bold uppercase tracking-[0.5px]"
               :class="m.isCoach ? 'text-orange-text' : 'text-muted'"
             >
-              {{ m.authorName }}
+              {{ authorLabel }}
             </span>
 
             <!-- Photos and files bring their own edges, so the bubble hugs them. -->

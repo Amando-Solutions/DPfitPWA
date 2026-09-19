@@ -46,8 +46,6 @@ onMounted(async () => {
   coachNote.value = [...messages].reverse().find((m) => m.isCoach) ?? null
 })
 
-const initial = (name: string) => name.trim().charAt(0).toUpperCase() || 'C'
-
 const CARD = 'rounded-card bg-raised p-4'
 
 /*
@@ -268,10 +266,10 @@ const STAT_VALUE =
       <!-- Latest from the coach -->
       <section v-if="coachNote" class="home__section home__section--coach mt-3.25 lg:mt-0 order-5">
         <div :class="CARD" class="flex gap-3.25">
-          <span class="coach__avatar w-11 h-11 rounded-pill bg-rose-fill text-on-rose grid place-items-center font-display font-black text-[16px] shrink-0">{{ initial(coachNote.authorName) }}</span>
+          <span class="coach__avatar w-11 h-11 rounded-pill bg-rose-fill text-on-rose grid place-items-center font-display font-black text-[16px] shrink-0">C</span>
           <div class="coach__text flex-1 min-w-0">
             <div class="coach__head flex items-center gap-1.75">
-              <strong class="coach__name text-[14px] font-bold text-ink">{{ coachNote.authorName }}</strong>
+              <strong class="coach__name text-[14px] font-bold text-ink">Coach</strong>
               <span class="py-0.5 px-1.75 rounded-pill bg-rose-soft text-rose text-[11px]">Cohort chat</span>
             </div>
             <p class="coach__body mt-1.5 mx-0 mb-0 text-[13.5px] leading-[1.45] text-muted">{{ coachNote.text }}</p>
