@@ -54,8 +54,8 @@ const startsClause = computed(() =>
 <template>
   <section class="relative overflow-hidden bg-night pt-33 pb-10 lg:pt-39">
     <!--
-      Two glows, painted rather than gradiented onto the panel itself: a rose
-      one bleeding down from above the fold and an orange one behind the
+      Two glows, painted rather than gradiented onto the panel itself: a primary
+      one bleeding down from above the fold and a violet one behind the
       photograph. `aria-hidden` because they carry no meaning, and
       `pointer-events-none` so they never swallow a click on the buttons.
     -->
@@ -65,9 +65,9 @@ const startsClause = computed(() =>
         style="
           background: radial-gradient(
             50% 50% at 50% 50%,
-            rgba(200, 30, 92, 0.34) 0%,
-            rgba(200, 30, 92, 0.05) 45%,
-            rgba(200, 30, 92, 0) 70%
+            rgba(147, 51, 234, 0.34) 0%,
+            rgba(147, 51, 234, 0.05) 45%,
+            rgba(147, 51, 234, 0) 70%
           );
         "
       />
@@ -76,8 +76,8 @@ const startsClause = computed(() =>
         style="
           background: radial-gradient(
             50% 50% at 50% 50%,
-            rgba(232, 163, 61, 0.18) 0%,
-            rgba(232, 163, 61, 0) 66%
+            rgba(157, 127, 234, 0.2) 0%,
+            rgba(157, 127, 234, 0) 66%
           );
         "
       />
@@ -93,7 +93,7 @@ const startsClause = computed(() =>
           >
             <span
               aria-hidden="true"
-              class="block size-1.25 rounded-xs bg-rose-fill opacity-45"
+              class="block size-1.25 rounded-xs bg-primary-fill opacity-45"
             />
             <span
               class="font-data text-[10.5px] tracking-[0.17em] text-white/78 uppercase"
@@ -104,7 +104,7 @@ const startsClause = computed(() =>
 
           <!--
             The breaks are authored, not left to the measure. The design sets
-            this headline as five short lines, and the rose-to-orange wash only
+            this headline as five short lines, and the purple-to-violet wash only
             reads as a wash if "Do both" and "at once." are the two lines it
             travels across — let the browser choose, and the gradient's midpoint
             lands mid-word.
@@ -132,7 +132,7 @@ const startsClause = computed(() =>
         </div>
 
         <!--
-          The photograph, with the orange hairline frame offset behind it. The
+          The photograph, with the violet hairline frame offset behind it. The
           frame is a sibling rather than a border so it can sit 16px down and to
           the right of the image the way the design draws it; it is decorative,
           hence `aria-hidden` and its absence from the tab order.
@@ -140,7 +140,7 @@ const startsClause = computed(() =>
         <div class="relative mx-auto w-full max-w-131 lg:mx-0">
           <div
             aria-hidden="true"
-            class="absolute inset-0 translate-x-4 translate-y-4 rounded-card border border-[rgba(232,163,61,0.35)]"
+            class="absolute inset-0 translate-x-4 translate-y-4 rounded-card border border-[rgba(157,127,234,0.4)]"
           />
           <img
             src="/landing/hero-woman-training.jpg"

@@ -40,6 +40,7 @@ export type SheetVariants = VariantProps<typeof sheetVariants>
 import {
   DialogContent as RekaDialogContent,
   DialogPortal as RekaDialogPortal,
+  injectDialogRootContext,
   useForwardPropsEmits,
   type DialogContentEmits,
   type DialogContentProps,
@@ -69,6 +70,10 @@ const delegated = computed(() => {
 })
 
 const forwarded = useForwardPropsEmits(delegated, emits)
+
+// Android's back button closes the sheet rather than leaving the screen.
+const dialog = injectDialogRootContext()
+useCloseOnBack(dialog.open, () => dialog.onOpenChange(false))
 </script>
 
 <template>

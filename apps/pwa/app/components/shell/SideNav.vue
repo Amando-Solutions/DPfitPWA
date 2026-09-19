@@ -4,6 +4,7 @@
 // behind "More" on mobile are promoted to their own section here.
 const { navItems, isActive } = useNavigation()
 const store = useAppStore()
+const chat = useChatUnread()
 
 const secondary = [
   { key: 'rewards', label: 'Rewards', icon: 'trophy', to: '/rewards' },
@@ -23,6 +24,27 @@ const initials = computed(() =>
     .join('')
     .toUpperCase(),
 )
+/**
+ * The rail's one call to action, in the member's situation.
+ *
+ * Four states rather than two: a session logged, a rest day with nothing
+ * scheduled, today's own session, and a day left behind that is still open.
+ * "Today is logged" covered all of them before the plan ran on a calendar, and
+ * on a rest day it claimed credit for a session nobody did.
+ *
+ * The catch-up branch reads off `today`, which is the day this button links to:
+ * it only resolves to a missed day when today's own slot has nothing open, so
+ * the label and the destination cannot disagree.
+ */
+const ctaLabel = computed(() => {
+  if (!store.trainingLocked.value) {
+    const open = store.today.value
+    return open?.status === 'missed'
+      ? `Catch up on day ${open.dayNumber}`
+      : "Start today's session"
+  }
+  return store.sessionToday.value ? 'Today is logged' : 'Nothing open today'
+})
 </script>
 
 <template>
@@ -39,13 +61,20 @@ const initials = computed(() =>
         v-for="item in primary"
         :key="item.key"
         :to="item.to"
-        class="sidenav__item lg:relative lg:flex lg:items-center lg:gap-3 lg:py-2.75 lg:px-3 lg:rounded-md lg:text-muted lg:text-[14px] lg:font-semibold lg:transition-[background,color] lg:duration-150 lg:ease-[ease] lg:hover:bg-fill-subtle lg:hover:text-ink lg:[&.sidenav__item--active]:bg-inverse lg:[&.sidenav__item--active]:text-on-inverse lg:[&.sidenav__item--active:hover]:bg-inverse lg:[&.sidenav__item--active:hover]:text-on-inverse lg:[&.sidenav__item--active_.sidenav__icon]:text-rose"
+        class="sidenav__item lg:relative lg:flex lg:items-center lg:gap-3 lg:py-2.75 lg:px-3 lg:rounded-md lg:text-muted lg:text-[14px] lg:font-semibold lg:transition-[background,color] lg:duration-150 lg:ease-[ease] lg:hover:bg-fill-subtle lg:hover:text-ink lg:[&.sidenav\_\_item--active]:bg-primary-fill lg:[&.sidenav\_\_item--active]:text-on-primary lg:[&.sidenav\_\_item--active:hover]:bg-primary-fill lg:[&.sidenav\_\_item--active:hover]:text-on-primary lg:[&.sidenav\_\_item--active_.sidenav\_\_badge]:bg-on-primary"
         :class="{ 'sidenav__item--active': isActive(item.to) }"
       >
         <span class="sidenav__icon lg:grid lg:place-items-center lg:shrink-0">
           <AppIcon :name="item.icon" :size="20" :stroke="2" />
         </span>
         <span class="sidenav__label">{{ item.desktopLabel ?? item.label }}</span>
+        <!-- The same dot the tab bar draws on Chat, for the same reason: the
+             rail is on screen on every desktop screen, so it is where a member
+             finds out the cohort has been talking. -->
+        <span
+          v-if="item.key === 'chat' && chat.hasUnread.value"
+          class="sidenav__badge lg:w-1.75 lg:h-1.75 lg:rounded-full lg:bg-primary-fill lg:ml-auto"
+        />
       </NuxtLink>
     </nav>
 
@@ -56,7 +85,7 @@ const initials = computed(() =>
         v-for="item in secondary"
         :key="item.key"
         :to="item.to"
-        class="sidenav__item sidenav__item--secondary lg:relative lg:flex lg:items-center lg:gap-3 lg:py-2.75 lg:px-3 lg:rounded-md lg:text-muted lg:text-[14px] lg:font-semibold lg:transition-[background,color] lg:duration-150 lg:ease-[ease] lg:hover:bg-fill-subtle lg:hover:text-ink lg:[&.sidenav__item--active]:bg-inverse lg:[&.sidenav__item--active]:text-on-inverse lg:[&.sidenav__item--active:hover]:bg-inverse lg:[&.sidenav__item--active:hover]:text-on-inverse lg:[&.sidenav__item--active_.sidenav__icon]:text-rose"
+        class="sidenav__item sidenav__item--secondary lg:relative lg:flex lg:items-center lg:gap-3 lg:py-2.75 lg:px-3 lg:rounded-md lg:text-muted lg:text-[14px] lg:font-semibold lg:transition-[background,color] lg:duration-150 lg:ease-[ease] lg:hover:bg-fill-subtle lg:hover:text-ink lg:[&.sidenav\_\_item--active]:bg-primary-fill lg:[&.sidenav\_\_item--active]:text-on-primary lg:[&.sidenav\_\_item--active:hover]:bg-primary-fill lg:[&.sidenav\_\_item--active:hover]:text-on-primary lg:[&.sidenav\_\_item--active_.sidenav\_\_badge]:bg-on-primary"
         :class="{ 'sidenav__item--active': isActive(item.to) }"
       >
         <span class="sidenav__icon lg:grid lg:place-items-center lg:shrink-0">
@@ -65,19 +94,19 @@ const initials = computed(() =>
         <span class="sidenav__label">{{ item.label }}</span>
         <span
           v-if="item.key === 'check-in' && store.checkInDue.value"
-          class="sidenav__badge lg:w-1.75 lg:h-1.75 lg:rounded-full lg:bg-rose-fill lg:ml-auto"
+          class="sidenav__badge lg:w-1.75 lg:h-1.75 lg:rounded-full lg:bg-primary-fill lg:ml-auto"
         />
       </NuxtLink>
     </nav>
 
-    <!-- Once today's session is logged, the rail points at the picker, which is
-         the screen that says when the next one opens. -->
+    <!-- With nothing open to log — today's done, or the plan schedules no
+         session today — the rail points at the picker, which is the screen that
+         says which day opens next and when. -->
     <NuxtLink
       :to="store.trainingLocked.value ? '/train' : `/train/${store.today.value?.id ?? ''}`"
-      class="sidenav__cta lg:mt-4.5 lg:flex lg:items-center lg:justify-center lg:gap-2 lg:py-3.25 lg:px-3.5 lg:rounded-md lg:bg-rose-fill lg:text-on-rose lg:text-[13.5px] lg:font-bold"
+      class="sidenav__cta lg:mt-4.5 lg:flex lg:items-center lg:justify-center lg:py-3.25 lg:px-3.5 lg:rounded-md lg:bg-primary-fill lg:text-on-primary lg:text-[13.5px] lg:font-bold"
     >
-      <AppIcon :name="store.trainingLocked.value ? 'check' : 'play'" :size="16" fill />
-      <span>{{ store.trainingLocked.value ? 'Today is logged' : "Start today's session" }}</span>
+      <span>{{ ctaLabel }}</span>
     </NuxtLink>
 
     <div class="sidenav__spacer lg:flex-1 lg:min-h-5" />
@@ -85,13 +114,13 @@ const initials = computed(() =>
     <NuxtLink to="/notifications" class="sidenav__inbox lg:flex lg:items-center lg:gap-3 lg:py-2.5 lg:px-3 lg:mb-1.5 lg:rounded-md lg:text-muted lg:text-[13px] lg:font-semibold lg:hover:bg-fill-subtle lg:hover:text-ink">
       <AppIcon name="bell" :size="18" :stroke="2" />
       <span>Inbox</span>
-      <span v-if="store.unreadNotifications.value" class="sidenav__count data lg:ml-auto lg:min-w-5 lg:py-0.5 lg:px-1.5 lg:rounded-pill lg:bg-rose-fill lg:text-on-rose lg:text-[10px] lg:font-bold lg:text-center">
+      <span v-if="store.unreadNotifications.value" class="sidenav__count tabular-nums lg:ml-auto lg:min-w-5 lg:py-0.5 lg:px-1.5 lg:rounded-pill lg:bg-primary-fill lg:text-on-primary lg:text-[10px] lg:font-bold lg:text-center">
         {{ store.unreadNotifications.value }}
       </span>
     </NuxtLink>
 
     <NuxtLink to="/profile" class="sidenav__member lg:flex lg:items-center lg:gap-2.5 lg:p-2.5 lg:rounded-md lg:bg-surface lg:transition-[background] lg:duration-150 lg:ease-[ease] lg:hover:bg-fill-subtle">
-      <Avatar size="md" class="sidenav__avatar lg:w-9 lg:h-9 lg:rounded-full lg:object-cover lg:shrink-0 lg:[&.sidenav__avatar--initials]:grid lg:[&.sidenav__avatar--initials]:place-items-center lg:[&.sidenav__avatar--initials]:bg-rose-fill lg:[&.sidenav__avatar--initials]:text-on-rose lg:[&.sidenav__avatar--initials]:font-display lg:[&.sidenav__avatar--initials]:font-black lg:[&.sidenav__avatar--initials]:text-[13px]">
+      <Avatar size="md" class="sidenav__avatar lg:w-9 lg:h-9 lg:rounded-full lg:object-cover lg:shrink-0 lg:[&.sidenav\_\_avatar--initials]:grid lg:[&.sidenav\_\_avatar--initials]:place-items-center lg:[&.sidenav\_\_avatar--initials]:bg-primary-fill lg:[&.sidenav\_\_avatar--initials]:text-on-primary lg:[&.sidenav\_\_avatar--initials]:font-display lg:[&.sidenav\_\_avatar--initials]:font-black lg:[&.sidenav\_\_avatar--initials]:text-[13px]">
         <AvatarImage
           :src="store.profile.value?.avatarUrl ?? ''"
           :alt="store.displayName.value"
@@ -101,7 +130,7 @@ const initials = computed(() =>
       </Avatar>
       <span class="sidenav__member-text lg:flex lg:flex-col lg:gap-0.5 lg:min-w-0">
         <span class="sidenav__member-name lg:text-[13.5px] lg:font-bold lg:text-ink lg:whitespace-nowrap lg:overflow-hidden lg:text-ellipsis">{{ store.displayName.value }}</span>
-        <span class="sidenav__member-meta lg:font-eyebrow lg:uppercase lg:tracking-[0.5px] lg:text-[8.5px] lg:font-bold lg:text-muted">
+        <span class="sidenav__member-meta lg:text-[11.5px] lg:text-muted">
           {{ store.clock.value.label }}
         </span>
       </span>

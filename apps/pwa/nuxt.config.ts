@@ -131,7 +131,15 @@ export default defineNuxtConfig({
   // where Nuxt 4 looks by default (`<srcDir>/spa-loading-template.html`), so the
   // explicit path this used to need is gone.
 
-  css: ['~/assets/styles/main.css'],
+  css: ['~/assets/styles/main.css', '~/assets/styles/navigation.css'],
+
+  // Installs Nuxt's View Transitions plugin, which `app.viewTransition: false`
+  // below then leaves off for every navigation. `plugins/navigation.client.ts`
+  // turns it back on per navigation, on phones only, having decided which way
+  // the screens should move.
+  experimental: {
+    viewTransition: true,
+  },
 
   // Env-driven configuration. Values are overridden at runtime by the matching
   // NUXT_PUBLIC_* variables (see .env.example). Nuxt parses them against the
@@ -151,6 +159,14 @@ export default defineNuxtConfig({
       // has not been told where to send people. A default here would be a real
       // inbox published on every deploy that forgot to set it.
       supportEmail: process.env.NUXT_PUBLIC_SUPPORT_EMAIL || '',
+      // NUXT_PUBLIC_WEB_APP_URL: the public site's origin, which is where a
+      // code is bought. The access-code screen is the one place in the app a
+      // person can arrive without having paid, and until this was set it had
+      // nothing to say to them — the only way on was a code, and the only way
+      // to get a code is a purchase made somewhere this app does not host.
+      // Empty hides the link, same as `supportEmail`: a guess at the origin
+      // would send members to a domain that may not be ours.
+      webAppUrl: process.env.NUXT_PUBLIC_WEB_APP_URL || '',
       /**
        * Firebase web config. Public by design — these identify the project,
        * they do not authorise anything. What stops a stranger reading the
@@ -177,6 +193,9 @@ export default defineNuxtConfig({
   },
 
   app: {
+    // Off unless a navigation asks. See `experimental.viewTransition` above.
+    viewTransition: false,
+
     head: {
       title: 'DP Fitness · Recomp Challenge',
       viewport: 'width=device-width, initial-scale=1, viewport-fit=cover',
@@ -208,7 +227,7 @@ export default defineNuxtConfig({
         {
           key: 'theme-boot',
           tagPosition: 'head',
-          innerHTML: `(function(){try{var s=localStorage.getItem('dpfit:theme');var p=s?JSON.parse(s):'system';var d=p==='dark'||(p!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=d?'dark':'light';var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',d?'#14101a':'#f3eae4');}catch(e){document.documentElement.dataset.theme='light';}})();`,
+          innerHTML: `(function(){try{var s=localStorage.getItem('dpfit:theme');var p=s?JSON.parse(s):'system';var d=p==='dark'||(p!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=d?'dark':'light';var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',d?'#141019':'#f5f3fa');}catch(e){document.documentElement.dataset.theme='light';}})();`,
         },
       ],
 
@@ -250,7 +269,7 @@ pwa: {
     orientation: 'any',
 
     theme_color: '#241b2e',
-    background_color: '#fbf6f2',
+    background_color: '#fcfbff',
 
     icons: [
       {

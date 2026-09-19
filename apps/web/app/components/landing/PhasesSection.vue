@@ -6,7 +6,7 @@ import { PHASES, WEEKLY_ITEMS } from '~/data/landing'
   <section id="weeks" class="bg-[var(--text)] py-20 lg:py-[120px]">
     <PageContainer>
       <div class="max-w-[620px]">
-        <p class="eyebrow-section text-[var(--orange)]">How the 6 weeks unfold</p>
+        <p class="eyebrow-section text-[var(--secondary)]">How the 6 weeks unfold</p>
         <h2 class="title-section mt-[18px] text-white">
           A real progression, not the same workout on repeat.
         </h2>
@@ -15,7 +15,7 @@ import { PHASES, WEEKLY_ITEMS } from '~/data/landing'
       <ol class="mt-14 grid gap-6 md:grid-cols-3 lg:mt-[68px] lg:gap-[42px]">
         <!--
           The middle card is the turn of the challenge — it is the week the
-          overload guide unlocks — so it is the one drawn in rose while its
+          overload guide unlocks — so it is the one drawn in purple while its
           neighbours stay as tinted glass.
         -->
         <li
@@ -24,11 +24,11 @@ import { PHASES, WEEKLY_ITEMS } from '~/data/landing'
           class="rounded-[20px] border p-8 lg:p-[37px]"
           :class="
             phase.featured
-              ? 'border-[rgba(200,30,92,0.4)] bg-[rgba(200,30,92,0.14)]'
+              ? 'border-[rgba(166,87,238,0.45)] bg-[rgba(147,51,234,0.16)]'
               : 'border-white/12 bg-white/5'
           "
         >
-          <p class="eyebrow-section text-[11px] text-[var(--orange)]">
+          <p class="eyebrow-section text-[11px] text-[var(--secondary)]">
             {{ phase.weeks }}
           </p>
           <h3 class="title-card mt-3 text-white">{{ phase.title }}</h3>
@@ -52,7 +52,7 @@ import { PHASES, WEEKLY_ITEMS } from '~/data/landing'
 
         <ol class="grid gap-8 sm:grid-cols-2">
           <li v-for="(item, i) in WEEKLY_ITEMS" :key="item.title">
-            <p class="font-data text-[11px] text-[var(--rose-fill)]">
+            <p class="font-data text-[11px] text-[var(--primary-on-inverse)]">
               {{ String(i + 1).padStart(2, '0') }}
             </p>
             <h4 class="mt-2 font-body text-[16px] font-semibold text-white">

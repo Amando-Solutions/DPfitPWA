@@ -1,3 +1,4 @@
+import { isIosDevice, isStandalone } from '~/lib/platform'
 import { storage } from '~/lib/storage'
 
 /**
@@ -29,27 +30,6 @@ const SNOOZE_MS = 14 * 24 * 60 * 60 * 1000
  *               its own menu is all that is left.
  */
 export type InstallMethod = 'prompt' | 'ios' | 'manual'
-
-const isIosDevice = (): boolean => {
-  if (import.meta.server) return false
-  const ua = navigator.userAgent
-  // iPadOS 13+ reports itself as a Mac, and only the touch points give it away.
-  return (
-    /iPhone|iPad|iPod/.test(ua) ||
-    (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)
-  )
-}
-
-const isStandalone = (): boolean => {
-  if (import.meta.server) return false
-  return (
-    window.matchMedia('(display-mode: standalone)').matches ||
-    window.matchMedia('(display-mode: minimal-ui)').matches ||
-    // Safari's own flag, which iOS set for years before it understood the
-    // display-mode query, and still sets today.
-    (navigator as Navigator & { standalone?: boolean }).standalone === true
-  )
-}
 
 /** Window-level wiring belongs to the app, not to whichever component asked first. */
 let wired = false
@@ -89,8 +69,13 @@ export const useInstallApp = () => {
     })
   }
 
+  /* Not the module's word on iOS. It counts any iOS browser without "Safari" in
+     its user agent as installed, and the in-app browsers of Instagram, Facebook
+     and the like leave it out — so those read as the home-screen app, and the
+     ask to open in Safari and add it never showed. `navigator.standalone`,
+     read into `installed` above, is only true for the real thing. */
   const isInstalled = computed(
-    () => installed.value || $pwa?.isPWAInstalled === true,
+    () => installed.value || (!ios.value && $pwa?.isPWAInstalled === true),
   )
 
   const method = computed<InstallMethod | null>(() => {
@@ -104,6 +89,16 @@ export const useInstallApp = () => {
   })
 
   const canInstall = computed(() => method.value !== null)
+
+  /**
+   * Running as the iOS home-screen app.
+   *
+   * The one installed context that is cut off from the browser twice over: it
+   * keeps its own storage, so a sign-in in Safari is not a sign-in here, and
+   * links tapped in other apps open in Safari rather than coming back here —
+   * sign-in links included.
+   */
+  const onIosHomeScreen = computed(() => ios.value && installed.value)
 
   /** One tap where the browser allows it, directions where it does not. */
   const ctaLabel = computed(() =>
@@ -147,6 +142,7 @@ export const useInstallApp = () => {
     ctaLabel,
     canInstall,
     isInstalled,
+    onIosHomeScreen,
     showCard,
     guideOpen,
     install,

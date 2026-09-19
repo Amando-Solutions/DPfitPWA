@@ -13,6 +13,12 @@
 defineProps<{
   modelValue: string
   tabs: { id: string; label: string }[]
+  /**
+   * Frozen while a write that reads this choice is open. Forwarded to the
+   * group, for the same reason `UnitToggle` forwards it: the root is a
+   * RadioGroup and the attribute would otherwise settle on a div.
+   */
+  disabled?: boolean
 }>()
 
 defineEmits<{ (e: 'update:modelValue', v: string): void }>()
@@ -22,6 +28,7 @@ defineEmits<{ (e: 'update:modelValue', v: string): void }>()
   <RadioGroup
     :model-value="modelValue"
     orientation="horizontal"
+    :disabled="disabled"
     class="flex gap-1 rounded-pill bg-fill-subtle p-1"
     @update:model-value="$emit('update:modelValue', $event as string)"
   >
@@ -30,7 +37,7 @@ defineEmits<{ (e: 'update:modelValue', v: string): void }>()
       :key="tab.id"
       :value="tab.id"
       variant="plain"
-      class="h-9.5 flex-1 rounded-pill text-[13px] text-muted transition-colors duration-150 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-ring data-[state=checked]:bg-inverse data-[state=checked]:font-semibold data-[state=checked]:text-on-inverse"
+      class="h-9.5 flex-1 rounded-pill text-[13px] text-muted transition-colors duration-150 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring data-[state=checked]:bg-inverse data-[state=checked]:font-semibold data-[state=checked]:text-on-inverse"
     >
       {{ tab.label }}
     </RadioGroupItem>

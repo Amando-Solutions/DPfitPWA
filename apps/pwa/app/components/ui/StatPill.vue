@@ -5,15 +5,17 @@ const props = withDefaults(
     icon?: string
     label?: string
     value?: string | number
-    variant?: 'light' | 'flame' | 'ink' | 'rose'
+    variant?: 'light' | 'secondary' | 'ink' | 'primary'
   }>(),
   { variant: 'light' },
 )
 
 const VARIANTS: Record<NonNullable<typeof props.variant>, string> = {
   light: 'bg-raised text-ink shadow-card',
-  flame: 'bg-orange-soft text-ember-text',
-  rose: 'bg-rose-soft text-rose',
+  // Streaks and RP. The violet tint, with the icon-safe violet on it in light
+  // mode, where the plain violet fails on its own chip.
+  secondary: 'bg-secondary-soft text-secondary-ink',
+  primary: 'bg-primary-soft text-primary',
   ink: 'bg-inverse text-on-inverse',
 }
 </script>
@@ -24,7 +26,7 @@ const VARIANTS: Record<NonNullable<typeof props.variant>, string> = {
     :class="VARIANTS[variant]"
   >
     <AppIcon v-if="icon" :name="icon" :size="14" :stroke="2.2" />
-    <span v-if="value !== undefined" class="data">{{ value }}</span>
+    <span v-if="value !== undefined" class="tabular-nums">{{ value }}</span>
     <span v-if="label" class="text-[11px]">{{ label }}</span>
   </div>
 </template>

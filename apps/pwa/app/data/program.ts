@@ -27,19 +27,22 @@ import type {
   BadgeTier,
   CoachRef,
   Cohort,
+  DateKey,
   Exercise,
   Guide,
   Notification,
   PrescribedSet,
   Program,
+  ProgramWeekDoc,
   Rank,
   RewardConfig,
   StoredImage,
   RewardValues,
   LeaderboardEntry,
-  WeekTheme,
+  TrainingWeek,
   WorkoutDay,
 } from './types'
+import { finalPhotoBadge } from './badges'
 
 // --- Fixture plumbing ------------------------------------------------------
 const at = (iso: string) => Timestamp.fromDate(new Date(iso))
@@ -97,15 +100,16 @@ export const cohort: Cohort = {
   programVersion: PROGRAM_VERSION,
   archivedAt: null,
   /**
-   * The weekly live call.
+   * The weekly live call: Tuesdays, 7:00 PM in Lagos, from week 1.
    *
-   * One time for the whole cohort, set by the coach on this document. `null`
-   * is the other legitimate value and Home renders no card for it — worth
-   * exercising by hand in mock mode, because a cohort between blocks is the
-   * common case and the empty state has to be a complete screen.
+   * One call for the whole cohort, repeating weekly from `startsAt`. Home shows
+   * it on Tuesdays only, so in mock mode on any other day there is no card —
+   * move `startsAt` onto today's weekday to see it, and before, during and
+   * after the hour to see its three states.
    */
   liveCall: {
-    when: 'Tuesday, 7:00 PM WAT',
+    startsAt: at('2026-08-18T18:00:00Z'),
+    durationMinutes: 60,
     joinUrl: 'https://meet.google.com/dpf-recomp-live',
   },
   /**
@@ -132,8 +136,8 @@ export const challenge = {
   },
 }
 
-/** Non-empty by construction, so week 1 is always there to fall back on. */
-export const weekThemes: [WeekTheme, ...WeekTheme[]] = [
+/** What each week is called. `trainingWeeks` dates them into documents. */
+export const weekThemes: Pick<ProgramWeekDoc, 'weekNumber' | 'title' | 'subtitle'>[] = [
   { weekNumber: 1, title: 'Foundation', subtitle: 'Dial in form & baseline loads' },
   { weekNumber: 2, title: 'Build', subtitle: 'Add volume, own the tempo' },
   { weekNumber: 3, title: 'Overload', subtitle: 'Push intensity, prove the work' },
@@ -211,9 +215,12 @@ export const ranks: [Rank, ...Rank[]] = [
 /**
  * The badge ladder.
  *
- * The two starter badges are meant to be earned in the first week. Everything
- * past them asks for sustained volume, which is the part that should feel
- * earned. The conditions themselves live in `lib/domain/rewards`.
+ * The first two starter badges are meant to be earned in the first week.
+ * Everything past them asks for sustained volume, which is the part that should
+ * feel earned. Final Photo Proof closes the block: it is starter-tier because a
+ * photo is the same small act at either end, and it is last because it can only
+ * be earned after the last session. The conditions themselves live in
+ * `lib/domain/rewards`.
  */
 export const badges: BadgeDef[] = [
   {
@@ -265,6 +272,7 @@ export const badges: BadgeDef[] = [
     description: `A qualifying session in all ${challenge.totalWeeks} weeks, none missed.`,
     tier: 'elite',
   },
+  finalPhotoBadge,
 ]
 
 // --- Training plan ---------------------------------------------------------
@@ -287,6 +295,7 @@ const lowerStrength: Exercise[] = [
     targetReps: '8-10',
     restSeconds: 90,
     videoThumbUrl: null,
+    videoUrl: null,
     cues: ['Heels planted, chest tall.', 'Sit between the hips.', 'Two-second descent.'],
     sets: sets(4, 10, 16),
   },
@@ -298,6 +307,7 @@ const lowerStrength: Exercise[] = [
     targetReps: '8-10',
     restSeconds: 90,
     videoThumbUrl: null,
+    videoUrl: null,
     cues: ['Hinge, don’t squat.', 'Bar stays close to the legs.'],
     sets: sets(4, 10, 30),
   },
@@ -309,6 +319,7 @@ const lowerStrength: Exercise[] = [
     targetReps: '10 each',
     restSeconds: 75,
     videoThumbUrl: null,
+    videoUrl: null,
     cues: ['Front shin vertical.', 'Drive through the whole foot.'],
     sets: sets(3, 10, 10),
   },
@@ -320,6 +331,7 @@ const lowerStrength: Exercise[] = [
     targetReps: '12-15',
     restSeconds: 45,
     videoThumbUrl: null,
+    videoUrl: null,
     cues: ['Full stretch at the bottom.', 'Pause at the top.'],
     sets: sets(3, 15, 20),
   },
@@ -334,6 +346,7 @@ const upperPush: Exercise[] = [
     targetReps: '8-10',
     restSeconds: 90,
     videoThumbUrl: null,
+    videoUrl: null,
     cues: ['Set the bench to ~30°.', 'Elbows at 45°.', 'Control the eccentric for 2 seconds.'],
     sets: sets(4, 10, 14),
   },
@@ -345,6 +358,7 @@ const upperPush: Exercise[] = [
     targetReps: '10-12',
     restSeconds: 75,
     videoThumbUrl: null,
+    videoUrl: null,
     cues: ['Brace the core.', 'Press just in front of the ears.'],
     sets: sets(3, 12, 10),
   },
@@ -356,6 +370,7 @@ const upperPush: Exercise[] = [
     targetReps: '12-15',
     restSeconds: 60,
     videoThumbUrl: null,
+    videoUrl: null,
     cues: ['Soft elbows.', 'Squeeze for a beat at the front.'],
     sets: sets(3, 14, 7),
   },
@@ -367,6 +382,7 @@ const upperPush: Exercise[] = [
     targetReps: '12-15',
     restSeconds: 60,
     videoThumbUrl: null,
+    videoUrl: null,
     cues: ['Pin the elbows.', 'Spread the rope at the bottom.'],
     sets: sets(3, 15, 20),
   },
@@ -381,6 +397,7 @@ const upperPull: Exercise[] = [
     targetReps: '8-10',
     restSeconds: 90,
     videoThumbUrl: null,
+    videoUrl: null,
     cues: ['Lead with the elbows.', 'Chest to the bar, not the bar to the chest.'],
     sets: sets(4, 10, 32),
   },
@@ -392,6 +409,7 @@ const upperPull: Exercise[] = [
     targetReps: '10-12',
     restSeconds: 75,
     videoThumbUrl: null,
+    videoUrl: null,
     cues: ['Squeeze the shoulder blades.', 'No torso swing.'],
     sets: sets(4, 12, 30),
   },
@@ -403,6 +421,7 @@ const upperPull: Exercise[] = [
     targetReps: '12-15',
     restSeconds: 60,
     videoThumbUrl: null,
+    videoUrl: null,
     cues: ['Pull to the forehead.', 'External rotation at the end.'],
     sets: sets(3, 15, 15),
   },
@@ -414,6 +433,7 @@ const upperPull: Exercise[] = [
     targetReps: '10-12',
     restSeconds: 60,
     videoThumbUrl: null,
+    videoUrl: null,
     cues: ['Elbows pinned to the ribs.', 'Slow on the way down.'],
     sets: sets(3, 12, 8),
   },
@@ -428,6 +448,7 @@ const lowerPosterior: Exercise[] = [
     targetReps: '10-12',
     restSeconds: 90,
     videoThumbUrl: null,
+    videoUrl: null,
     cues: ['Feet mid-platform.', 'Stop just short of lockout.'],
     sets: sets(4, 12, 80),
   },
@@ -439,6 +460,7 @@ const lowerPosterior: Exercise[] = [
     targetReps: '10-12',
     restSeconds: 90,
     videoThumbUrl: null,
+    videoUrl: null,
     cues: ['Ribs down.', 'Squeeze hard at the top for a beat.'],
     sets: sets(4, 12, 40),
   },
@@ -450,6 +472,7 @@ const lowerPosterior: Exercise[] = [
     targetReps: '12-15',
     restSeconds: 60,
     videoThumbUrl: null,
+    videoUrl: null,
     cues: ['Toes pulled up.', 'Control the return.'],
     sets: sets(3, 15, 25),
   },
@@ -461,6 +484,7 @@ const lowerPosterior: Exercise[] = [
     targetReps: '12-15',
     restSeconds: 60,
     videoThumbUrl: null,
+    videoUrl: null,
     cues: ['Pause at the top.', 'No swinging.'],
     sets: sets(3, 15, 30),
   },
@@ -475,6 +499,7 @@ export const coreCardioExercises: Exercise[] = [
     targetReps: '45s',
     restSeconds: 45,
     videoThumbUrl: null,
+    videoUrl: null,
     cues: ['Glutes tight.', 'Neutral neck.'],
     sets: sets(3, 1),
   },
@@ -486,6 +511,7 @@ export const coreCardioExercises: Exercise[] = [
     targetReps: '10 each',
     restSeconds: 45,
     videoThumbUrl: null,
+    videoUrl: null,
     cues: ['Low back stays flat.', 'Exhale as you extend.'],
     sets: sets(3, 10),
   },
@@ -497,13 +523,14 @@ export const coreCardioExercises: Exercise[] = [
     targetReps: '30s on / 30s off',
     restSeconds: 30,
     videoThumbUrl: null,
+    videoUrl: null,
     cues: ['Full effort on the work interval.'],
     sets: sets(5, 1),
   },
 ]
 
 /**
- * The training week, as `programs/{programId}/workoutDays` documents.
+ * The training week, written into every week as `programs/{programId}/weeks/{weekId}/days`.
  *
  * `status` is deliberately absent: it is a fact about one member's logs, not
  * about the plan, so it lives on `WorkoutDayView` and is resolved per render in
@@ -528,8 +555,17 @@ const seedHero = (dayId: string): StoredImage => ({
   bytes: 124699,
 })
 
+/**
+ * A training day before it is placed in a week.
+ *
+ * The same four sessions run every week of the block, so they are written once
+ * and `trainingWeeks` stamps each week's copy with its `weekNumber` and `date`.
+ * The id is kept on every copy: see `WorkoutDayDoc` for why it has to be.
+ */
+export type DayTemplate = Omit<WorkoutDay, 'weekNumber' | 'date'>
+
 /** Non-empty by construction: the plan always has a day one. */
-export const planDays: [WorkoutDay, ...WorkoutDay[]] = [
+export const planDays: [DayTemplate, ...DayTemplate[]] = [
   {
     id: 'day-1',
     dayNumber: 1,
@@ -585,7 +621,7 @@ export const planDays: [WorkoutDay, ...WorkoutDay[]] = [
 ]
 
 /** The finisher. `optional: true` keeps it out of the weekly quota. */
-export const coreCardioDay: WorkoutDay = {
+export const coreCardioDay: DayTemplate = {
   id: 'core-cardio',
   dayNumber: 5,
   label: 'Core & Cardio',
@@ -600,6 +636,41 @@ export const coreCardioDay: WorkoutDay = {
   exercises: coreCardioExercises,
   ...authored(),
 }
+
+// --- The schedule ------------ `programs/{programId}/weeks/{weekId}/days/…` --
+/** `start` plus `n` calendar days. Inline, so the seed script can import this file. */
+const addDays = (start: DateKey, n: number): DateKey => {
+  const [y, m, d] = start.split('-').map(Number)
+  return new Date(Date.UTC(y ?? 0, (m ?? 1) - 1, (d ?? 1) + n)).toISOString().slice(0, 10)
+}
+
+/**
+ * Every week of the block, dated from `start`, with its days beneath it.
+ *
+ * A function of the start date rather than a constant, because mock mode wants
+ * the block to start the day the member joined — a fixture pinned to August is
+ * a finished challenge by October — and the seed wants the cohort's real date.
+ *
+ * Each day lands on its `dayNumber`-th day of the week, which is the schedule
+ * the app ran before weeks were dated: day 1 on the week's first day, the
+ * finisher on its fifth, the last two days rest.
+ */
+export const trainingWeeks = (start: DateKey): TrainingWeek[] =>
+  weekThemes.map((theme) => {
+    const weekStart = addDays(start, (theme.weekNumber - 1) * 7)
+    return {
+      id: `week-${theme.weekNumber}`,
+      ...theme,
+      startDate: weekStart,
+      endDate: addDays(weekStart, 6),
+      ...authored(),
+      days: [...planDays, coreCardioDay].map((day) => ({
+        ...day,
+        weekNumber: theme.weekNumber,
+        date: addDays(weekStart, day.dayNumber - 1),
+      })),
+    }
+  })
 
 // --- The program document --------------------------------------------------
 /**
@@ -626,8 +697,6 @@ export const program: Program = {
   totalDays: challenge.totalDays,
   sessionsPerWeek: challenge.sessionsPerWeek,
   qualifyingSetPercent: 80,
-  workoutDayCount: planDays.length + 1,
-  weekThemes,
   rewards: rewardConfig,
   publishedAt: AUTHORED_AT,
   ...authored(),

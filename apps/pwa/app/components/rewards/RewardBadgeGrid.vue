@@ -21,13 +21,13 @@ defineProps<{
       v-for="badge in badges"
       :key="badge.id"
       class="flex flex-col gap-1.5 rounded-card border bg-raised p-3.5"
-      :class="badge.earned ? 'border-rose-ring opacity-100' : 'border-hairline opacity-65'"
+      :class="badge.earned ? 'border-primary-ring opacity-100' : 'border-hairline opacity-65'"
     >
       <div class="flex items-start justify-between gap-2">
         <span class="text-[24px] leading-none">{{ badge.emoji }}</span>
         <span
           v-if="badge.earned"
-          class="shrink-0 rounded-pill bg-rose-soft px-2 py-0.75 text-[10.5px] text-rose"
+          class="shrink-0 rounded-pill bg-primary-soft px-2 py-0.75 text-[10.5px] text-primary"
         >
           Earned
         </span>

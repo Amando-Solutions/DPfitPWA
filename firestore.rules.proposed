@@ -82,8 +82,115 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // --- Identity ----------------------------------------------------------
+    /**
+     * Whether the caller's token comes from the account's latest sign-in.
+     *
+     * A member is signed in on one device at a time. `auth_time` is when the
+     * device signed in, and a refreshed token keeps it, so it names the
+     * sign-in rather than the token. `signIns/{uid}` holds the latest. One
+     * `get`, billed as a read.
+     */
+    function onLatestSignIn() {
+      let latest = get(/databases/$(database)/documents/signIns/$(request.auth.uid));
+      return latest != null && latest.data.authTime == request.auth.token.auth_time;
+    }
+
+    /**
+     * The caller's member document, or `null` before they have one.
+     *
+     * One `get`, of the same document `me()` reads: a request that calls both
+     * is billed for one read.
+     */
+    function membership() {
+      return get(/databases/$(database)/documents/members/$(request.auth.uid));
+    }
+
+    /**
+     * Whether the account still has the email its membership was made with.
+     *
+     * A code is claimed only by an account under the address it was issued to,
+     * and that is what makes a code in the wrong hands recoverable: whoever used
+     * it made the account under the buyer's address, so the buyer's password
+     * reset takes it back. The app offers no way to change an email, but
+     * Firebase lets any signed-in account change its own through the public
+     * API — and an account moved to another address is out of that reset's
+     * reach.
+     *
+     * Rules cannot stop that change; Auth is not governed by them. They can make
+     * it worthless. The address is fixed on the member document (see `members`
+     * below), and an account whose email no longer matches it is refused
+     * everything a member can do.
+     *
+     * No member document yet passes, because nothing is bound: the claim and
+     * the document it creates check the address against the code directly. Nor
+     * does a document with no email on it, which creation cannot produce, so a
+     * stray one is not a member locked out. Case is folded, as everywhere an
+     * address is compared.
+     *
+     * Support changing a member's email on the Admin SDK has to change
+     * `members/{uid}.email` with it, or the member is locked out.
+     */
+    function keepsMemberEmail(member) {
+      let bound = member == null ? '' : member.data.get('email', '');
+      return bound == ''
+        || bound.lower() == request.auth.token.get('email', '').lower();
+    }
+
+    /**
+     * Whether this sign-in may act for the account.
+     *
+     * A password or an email link is trusted as it is. Google is different,
+     * because it can be *added* to an account afterwards: anybody signed in can
+     * link their own Google account through the public API, and a password
+     * reset does not unlink it. Whoever made an account with somebody else's
+     * code could link Google, and keep a way in after the buyer reset the
+     * password and took the account back.
+     *
+     * So a Google sign-in counts when Firebase has verified the account's
+     * address — as it has for a Gmail member signing in with their own Google
+     * account, and has not for an account made with a password under somebody
+     * else's address — or when the membership was made before password sign-up
+     * existed. Those have no `joinedWith`: every membership since records the
+     * sign-in it was made under, and nothing can remove it. They need the
+     * exemption because Firebase only takes Google's word for Gmail addresses,
+     * so a member who joined with Google on a work address was never verified.
+     *
+     * Before there is a membership, a Google sign-in needs the verified address:
+     * otherwise a linked Google account could redeem the code itself.
+     */
+    function trustsSignIn(member) {
+      return request.auth.token.firebase.sign_in_provider != 'google.com'
+        || request.auth.token.get('email_verified', false) == true
+        || (member != null && !('joinedWith' in member.data));
+    }
+
+    /**
+     * Signed in, on the device the account most recently signed in on, under
+     * the email its membership was made with, by a sign-in the account trusts.
+     *
+     * Every member rule starts here, so a device that has lost the account to
+     * a later sign-in is refused everything but finding that out, and an
+     * account that has changed its email or been reached through a linked
+     * Google account is refused everything.
+     */
     function signedIn() {
-      return request.auth != null;
+      return request.auth != null && onLatestSignIn() && inGoodStanding(membership());
+    }
+
+    /** Split out so the member document is only read once somebody is signed in. */
+    function inGoodStanding(member) {
+      return keepsMemberEmail(member) && trustsSignIn(member);
+    }
+
+    /**
+     * A member: all of `signedIn()`, and a member document behind it.
+     *
+     * An account alone is not a purchase. Anybody can make one with a single
+     * request to Firebase's sign-up API, which takes the public key in the app's
+     * own JavaScript and no access code; the membership is what the code buys.
+     */
+    function isMember() {
+      return signedIn() && membership() != null;
     }
 
     function isSelf(uid) {
@@ -99,9 +206,12 @@ service cloud.firestore {
      * [MERGE] The console minted `dpfitAdmin`; the app's rules read `coach`.
      * Both are accepted so neither side breaks on the day this lands. Pick
      * `dpfitAdmin`, re-mint, then delete the second clause.
+     *
+     * Read off the token alone, not through `signedIn()`: the console is not a
+     * member's device and never claims one.
      */
     function isAdmin() {
-      return signedIn()
+      return request.auth != null
         && (request.auth.token.dpfitAdmin == true || request.auth.token.coach == true);
     }
 
@@ -117,6 +227,20 @@ service cloud.firestore {
     /** Which fields a write is touching, whether it creates or updates. */
     function changed() {
       return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    /**
+     * The name a member goes by in front of the cohort, derived the way every
+     * client writer derives it: `profile.displayName || fallback`.
+     *
+     * The display name is fixed after setup (see `isValidMemberSelfUpdate`),
+     * and this is what makes that true everywhere the name is *seen*. The
+     * leaderboard row and a chat message each carry a copy, and a copy the
+     * caller chose freely would be a rename by another route.
+     */
+    function shownName(member, fallback) {
+      let name = member.get('profile', {}).get('displayName', null);
+      return name == null || name == '' ? fallback : name;
     }
 
     function cohortData(cohortId) {
@@ -252,7 +376,7 @@ service cloud.firestore {
         && request.time < resource.data.expiresAt
         // A code issued against a purchase is redeemable only by that buyer.
         // Compared case-insensitively, and it has to be: the address reaches
-        // this rule from three different places — lowercased by the email-link
+        // this rule from three different places — lowercased by the sign-up
         // form, in whatever case the account was created with from Google, and
         // typed by hand into the console when the code was issued. An exact
         // match would cost a member their seat over a capital letter, and the
@@ -270,11 +394,50 @@ service cloud.firestore {
         && request.resource.data.updatedByUid == request.auth.uid;
     }
 
+    // --- Sign-ins ----------------------------------------------------------
+    // `signIns/{uid}` — the account's latest sign-in, which is the one device
+    // it is signed in on. `signedIn()` refuses every other.
+    //
+    // Outside `signedIn()` on purpose. A device that has lost the account has
+    // to be able to read this to find out, and a device that has just signed
+    // in has to write it before anything else will let it in.
+    match /signIns/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+
+      // Only the caller's own sign-in, and never one older than what is there.
+      // The first stops a device naming a sign-in it did not make; the second
+      // stops an older device taking the account back. Signing in again is
+      // the only way back, and that makes it the latest.
+      //
+      // And only by a sign-in the account trusts. A Google account linked to
+      // somebody else's membership could otherwise sign that member out of
+      // every device, over and over, even though `signedIn()` gives it
+      // nothing to read.
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && trustsSignIn(membership())
+        && request.resource.data.keys().hasOnly(['authTime', 'signedInAt'])
+        && request.resource.data.authTime == request.auth.token.auth_time
+        && request.resource.data.signedInAt == request.time
+        && (resource == null || request.resource.data.authTime >= resource.data.authTime);
+
+      // Clearing it would let a device signed out while offline come back,
+      // find no claim, and take the account again.
+      allow delete: if false;
+    }
+
     match /accessCodes/{code} {
       // `get` but never `list`. The code IS the secret, so looking one up by
       // name is the intended operation; enumerating the collection would hand
       // over every unredeemed seat in the business.
-      allow get: if signedIn();
+      //
+      // Not gated on sign-in, because the code comes before the account: it is
+      // checked — real, unused, in date — before there is anybody to sign in,
+      // and the address it was issued to is compared before an account is made
+      // for it. What that exposes is this one document to whoever already holds
+      // its code: the buyer's own address and number, to the buyer. A generated
+      // code is 40 random bits, so holding one means having been sent it.
+      // Everything that *spends* a code is still signed in, below.
+      allow get: if true;
       allow list: if isAdmin();
 
       allow create: if isAdmin() && isValidCodeCreate(code);
@@ -451,9 +614,10 @@ service cloud.firestore {
     }
 
     match /programs/{programId} {
-      // [MERGE] Authored content. Every signed-in member reads it — the PWA
-      // loads the program and its workout days on every session.
-      allow read: if signedIn();
+      // [MERGE] Authored content. Members read it — the PWA loads the program
+      // and its workout days on every session — and an account without a
+      // membership does not: see `isMember`.
+      allow read: if isAdmin() || isMember();
 
       allow create: if isAdmin() && isValidProgramCreate(programId);
       allow update: if isAdmin()
@@ -467,7 +631,7 @@ service cloud.firestore {
         && resource.data.workoutDayCount == 0;
 
       match /workoutDays/{dayId} {
-        allow read: if signedIn();
+        allow read: if isAdmin() || isMember();
 
         allow create: if isAdmin()
           && programData(programId).status == 'draft'
@@ -668,10 +832,23 @@ service cloud.firestore {
         // too, and on a delete `request.resource` is null, so the `keys()`
         // check errors and denies — which would have made a member unable to
         // remove their own row and broken `reset()`.
+        //
+        // The name is the member's own, never one the caller picked. Read with
+        // `getAfter`, because redemption writes this row in the same
+        // transaction that creates the member document, and `get` would not
+        // see it yet. A row may also keep the name it already has: that is how
+        // `deleteSession` writes, merging only the count.
         allow create, update: if isAdmin() || (
           isSelf(memberId)
           && request.resource.data.keys().hasOnly(
                ['name', 'avatarUrl', 'sessions', 'updatedAt'])
+          && (
+            request.resource.data.get('name', null) == shownName(
+              getAfter(/databases/$(database)/documents/members/$(memberId)).data,
+              'Member')
+            || (resource != null
+                && request.resource.data.get('name', null) == resource.data.get('name', null))
+          )
         );
         allow delete: if isAdmin() || isSelf(memberId);
       }
@@ -697,6 +874,8 @@ service cloud.firestore {
             inCohort(cohortId)
             && myThread()
             && request.resource.data.authorUid == request.auth.uid
+            // Posted under the member's own name.
+            && request.resource.data.authorName == shownName(me(), 'You')
             // Only the coach's messages get the coach's styling.
             && request.resource.data.isCoach == false
             // A new message starts with no reactions. Counts are only ever
@@ -743,6 +922,9 @@ service cloud.firestore {
       return request.resource.data.status == 'onboarding'
         && request.resource.data.accessCode is string
         && request.resource.data.email == request.auth.token.email
+        // The sign-in it was made under, which is what `trustsSignIn` reads.
+        // Required, so no new membership can pass for one from before it.
+        && request.resource.data.joinedWith == request.auth.token.firebase.sign_in_provider
         // Points cannot be conjured at sign-up.
         && request.resource.data.stats.points == 0
         && request.resource.data.stats.sessionsQualified == 0
@@ -754,15 +936,26 @@ service cloud.firestore {
 
     /**
      * Immutable once set: these define who the member is and what they paid
-     * for, and a self-service change to any of them is an attack.
+     * for, and a self-service change to any of them is an attack. `email`
+     * among them, because it is what `keepsMemberEmail` holds the account to —
+     * an account that could rewrite it could follow its own email change. And
+     * `joinedWith`, whose absence is what exempts a membership from
+     * `trustsSignIn`: deleting it would buy the exemption.
      *
      * The one status transition a member makes for themselves is finishing
      * setup — `completeSetup()` writes `status: 'active'`. Everything else on
      * the lifecycle is the console's, and the pause fields are untouchable
      * from here, so a paused member cannot resume themselves by clearing them.
+     *
+     * Display name and height are answered at setup and fixed after it — which
+     * is also why `status` may never go back to `onboarding`. Read with `get`
+     * so a document from before either field existed still takes other
+     * updates: a missing key is null on both sides.
      */
     function isValidMemberSelfUpdate() {
-      return request.resource.data.cohortId == resource.data.cohortId
+      return request.resource.data.get('email', null) == resource.data.get('email', null)
+        && request.resource.data.get('joinedWith', null) == resource.data.get('joinedWith', null)
+        && request.resource.data.cohortId == resource.data.cohortId
         && request.resource.data.accessCode == resource.data.accessCode
         && request.resource.data.joinedAt == resource.data.joinedAt
         && request.resource.data.createdAt == resource.data.createdAt
@@ -774,7 +967,13 @@ service cloud.firestore {
         )
         && request.resource.data.previousStatus == resource.data.previousStatus
         && request.resource.data.pauseReason == resource.data.pauseReason
-        && request.resource.data.pausedAt == resource.data.pausedAt;
+        && request.resource.data.pausedAt == resource.data.pausedAt
+        && (resource.data.status == 'onboarding' || (
+          request.resource.data.get('profile', {}).get('displayName', null)
+            == resource.data.get('profile', {}).get('displayName', null)
+          && request.resource.data.get('profile', {}).get('heightCm', null)
+            == resource.data.get('profile', {}).get('heightCm', null)
+        ));
     }
 
     function isValidMemberPause() {
@@ -856,10 +1055,12 @@ service cloud.firestore {
       allow update: if (isSelf(uid) && isValidMemberSelfUpdate())
         || (isAdmin() && (isValidMemberPause() || isValidMemberResume()));
 
-      // `reset()` deletes the member document and the leaderboard row. A
-      // client cannot delete subcollections — recursive delete lives in the
-      // Admin SDK — so the document going away is what a cleanup job keys off.
-      allow delete: if isSelf(uid) || isAdmin();
+      // Admin only. A member who could delete their own document could redeem
+      // their code again, which rebuilds it in `onboarding` and reopens the
+      // display name and height that `isValidMemberSelfUpdate` fixes. The
+      // client's `reset()` is the one writer this refuses, and nothing in the
+      // app calls it.
+      allow delete: if isAdmin();
 
       // Everything below a member belongs to that member alone. One rule
       // rather than eight: sessions, check-ins, photos, badges, the active

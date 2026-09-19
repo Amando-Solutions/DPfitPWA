@@ -5,18 +5,24 @@ import {
   type ActiveSessionInput,
   type CheckInInput,
   type DataSource,
+  type DeviceClaim,
   type PendingFile,
   type PhotoInput,
   type SessionInput,
+  type Unsubscribe,
 } from './types'
+import { TYPING_REFRESH_MS, typingIsFresh } from '~/lib/chat'
+import { trustedNow } from '~/lib/time'
 import type { ProcessedImage } from '~/lib/image'
 import type {
   ActiveSessionDoc,
   Announcement,
   AuthUser,
   ChatAttachment,
+  ChatMention,
   ChatMessageView,
   ChatReaction,
+  ChatReplyRef,
   CheckIn,
   Cohort,
   EarnedBadge,
@@ -26,14 +32,36 @@ import type {
   MemberDoc,
   MemberPreferences,
   MemberProfile,
+  Message,
   Notification,
   Program,
   ProgressPhoto,
   SessionLog,
   StoredImage,
   ThreadId,
-  WorkoutDay,
+  TrainingWeek,
+  TypingPeer,
 } from '~/data/types'
+
+/** How often an open chat thread is re-read. See `watchMessages`. */
+const THREAD_POLL_MS = 5_000
+
+/**
+ * How often the typing markers are re-read. Faster than the thread, because an
+ * indicator that arrives after the message it was announcing is worse than no
+ * indicator, and the payload is a handful of names rather than 200 messages.
+ */
+const TYPING_POLL_MS = 2_500
+
+/**
+ * How often the unread badge re-reads the top of a thread. See
+ * `watchLatestMessage`.
+ *
+ * Slower than the open thread, because this one is polled from every screen in
+ * the app rather than from the one screen somebody is reading, and a dot that
+ * appears within half a minute is a dot that works.
+ */
+const LATEST_POLL_MS = 30_000
 
 /**
  * HTTP implementation of the same contract, for a REST backend in front of
@@ -53,6 +81,9 @@ import type {
  */
 export class HttpDataSource implements DataSource {
   constructor(private readonly baseURL: string) {}
+
+  /** When `setTyping(true)` last went out, per thread. See `setTyping`. */
+  private readonly typingSentAt = new Map<string, number>()
 
   private request<T>(path: string, options: Parameters<typeof $fetch>[1] = {}): Promise<T> {
     return $fetch<T>(path, {
@@ -116,9 +147,6 @@ export class HttpDataSource implements DataSource {
   }
 
   // --- Auth ----------------------------------------------------------------
-  /** A backend sends a real email, so the wait for it is real too. */
-  readonly instantSignIn = false
-
   /**
    * Off, because Google sign-in is a client-SDK flow and this implementation
    * has no client SDK behind it.
@@ -129,6 +157,8 @@ export class HttpDataSource implements DataSource {
    * implementation, which is the one that has it.
    */
   readonly googleSignIn = false
+
+  readonly demoAccessCode = null
 
   async signInWithGoogle(): Promise<never> {
     throw new DataSourceError(
@@ -141,17 +171,25 @@ export class HttpDataSource implements DataSource {
     return null
   }
 
-  async sendSignInLink(email: string) {
-    await this.send('/auth/sign-in-link', 'POST', { email })
-    return null
+  async checkAccessCode(code: string) {
+    const { code: normalised } = await this.send<{ code: string }>(
+      '/auth/access-code/check',
+      'POST',
+      { code },
+    )
+    return normalised
   }
 
-  async isSignInLink(url: string) {
-    return new URL(url, this.baseURL).searchParams.has('oobCode')
+  createAccount(code: string, email: string, password: string) {
+    return this.send<AuthUser>('/auth/account', 'POST', { code, email, password })
   }
 
-  completeSignInLink(url: string, email?: string) {
-    return this.send<AuthUser>('/auth/session', 'POST', { url, email })
+  signInWithPassword(email: string, password: string) {
+    return this.send<AuthUser>('/auth/session', 'POST', { email, password })
+  }
+
+  async sendPasswordReset(email: string) {
+    await this.send('/auth/password-reset', 'POST', { email })
   }
 
   getAuthUser() {
@@ -160,6 +198,19 @@ export class HttpDataSource implements DataSource {
 
   async signOut() {
     await this.send('/auth/session', 'DELETE')
+  }
+
+  /**
+   * Nothing to claim: the backend issues the session, so ending the older one
+   * is the backend's job. A call on an ended session comes back 401, which
+   * `send` already reports as `unauthenticated`.
+   */
+  async claimDevice(): Promise<DeviceClaim> {
+    return 'claimed'
+  }
+
+  async watchDevice(): Promise<Unsubscribe> {
+    return () => {}
   }
 
   // --- Membership ----------------------------------------------------------
@@ -192,8 +243,8 @@ export class HttpDataSource implements DataSource {
     return this.get<Program>('/me/program')
   }
 
-  listWorkoutDays() {
-    return this.get<WorkoutDay[]>('/me/program/workout-days')
+  listProgramWeeks() {
+    return this.get<TrainingWeek[]>('/me/program/weeks')
   }
 
   listGuides() {
@@ -204,8 +255,24 @@ export class HttpDataSource implements DataSource {
     return this.get<Cohort | null>('/me/cohort')
   }
 
-  listAnnouncements() {
-    return this.get<Announcement[]>('/me/cohort/announcements')
+  /** Polled on the badge's timer. See `poll`. */
+  watchCohort(
+    onCohort: (cohort: Cohort | null) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
+    return this.poll(() => this.getCohort(), onCohort, onError)
+  }
+
+  /** Polled on the badge's timer. See `poll`. */
+  watchAnnouncements(
+    onAnnouncements: (announcements: Announcement[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
+    return this.poll(
+      () => this.get<Announcement[]>('/me/cohort/announcements'),
+      onAnnouncements,
+      onError,
+    )
   }
 
   // --- Uploads -------------------------------------------------------------
@@ -262,8 +329,71 @@ export class HttpDataSource implements DataSource {
   }
 
   // --- Notifications -------------------------------------------------------
-  listNotifications() {
-    return this.get<Notification[]>('/notifications')
+  /** Polled on the badge's timer. See `watchLatestMessage`. */
+  watchNotifications(
+    onNotifications: (notifications: Notification[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
+    return this.poll(() => this.get<Notification[]>('/notifications'), onNotifications, onError)
+  }
+
+  /** Polled on the badge's timer. The backend decides what "addressed" means. */
+  watchAddressedMessages(
+    onMessages: (messages: Message[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
+    return this.poll(
+      () => this.get<Message[]>('/me/addressed-messages'),
+      onMessages,
+      onError,
+    )
+  }
+
+  /** Polled on the badge's timer. The member's messages others have reacted to. */
+  watchReactedMessages(
+    onMessages: (messages: Message[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
+    return this.poll(
+      () => this.get<Message[]>('/me/reacted-messages'),
+      onMessages,
+      onError,
+    )
+  }
+
+  /**
+   * Read on `LATEST_POLL_MS`, for the listeners that sit behind every screen.
+   *
+   * Same failure handling as the chat polls: reported once, and the timer keeps
+   * running, because the usual cause is a phone between cells.
+   */
+  private async poll<T>(
+    read: () => Promise<T>,
+    onValue: (value: T) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
+    let stopped = false
+    let reportedError = false
+
+    const tick = async () => {
+      try {
+        const value = await read()
+        reportedError = false
+        if (!stopped) onValue(value)
+      } catch (error) {
+        if (stopped || reportedError) return
+        reportedError = true
+        onError?.(error)
+      }
+    }
+
+    await tick()
+    const timer = setInterval(tick, LATEST_POLL_MS)
+
+    return () => {
+      stopped = true
+      clearInterval(timer)
+    }
   }
 
   listNotificationReads() {
@@ -274,8 +404,9 @@ export class HttpDataSource implements DataSource {
     await this.send(`/notifications/${id}/read`, 'POST')
   }
 
-  async markAllNotificationsRead() {
-    await this.send('/notifications/read-all', 'POST')
+  async markNotificationsRead(ids: string[]) {
+    if (!ids.length) return
+    await this.send('/notifications/read', 'POST', { ids })
   }
 
   // --- Chat ----------------------------------------------------------------
@@ -283,11 +414,183 @@ export class HttpDataSource implements DataSource {
     return this.get<ChatMessageView[]>(`/threads/${threadId}/messages`)
   }
 
-  sendMessage(threadId: ThreadId, text: string, attachments: ChatAttachment[] = []) {
+  /**
+   * Polled, because REST has nothing to push down.
+   *
+   * The other two implementations get this for free — Firestore holds a stream
+   * open, the on-device one is the writer — and a plain HTTP backend has
+   * neither, so the thread is re-read on a timer. Five seconds is the
+   * compromise: slow enough that an idle chat screen is not hammering an
+   * endpoint, fast enough that a reply does not feel lost. A backend that
+   * grows a socket or an event stream should replace the body of this method
+   * and nothing else.
+   *
+   * A failed poll is reported once and the timer keeps running: the usual
+   * cause is a phone between cells, and the next tick is five seconds away.
+   */
+  async watchMessages(
+    threadId: ThreadId,
+    onMessages: (messages: ChatMessageView[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
+    let stopped = false
+    let reportedError = false
+
+    const poll = async () => {
+      try {
+        const messages = await this.listMessages(threadId)
+        reportedError = false
+        if (!stopped) onMessages(messages)
+      } catch (error) {
+        if (stopped || reportedError) return
+        reportedError = true
+        onError?.(error)
+      }
+    }
+
+    await poll()
+    const timer = setInterval(poll, THREAD_POLL_MS)
+
+    return () => {
+      stopped = true
+      clearInterval(timer)
+    }
+  }
+
+  /**
+   * Polled like `watchMessages`, on its own slower timer.
+   *
+   * The endpoint hands back the newest message in the thread, or `null` for a
+   * thread nobody has written in — the one document the badge needs, rather
+   * than the 200 `listMessages` returns, because this poll runs on every
+   * screen in the app and not only on the chat one.
+   *
+   * A failed poll is reported once and the timer keeps running, for the same
+   * reason as the thread poll: the usual cause is a phone between cells.
+   */
+  async watchLatestMessage(
+    threadId: ThreadId,
+    onMessage: (message: Message | null) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
+    let stopped = false
+    let reportedError = false
+
+    const poll = async () => {
+      try {
+        const latest = await this.get<Message | null>(`/threads/${threadId}/messages/latest`)
+        reportedError = false
+        if (!stopped) onMessage(latest ?? null)
+      } catch (error) {
+        if (stopped || reportedError) return
+        reportedError = true
+        onError?.(error)
+      }
+    }
+
+    await poll()
+    const timer = setInterval(poll, LATEST_POLL_MS)
+
+    return () => {
+      stopped = true
+      clearInterval(timer)
+    }
+  }
+
+  sendMessage(
+    threadId: ThreadId,
+    text: string,
+    attachments: ChatAttachment[] = [],
+    replyTo: ChatReplyRef | null = null,
+    mentions: ChatMention[] = [],
+  ) {
     return this.send<ChatMessageView>(`/threads/${threadId}/messages`, 'POST', {
       text,
       attachments,
+      replyTo,
+      mentions,
     })
+  }
+
+  /**
+   * Rate-limited here, like the Firestore implementation, and for the same
+   * reason: the composer calls this on every keystroke and a backend should not
+   * be asked to absorb that. `false` is never limited — it is the half that
+   * must always get through.
+   */
+  async setTyping(threadId: ThreadId, typing: boolean): Promise<void> {
+    try {
+      if (!typing) {
+        this.typingSentAt.delete(threadId)
+        await this.send(`/threads/${threadId}/typing`, 'DELETE')
+        return
+      }
+      const last = this.typingSentAt.get(threadId) ?? 0
+      if (Date.now() - last < TYPING_REFRESH_MS) return
+      this.typingSentAt.set(threadId, Date.now())
+      await this.send(`/threads/${threadId}/typing`, 'POST')
+    } catch (cause) {
+      console.error('[chat] typing marker failed', cause)
+    }
+  }
+
+  /**
+   * Polled, like `watchMessages` and for the same reason — but on its own,
+   * faster timer. A typing indicator that lags five seconds behind is worse
+   * than none: it appears after the message it was announcing.
+   *
+   * The backend is expected to have applied `TYPING_TTL_MS` already; the filter
+   * here is the client refusing to render a marker it can see is stale, which
+   * is what covers a poll that arrives late.
+   */
+  async watchTyping(
+    threadId: ThreadId,
+    onTyping: (peers: TypingPeer[]) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
+    let stopped = false
+    let reportedError = false
+
+    const poll = async () => {
+      try {
+        const peers = await this.get<TypingPeer[]>(`/threads/${threadId}/typing`)
+        reportedError = false
+        if (stopped) return
+        const now = trustedNow().getTime()
+        onTyping(peers.filter((peer) => typingIsFresh(peer.at, now)))
+      } catch (error) {
+        if (stopped || reportedError) return
+        reportedError = true
+        onError?.(error)
+      }
+    }
+
+    await poll()
+    const timer = setInterval(poll, TYPING_POLL_MS)
+
+    return () => {
+      stopped = true
+      clearInterval(timer)
+    }
+  }
+
+  /**
+   * A PATCH, because an edit changes one field of a message that already
+   * exists. The window and the authorship are the backend's to enforce; this
+   * sends the correction and surfaces whatever it says about it — see `send`,
+   * which turns a refusal into a `DataSourceError` with the server's sentence.
+   */
+  editMessage(
+    threadId: ThreadId,
+    messageId: string,
+    text: string,
+    mentions: ChatMention[] = [],
+  ) {
+    return this.send<ChatMessageView>(
+      `/threads/${threadId}/messages/${messageId}`,
+      'PATCH',
+      { text, mentions },
+    )
   }
 
   toggleReaction(threadId: ThreadId, messageId: string, emoji: string) {
@@ -310,6 +613,18 @@ export class HttpDataSource implements DataSource {
   /** Real counts across the cohort, refreshed on load. No placeholder rows. */
   listLeaderboard() {
     return this.get<LeaderboardEntry[]>('/cohort/leaderboard')
+  }
+
+  /**
+   * One number, its own endpoint.
+   *
+   * The board is paginated and this is not a `length` the client can take from
+   * it — see the contract. A backend answering this should count the roster,
+   * not serialise it.
+   */
+  async countCohortMembers() {
+    const { count } = await this.get<{ count: number }>('/cohort/member-count')
+    return Math.max(count, 1)
   }
 
   /** Uploads land in a bucket, so there is no device budget to run out of. */

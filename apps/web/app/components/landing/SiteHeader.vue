@@ -4,7 +4,7 @@ import { NAV_LINKS, REGISTER_ANCHOR } from '~/data/landing'
 /**
  * The sticky bar. Transparent while it sits over the hero, which is what the
  * Figma variant is named for, then it has to earn its own background: past the
- * hero the page turns to warm paper, and white type on transparent over paper
+ * hero the page turns to lavender-white, and white type on transparent over paper
  * is unreadable. So it fades in the night surface once the page has moved.
  *
  * The threshold is deliberately small (a few pixels of scroll rather than the

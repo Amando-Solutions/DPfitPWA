@@ -19,8 +19,23 @@ const props = withDefaults(
     unit?: Units
     /** Read-only rendering for a session that has already been saved. */
     readonly?: boolean
+    /**
+     * Whether the member has pressed Start workout.
+     *
+     * The badge and the tick are the two controls on a row that write to the
+     * log, so both stay inert until the clock is running: a set ticked off
+     * before the session has begun is work the timer never sees. The rest timer
+     * waits too, and longer: see `canRest`. The read-only render has no clock
+     * behind it at all, hence the default.
+     */
+    started?: boolean
+    /**
+     * Where the exercise name and the help icon lead: its history and how-to.
+     * Without one the name is plain text and the icon is not drawn.
+     */
+    to?: string
   }>(),
-  { unit: 'kg' },
+  { unit: 'kg', started: true },
 )
 
 const emit = defineEmits<{
@@ -38,6 +53,9 @@ const restLabel = computed(() => {
   const s = props.restSeconds % 60
   return m ? `${m}min ${s}s` : `${s}s`
 })
+
+/** Rest follows a set, so the button waits for Start and a first tick here. */
+const canRest = computed(() => props.started && props.sets.some((set) => set.done))
 
 const menuOpen = ref(false)
 const noteFocused = ref(false)
@@ -179,6 +197,14 @@ const ROW =
   'grid grid-cols-[28px_1fr_58px_58px_34px] items-center gap-1.5 border-b py-1.75'
 
 /*
+  The SET badge fills its column edge to edge, so the row gap on its own left
+  last week's numbers pressed up against the chip. The previous column carries
+  the extra space as its own inset rather than widening every gap on the row,
+  which would push the weight and reps cells around for no reason.
+*/
+const PREV = 'pl-2.5'
+
+/*
   One radius, used everywhere on this card that isn't a button.
 
   The card, the inputs and the checkmarks were each rounded differently, and the
@@ -187,7 +213,7 @@ const ROW =
   are reserved for things you press.
 */
 const INPUT =
-  'h-8 w-full rounded-field border-none bg-sunken px-2 text-right text-[13.5px] font-bold text-ink tabular-nums shadow-[inset_0_0_0_1px_var(--hairline)] outline-none focus:shadow-[inset_0_0_0_1.5px_var(--rose)]'
+  'h-8 w-full rounded-field border-none bg-sunken px-2 text-right text-[13.5px] font-bold text-ink tabular-nums shadow-[inset_0_0_0_1px_var(--hairline)] outline-none focus:shadow-[inset_0_0_0_1.5px_var(--primary)]'
 // Chrome/Safari spinners eat the available width in a 58px cell.
 const NO_SPINNER =
   'appearance-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none'
@@ -204,7 +230,7 @@ const NO_SPINNER =
   <AppCard variant="raised" class="flex flex-col rounded-2xl font-exercise">
     <div class="flex items-center gap-2.5">
       <div
-        class="grid size-8 shrink-0 place-items-center rounded-pill bg-rose-soft text-rose"
+        class="grid size-8 shrink-0 place-items-center rounded-pill bg-primary-soft text-primary"
       >
         <AppIcon name="train" :size="16" :stroke="2.2" />
       </div>
@@ -216,18 +242,37 @@ const NO_SPINNER =
         is a weight-and-reps exercise because there is a weight column and a
         reps column.
       -->
-      <h3 class="m-0 min-w-0 flex-1 truncate text-[15px] font-bold text-rose">
-        {{ name }}
+      <h3 class="m-0 min-w-0 flex-1 truncate text-[15px] font-bold text-primary">
+        <NuxtLink
+          v-if="to"
+          :to="to"
+          class="rounded-field transition-opacity duration-100 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring active:opacity-70"
+        >
+          {{ name }}
+        </NuxtLink>
+        <template v-else>{{ name }}</template>
       </h3>
 
-      <button
-        v-if="!readonly"
-        class="-mr-1.5 grid size-8 shrink-0 place-items-center rounded-pill text-muted transition-colors hover:text-ink"
-        aria-label="Exercise options"
-        @click="menuOpen = true"
-      >
-        <AppIcon name="more" :size="18" :stroke="2.4" />
-      </button>
+      <!-- The name alone did not read as a link, so the history and how-to get
+           an icon of their own beside the options. -->
+      <div v-if="to || !readonly" class="-mr-1.5 flex shrink-0 items-center">
+        <NuxtLink
+          v-if="to"
+          :to="to"
+          class="grid size-8 place-items-center rounded-pill text-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring"
+          :aria-label="`${name}: history and how-to`"
+        >
+          <AppIcon name="help" :size="18" :stroke="2.2" />
+        </NuxtLink>
+        <button
+          v-if="!readonly"
+          class="grid size-8 place-items-center rounded-pill text-muted transition-colors hover:text-ink"
+          aria-label="Exercise options"
+          @click="menuOpen = true"
+        >
+          <AppIcon name="more" :size="18" :stroke="2.4" />
+        </button>
+      </div>
     </div>
 
     <button
@@ -246,19 +291,19 @@ const NO_SPINNER =
 
     <button
       v-if="!readonly"
-      class="mt-0.5 flex min-h-7 items-center gap-1.5 py-1 text-[12.5px] text-rose"
+      class="mt-0.5 flex min-h-7 items-center py-1 text-[12.5px] text-primary disabled:cursor-default disabled:opacity-60"
+      :disabled="!canRest"
       @click="emit('rest', restSeconds)"
     >
-      <AppIcon name="clock" :size="14" :stroke="2" />
       <span>Rest timer: {{ restLabel }}</span>
     </button>
 
     <div class="mt-3">
-      <div :class="ROW" class="border-fill-muted text-[11.5px] text-muted">
+      <div :class="ROW" class="border-fill-muted text-center text-[11.5px] text-muted uppercase">
         <span>Set</span>
-        <span>Previous</span>
-        <span class="text-right">{{ unitLabel(unit) }}</span>
-        <span class="text-right">Reps</span>
+        <span :class="PREV">Previous</span>
+        <span>{{ unitLabel(unit) }}</span>
+        <span>Reps</span>
         <span class="grid place-items-center">
           <AppIcon name="check" :size="13" :stroke="2.2" />
         </span>
@@ -270,7 +315,7 @@ const NO_SPINNER =
         :class="[
           ROW,
           'border-fill-subtle',
-          row.set.done && 'rounded-field bg-rose-softer',
+          row.set.done && 'rounded-field bg-success-softer',
         ]"
       >
         <!-- 16b · Select Set Type. The badge is the control: there is nowhere
@@ -279,8 +324,9 @@ const NO_SPINNER =
         <button
           v-if="!readonly"
           type="button"
-          class="grid size-7 place-items-center justify-self-center rounded-field text-[11.5px] font-bold tabular-nums transition-colors duration-150"
+          class="grid size-7 place-items-center justify-self-center rounded-field text-[11.5px] font-bold tabular-nums transition-colors duration-150 disabled:cursor-default disabled:opacity-60"
           :class="SET_BADGE[setTypeOf(row.set)]"
+          :disabled="!started"
           :aria-label="`${row.label} — ${metaFor(setTypeOf(row.set)).label}. Change set type`"
           @click="typeSheetFor = row.index"
         >
@@ -293,7 +339,7 @@ const NO_SPINNER =
         >
           {{ row.label }}
         </span>
-        <span class="truncate text-[11.5px] text-muted tabular-nums">
+        <span :class="PREV" class="truncate text-center text-[11.5px] text-muted tabular-nums">
           {{ previousLabel(row.set) }}
         </span>
 
@@ -327,12 +373,12 @@ const NO_SPINNER =
           {{ row.set.reps }}
         </span>
 
-        <!-- Neutral until it is ticked, and ticked it fills with the surface's
-             own strong ink rather than a second accent colour. -->
+        <!-- Neutral until it is ticked, and ticked it fills with the done
+             green, which is the one thing that colour is allowed to mean. -->
         <button
           class="grid size-7 place-items-center justify-self-center rounded-field transition-colors duration-150 disabled:cursor-default disabled:opacity-60"
-          :class="row.set.done ? 'bg-rose-fill text-on-rose' : 'bg-fill-subtle text-transparent'"
-          :disabled="readonly"
+          :class="row.set.done ? 'bg-success text-on-success' : 'bg-fill-subtle text-transparent'"
+          :disabled="readonly || !started"
           :aria-label="`Mark ${rowName(row, position)} ${row.set.done ? 'not done' : 'done'}`"
           @click="emit('toggle-set', row.index)"
         >
@@ -343,10 +389,9 @@ const NO_SPINNER =
 
     <button
       v-if="!readonly"
-      class="mt-3 flex h-10 items-center justify-center gap-1.5 rounded-pill bg-fill-subtle text-[13px] text-ink transition-opacity duration-100 active:opacity-70"
+      class="mt-3 flex h-10 items-center justify-center rounded-pill bg-fill-subtle text-[13px] text-ink transition-opacity duration-100 active:opacity-70"
       @click="emit('add-set')"
     >
-      <AppIcon name="plus" :size="15" :stroke="2.4" />
       <span>Add set</span>
     </button>
 
@@ -376,7 +421,7 @@ const NO_SPINNER =
           <textarea
             :id="noteId"
             v-model="noteDraft"
-            class="w-full scroll-mt-4 resize-none rounded-field border-none bg-sunken px-3.5 py-3 text-base text-ink shadow-[inset_0_0_0_1.5px_var(--hairline)] outline-none focus:shadow-[inset_0_0_0_1.5px_var(--rose)] sm:text-sm"
+            class="w-full scroll-mt-4 resize-none rounded-field border-none bg-sunken px-3.5 py-3 text-base text-ink shadow-[inset_0_0_0_1.5px_var(--hairline)] outline-none focus:shadow-[inset_0_0_0_1.5px_var(--primary)] sm:text-sm"
             rows="3"
             placeholder="Felt heavy, dropped to 12kg on the last set…"
             @focus="noteFocused = true"

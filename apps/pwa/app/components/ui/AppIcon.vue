@@ -81,11 +81,15 @@ const glyphFor = (name: string): Glyph | undefined => {
 // --- Fallbacks: glyphs the Figma file never exported -------------------------
 const fallbacks: Record<string, string> = {
   arrowLeft: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
+  // iOS's back chevron: taller than it is wide, with no shaft. The arrow above
+  // is Material's, and on an iPhone it reads as an Android port.
+  chevronLeft: '<path d="M15 4.5 7.5 12l7.5 7.5"/>',
   play: '<path d="M8 5.5v13l11-6.5-11-6.5Z"/>',
   pause: '<path d="M8 5v14M16 5v14"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   minus: '<path d="M5 12h14"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  check: '<path d="M5 13l4 4L19 7"/>',
   settings:
     '<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
@@ -100,7 +104,9 @@ const fallbacks: Record<string, string> = {
   target:
     '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4"/>',
   send: '<path d="M4 12 20 4l-6 16-3-7-7-1Z"/>',
+  reply: '<path d="M9 15 4 10l5-5"/><path d="M4 10h8a7 7 0 0 1 7 7v2"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
+  help: '<circle cx="12" cy="12" r="9"/><path d="M9.3 9.3a2.8 2.8 0 0 1 5.4 1c0 1.9-2.7 2.7-2.7 2.7M12 17h.01"/>',
   phone:
     '<path d="M5 4h4l1.5 4-2 1.5a11 11 0 0 0 6 6l1.5-2 4 1.5V19a2 2 0 0 1-2 2A16 16 0 0 1 4 6a2 2 0 0 1 1-2Z"/>',
   edit: '<path d="M4 20h4L18 10l-4-4L4 16v4Z"/><path d="M13.5 6.5l4 4"/>',
@@ -116,6 +122,12 @@ const fallbacks: Record<string, string> = {
     '<path d="M12 3.5v10"/><path d="M8.5 7 12 3.5 15.5 7"/><path d="M7.5 10.5H6A2 2 0 0 0 4 12.5v6A2 2 0 0 0 6 20.5h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-1.5"/>',
   download:
     '<path d="M12 3.5v10"/><path d="M8 10l4 3.5 4-3.5"/><path d="M4 16.5v2A2 2 0 0 0 6 20.5h12a2 2 0 0 0 2-2v-2"/>',
+  // The reveal toggle on a password field. Two glyphs rather than one that
+  // rotates, because the struck-through eye is the half people read as "it is
+  // hidden right now" — an eye alone flips meaning depending on who is looking.
+  eye: '<path d="M2.5 12C4.6 8.4 8 6.2 12 6.2s7.4 2.2 9.5 5.8c-2.1 3.6-5.5 5.8-9.5 5.8S4.6 15.6 2.5 12Z"/><circle cx="12" cy="12" r="3.1"/>',
+  eyeOff:
+    '<path d="M10.7 6.4a9.7 9.7 0 0 1 1.3-.2c4 0 7.4 2.2 9.5 5.8a16.9 16.9 0 0 1-2.8 3.6"/><path d="M6.4 8.1A16.6 16.6 0 0 0 2.5 12c2.1 3.6 5.5 5.8 9.5 5.8 1.4 0 2.7-.3 3.9-.8"/><path d="M9.8 9.8a3.1 3.1 0 0 0 4.4 4.4"/><path d="M4 4l16 16"/>',
 }
 
 const glyph = computed(() => glyphFor(props.name))

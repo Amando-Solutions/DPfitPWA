@@ -14,13 +14,15 @@
     "build": "bun run --filter '*' build",
     "build:web": "bun run --filter dp-fitness-web build",
     "build:pwa": "bun run --filter dp-fitness-pwa build",
+    "build:functions": "bun run --filter dp-fitness-functions build",
     "typecheck": "bun run --filter '*' typecheck",
     "brand:assets": "bun run --filter @dpfit/theme brand:assets",
     "postinstall": "bun run --filter '*' postinstall",
     "backfill:codes": "bun run --filter dp-fitness-pwa backfill:codes",
     "rules:diff": "diff firestore.rules firestore.staging.rules && echo '✓ staging rules are identical to production' || echo '↑ staging has diverged from production'",
     "deploy:staging": "firebase deploy --only firestore:staging",
-    "deploy:rules": "firebase deploy --only firestore,storage"
+    "deploy:rules": "firebase deploy --only firestore,storage",
+    "deploy:functions": "firebase deploy --only functions"
   },
   "devDependencies": {
     "firebase-tools": "^15.28.2",

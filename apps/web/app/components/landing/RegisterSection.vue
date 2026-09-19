@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { PRICE } from '~/data/landing'
+import { detectTimezone, isTimezone } from '~/data/timezones'
 
 /**
  * The whole of registration on this site: the details the coach needs before
@@ -48,20 +49,33 @@ type FieldName = keyof RegistrationDetails
 interface Field {
   name: FieldName
   label: string
-  type: string
+  /** Rendered as `TimezoneSelect` rather than an `<input>`. Only one field is. */
+  control?: 'select'
+  type?: string
   placeholder?: string
-  autocomplete: string
+  /** Absent on the time zone, which is a button and has nothing to fill. */
+  autocomplete?: string
   inputmode?: 'text' | 'email' | 'tel'
   /**
-   * Takes two of the six columns on the widest layout instead of one.
+   * How many of the six columns the field takes on the widest layout.
    *
-   * Only the email does. An address is the longest thing anybody types here
-   * and the only one that would otherwise scroll inside its own field; the
-   * other four are a first name, a last name, a phone number and a city.
+   * Two apiece for the name and the email, which fills the first row; four for
+   * the time zone, because it is the one field holding a sentence — "New York
+   * City, Brooklyn — Eastern Time (GMT-05:00)" — and a narrower one shows the
+   * first two words of it.
    */
-  wide?: boolean
+  columns: 2 | 4
   /** Returns an error message, or an empty string when the value is fine. */
   validate: (value: string) => string
+}
+
+/**
+ * Tailwind reads class names out of the source, so it cannot see one that is
+ * assembled at runtime. A lookup, not a template string.
+ */
+const COLUMN_CLASS: Record<Field['columns'], string> = {
+  2: 'xl:col-span-2',
+  4: 'sm:col-span-2 xl:col-span-4',
 }
 
 const required = (value: string) => value.trim().length > 0
@@ -76,6 +90,7 @@ const FIELDS: Field[] = [
     label: 'First name',
     type: 'text',
     autocomplete: 'given-name',
+    columns: 2,
     validate: (v) => (required(v) ? '' : 'Tell us what to call you.'),
   },
   {
@@ -83,6 +98,7 @@ const FIELDS: Field[] = [
     label: 'Last name',
     type: 'text',
     autocomplete: 'family-name',
+    columns: 2,
     validate: (v) => (required(v) ? '' : 'We need your last name too.'),
   },
   {
@@ -91,7 +107,7 @@ const FIELDS: Field[] = [
     type: 'email',
     autocomplete: 'email',
     inputmode: 'email',
-    wide: true,
+    columns: 2,
     // Deliberately permissive. The only thing worth catching in the browser is
     // a value that could not possibly be deliverable; anything stricter starts
     // rejecting real addresses, and the confirmation mail is the real check.
@@ -109,6 +125,7 @@ const FIELDS: Field[] = [
     placeholder: '+234…',
     autocomplete: 'tel',
     inputmode: 'tel',
+    columns: 2,
     // The group chat runs on WhatsApp, so this is how someone actually gets
     // into the cohort. Digits, spaces and the usual punctuation, seven or more.
     validate: (v) =>
@@ -118,16 +135,23 @@ const FIELDS: Field[] = [
           ? ''
           : 'Include the country code, like +234 801 234 5678.',
   },
+  // A picker, where this was once a text input asking for "e.g. Lagos, WAT".
+  // The live calls run in two slots and this is the answer that decides which
+  // one somebody is pointed at, so it is the single field where a typo costs
+  // a person a call — and nothing downstream can tell a typo from a place it
+  // has not heard of. The list and what it stores are in `~/data/timezones`.
   {
     name: 'timezone',
-    label: 'Time zone / country',
-    type: 'text',
-    placeholder: 'e.g. Lagos, WAT',
-    autocomplete: 'country-name',
-    // Not a picker: the live calls run in two slots and this is what decides
-    // which one someone is pointed at, so a human-readable answer is enough.
+    label: 'Time zone',
+    control: 'select',
+    placeholder: 'Select your time zone',
+    columns: 4,
     validate: (v) =>
-      required(v) ? '' : 'This decides which call slot suits you.',
+      !required(v)
+        ? 'This decides which call slot suits you.'
+        : isTimezone(v)
+          ? ''
+          : 'Pick your time zone from the list.',
   },
 ]
 
@@ -152,6 +176,19 @@ const submitting = ref(false)
  */
 const failure = ref('')
 
+/**
+ * The browser already knows where it is, so the field starts answered.
+ *
+ * On mount rather than in the form's initial state, because this page is
+ * prerendered: a zone resolved while the state is built is resolved during the
+ * build, which bakes the build machine's zone into the HTML every visitor is
+ * served — and hydrates into a mismatch besides. A zone the list does not carry
+ * resolves to `''` and leaves the placeholder showing, which is the honest
+ * answer: a wrong zone sitting in a filled-looking field is never re-read.
+ */
+onMounted(() => {
+  if (!form.timezone) form.timezone = detectTimezone()
+})
 
 function validateField(field: Field) {
   const message = field.validate(form[field.name])
@@ -226,7 +263,7 @@ async function onSubmit() {
   <section id="register" class="bg-page py-20 lg:py-30">
     <PageContainer>
       <div class="max-w-155">
-        <p class="eyebrow-section text-rose-fill">Register, then pay</p>
+        <p class="eyebrow-section text-primary-fill">Register, then pay</p>
         <h2 class="title-section mt-4.5 text-ink">Register for your spot.</h2>
         <p class="mt-4 font-body text-[17px] leading-[1.7] text-soft">
           Fill this in once. Your program access and nutrition guidance are set
@@ -238,15 +275,44 @@ async function onSubmit() {
         class="mt-12 rounded-card border border-[rgba(36,27,46,0.12)] bg-white p-6 shadow-[0_30px_35px_rgba(36,27,46,0.09)] sm:p-10 lg:mt-13 lg:p-12.25"
       >
         <form novalidate @submit.prevent="onSubmit">
-          <!-- Six columns rather than five, so the email can take two of them
-               and the row still divides evenly. Two-up below that, which puts
-               the two halves of a name on the same line. -->
-          <div class="grid gap-5 sm:grid-cols-2 xl:grid-cols-6">
+          <!-- Six columns, counted in twos: the two halves of a name and the
+               email fill the first row, the phone number and the time zone the
+               second — the picker taking four of them because it is the only
+               field holding a sentence. Two-up below that, which keeps a name
+               on one line and gives the picker a row of its own.
+
+               `inert` from the moment the request goes out and, like the
+               button, never lifted on the way through: the answers below are
+               what the registration was recorded against and what the access
+               code will be emailed to, and they are read once, here, before
+               the browser leaves for Selar. A field that still takes input
+               after that lets somebody correct their email onto a screen whose
+               value no longer goes anywhere — they pay, and the code is
+               delivered to the address they can see they changed.
+
+               `inert` rather than `disabled` on each control: it is one
+               attribute on the row that already exists, so it cannot miss a
+               field as fields are added, and it reaches inside the time-zone
+               picker — its button and its panel both — where `disabled` would
+               have to be threaded through as a prop. -->
+          <!-- `grid-cols-1` is not decoration. Unset, the single column on a
+               phone is an implicit `auto` track sized to its widest item's
+               *max*-content — which for the time-zone button is the whole
+               untruncated label, so the track ran past the card and gave the
+               page a horizontal scrollbar. The class compiles to
+               `minmax(0, 1fr)`, the column the other two breakpoints were
+               already getting. -->
+          <div
+            class="grid grid-cols-1 gap-5 transition-opacity duration-150 sm:grid-cols-2 xl:grid-cols-6"
+            :class="(submitting || done) && 'opacity-60'"
+            :inert="submitting || done"
+            :aria-busy="submitting || undefined"
+          >
             <div
               v-for="field in FIELDS"
               :key="field.name"
-              class="flex flex-col gap-1.75"
-              :class="field.wide ? 'xl:col-span-2' : ''"
+              class="flex min-w-0 flex-col gap-1.75"
+              :class="COLUMN_CLASS[field.columns]"
             >
               <label
                 :for="`register-${field.name}`"
@@ -254,7 +320,26 @@ async function onSubmit() {
               >
                 {{ field.label }}
               </label>
+
+              <!-- The time zone, which is the one field with no text input
+                   behind it at all: see `TimezoneSelect`. Picking is the only
+                   way a value arrives, so re-validating on change is enough —
+                   there is no half-typed state to scold anybody for. -->
+              <TimezoneSelect
+                v-if="field.control === 'select'"
+                :id="`register-${field.name}`"
+                v-model="form[field.name]"
+                :label="field.label"
+                :placeholder="field.placeholder ?? ''"
+                :invalid="Boolean(errors[field.name])"
+                :describedby="
+                  errors[field.name] ? `register-${field.name}-error` : undefined
+                "
+                @update:model-value="onInput(field)"
+              />
+
               <input
+                v-else
                 :id="`register-${field.name}`"
                 v-model="form[field.name]"
                 :type="field.type"
@@ -266,10 +351,10 @@ async function onSubmit() {
                 :aria-describedby="
                   errors[field.name] ? `register-${field.name}-error` : undefined
                 "
-                class="h-11.5 rounded-field border bg-field px-3.75 font-body text-[15px] text-ink transition-colors placeholder:text-[#757575] focus:outline-none focus-visible:border-rose-fill focus-visible:ring-2 focus-visible:ring-rose-ring"
+                class="h-11.5 rounded-field border bg-field px-3.75 font-body text-[15px] text-ink transition-colors placeholder:text-[#757575] focus:outline-none focus-visible:border-primary-fill focus-visible:ring-2 focus-visible:ring-primary-ring"
                 :class="
                   errors[field.name]
-                    ? 'border-rose-fill'
+                    ? 'border-primary-fill'
                     : 'border-field-edge'
                 "
                 @input="onInput(field)"
@@ -278,7 +363,7 @@ async function onSubmit() {
               <p
                 v-if="errors[field.name]"
                 :id="`register-${field.name}-error`"
-                class="font-body text-[13px] text-rose-fill"
+                class="font-body text-[13px] text-primary-fill"
               >
                 {{ errors[field.name] }}
               </p>
@@ -304,7 +389,7 @@ async function onSubmit() {
           <p
             v-if="failure"
             role="alert"
-            class="mt-6 rounded-field border border-rose-fill bg-[rgba(200,30,92,0.06)] px-4 py-3 font-body text-[14.5px] text-rose-fill"
+            class="mt-6 rounded-field border border-primary-fill bg-[rgba(147,51,234,0.06)] px-4 py-3 font-body text-[14.5px] text-primary-fill"
           >
             {{ failure }}
           </p>

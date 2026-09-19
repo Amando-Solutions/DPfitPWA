@@ -98,6 +98,43 @@ export const startOfNextDay = (date: Date): Date => {
 }
 
 /**
+ * When something `nights` away lands, in the words a member would use:
+ * "today", "tomorrow", "Thursday", "next Monday".
+ *
+ * A weekday name rather than a date, because these are all inside the coming
+ * week and "Thursday" is the form somebody can act on without counting. Seven
+ * nights out names the same weekday as today, so it takes the "next" prefix to
+ * keep it from reading as this morning.
+ */
+export const nightsLabel = (nights: number, from: Date = trustedNow()): string => {
+  if (nights <= 0) return 'today'
+  if (nights === 1) return 'tomorrow'
+  const at = new Date(from)
+  at.setDate(at.getDate() + nights)
+  const weekday = at.toLocaleDateString(undefined, { weekday: 'long' })
+  return nights >= 7 ? `next ${weekday}` : weekday
+}
+
+/**
+ * "Mon 5 Oct", for a schedule date in a week other than this one.
+ *
+ * Where `nightsLabel` stops being the right form: three weeks out, "Monday"
+ * is a date somebody has to count to, and a list of a future week's days would
+ * mix "Monday" with "next Tuesday" for days that sit side by side.
+ *
+ * Built from the key's own parts, in local time, because `new Date('2026-10-05')`
+ * is UTC midnight and west of Greenwich that is the Sunday.
+ */
+export const scheduleDateLabel = (key: string): string => {
+  const [y, m, d] = key.split('-').map(Number)
+  return new Date(y ?? 0, (m ?? 1) - 1, d ?? 1).toLocaleDateString(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  })
+}
+
+/**
  * The current time, corrected by the last known network offset.
  *
  * A reading taken from the network this session needs no guarding. Between

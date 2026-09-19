@@ -40,9 +40,6 @@ export const goalApproach: Record<Goal, string> = {
   'muscle-gain': 'Lean surplus',
 }
 
-const PLATE_STRUCTURE =
-  'A palm of protein, a cupped hand of carbs, half a thumb of fat, and vegetables to fill the rest.'
-
 /**
  * Mifflin-St Jeor.
  *
@@ -85,7 +82,6 @@ export const nutritionTargetsFor = (profile: MemberProfile): NutritionTargets =>
     fatG,
     carbsG,
     approach: goalApproach[goal],
-    plateStructure: PLATE_STRUCTURE,
   }
 }
 

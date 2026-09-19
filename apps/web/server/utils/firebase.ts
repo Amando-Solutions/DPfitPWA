@@ -1,18 +1,20 @@
 // =============================================================================
-// The Admin SDK handle for the landing site's one server route.
+// The Admin SDK handle for the landing site's server routes.
 //
 // This is the only place in `apps/web` that talks to Firebase, and it does so
-// as an administrator. That is not a shortcut: `firestore.rules` says
-// `allow create: if isCoach()` on `accessCodes`, and the visitor filling in the
-// registration form is not signed in at all — there is no client-side path to
-// creating a code that does not also let anyone in the world mint themselves a
-// free seat. So the write happens on the server, behind a credential the
-// browser never sees.
+// as an administrator. That is not a shortcut: `firestore.rules` denies every
+// client write to `registrations`, and the visitor filling in the registration
+// form is not signed in at all. So the write happens on the server, behind a
+// credential the browser never sees.
 //
-// Nothing else in this app imports this file, and nothing here is bundled for
-// the client: everything under `server/` is compiled into the Nitro output
-// alone. See `apps/pwa/.env.example` for the long-form note on why the key is
-// `NUXT_FIREBASE_SERVICE_ACCOUNT` and not `NUXT_PUBLIC_…`.
+// The same key is how this site asks for an access code. It does not write
+// `accessCodes` itself — `apps/functions` is the only writer — but it is the
+// identity `createAccessCode` accepts from this site. See `access-code.ts`.
+//
+// Nothing here is bundled for the client: everything under `server/` is
+// compiled into the Nitro output alone. See `apps/pwa/.env.example` for the
+// long-form note on why the key is `NUXT_FIREBASE_SERVICE_ACCOUNT` and not
+// `NUXT_PUBLIC_…`.
 // =============================================================================
 import { readFileSync } from 'node:fs'
 import { cert, getApps, initializeApp, type App } from 'firebase-admin/app'
@@ -38,7 +40,7 @@ const readKey = (raw: string, path: string) => {
 
   if (!json) return null
 
-  let parsed: { project_id?: string }
+  let parsed: Partial<ServiceAccountKey>
   try {
     parsed = JSON.parse(json)
   } catch {
@@ -48,10 +50,44 @@ const readKey = (raw: string, path: string) => {
         'must be one unbroken line.',
     )
   }
-  if (!parsed.project_id) {
-    throw new Error('The service account key has no `project_id`. That is not a key file.')
+  if (!parsed.project_id || !parsed.client_email || !parsed.private_key) {
+    throw new Error(
+      'The service account key is missing `project_id`, `client_email` or `private_key`. ' +
+        'That is not a key file.',
+    )
   }
-  return parsed
+  return parsed as ServiceAccountKey
+}
+
+/** The three fields of a key file anything here reads. */
+export interface ServiceAccountKey {
+  project_id: string
+  client_email: string
+  private_key: string
+}
+
+let key: ServiceAccountKey | null = null
+
+/**
+ * The landing site's service account, parsed once per process.
+ *
+ * Exported for `access-code.ts`, which signs its requests to
+ * `createAccessCode` with it.
+ */
+export const serviceAccount = (): ServiceAccountKey => {
+  if (key) return key
+  const config = useRuntimeConfig()
+  const parsed = readKey(
+    config.firebaseServiceAccount?.trim() ?? '',
+    config.googleApplicationCredentials?.trim() ?? '',
+  )
+  if (!parsed) {
+    throw new Error(
+      'No Firebase service account. Registration cannot record a buyer or ask for their ' +
+        'access code without one. Set NUXT_FIREBASE_SERVICE_ACCOUNT (see .env.example).',
+    )
+  }
+  return (key = parsed)
 }
 
 /**
@@ -68,18 +104,7 @@ const firebaseApp = (): App => {
   const [existing] = getApps()
   if (existing) return (app = existing)
 
-  const config = useRuntimeConfig()
-  const parsed = readKey(
-    config.firebaseServiceAccount?.trim() ?? '',
-    config.googleApplicationCredentials?.trim() ?? '',
-  )
-  if (!parsed) {
-    throw new Error(
-      'No Firebase service account. Registration cannot issue an access code without ' +
-        'one, because the rules that stop a member creating codes are exactly the ones ' +
-        'this has to write past. Set NUXT_FIREBASE_SERVICE_ACCOUNT (see .env.example).',
-    )
-  }
+  const parsed = serviceAccount()
 
   // `projectId` is passed explicitly rather than left to be discovered. With
   // `initializeApp({ credential })` alone it stays undefined, and the Firestore

@@ -10,8 +10,9 @@ import type {
   Rank,
   RewardConfig,
   SessionLog,
-  WorkoutDay,
+  TrainingWeek,
 } from '~/data/types'
+import { finalDayOf, planWeekOf, type PlanDayRef } from '~/lib/domain/challenge'
 
 // =============================================================================
 // The reward system.
@@ -36,9 +37,15 @@ import type {
  */
 export interface RewardsContext {
   config: RewardConfig
-  /** Ids of the days that make up the training week. Excludes optional days. */
+  /**
+   * Ids of the training days, across every week, each once. Excludes optional
+   * days. Weeks reuse their day ids, so this is the week's worth of sessions
+   * rather than every dated occurrence of them.
+   */
   planDayIds: string[]
   totalWeeks: number
+  /** The block's last training day. What Final Photo Proof waits on. */
+  finalDay: PlanDayRef | null
   /** The share of prescribed sets a session has to log to count for anything. */
   qualifyingSetPercent: number
 }
@@ -69,6 +76,7 @@ export const EMPTY_REWARDS_CONTEXT: RewardsContext = {
   },
   planDayIds: [],
   totalWeeks: 0,
+  finalDay: null,
   qualifyingSetPercent: 0,
 }
 
@@ -77,15 +85,22 @@ export const UNRANKED: Rank = { id: 'unranked', name: 'Unranked', emoji: '·', m
 
 export const rewardsContextOf = (
   program: Program | null,
-  workoutDays: WorkoutDay[],
+  weeks: TrainingWeek[],
 ): RewardsContext =>
   program
     ? {
         config: program.rewards,
         // The finisher is not part of the weekly quota, so "every training day,
         // three times each" must not silently require it.
-        planDayIds: workoutDays.filter((day) => !day.optional).map((day) => day.id),
-        totalWeeks: program.totalWeeks,
+        planDayIds: [
+          ...new Set(
+            weeks.flatMap((week) => week.days.filter((day) => !day.optional).map((day) => day.id)),
+          ),
+        ],
+        // The schedule's length, so "a session in every week" asks about the
+        // weeks that were actually authored.
+        totalWeeks: weeks.length,
+        finalDay: finalDayOf(weeks),
         qualifyingSetPercent: program.qualifyingSetPercent,
       }
     : EMPTY_REWARDS_CONTEXT
@@ -230,6 +245,42 @@ export const streakWeeks = (sessions: SessionLog[], currentWeek: number): number
 }
 
 /**
+ * The session that finished the block: its last training day, logged for its
+ * last week.
+ *
+ * Qualifying or not. The day reads as done on Train either way, and the final
+ * photo asks for the member's body at the end of the block, not for the sets
+ * of one session, so a short last session still ends it.
+ */
+export const finalSessionOf = (
+  sessions: SessionLog[],
+  { finalDay }: RewardsContext,
+): SessionLog | null =>
+  (finalDay &&
+    sessions.find(
+      (s) => s.dayId === finalDay.dayId && planWeekOf(s) === finalDay.weekNumber,
+    )) ||
+  null
+
+/**
+ * A progress photo taken after the block's last session was logged.
+ *
+ * After it, rather than any photo in the last week: a member who shoots their
+ * week-6 set on the Monday has not taken the photo that closes the block, and
+ * is asked again once the last session is in. Both instants come off the
+ * trusted clock, so the comparison is not at the mercy of a phone set wrong.
+ */
+export const finalPhotoOf = (
+  { sessions, photos }: Pick<RewardsInput, 'sessions' | 'photos'>,
+  context: RewardsContext,
+): ProgressPhoto | null => {
+  const finished = finalSessionOf(sessions, context)
+  if (!finished) return null
+  const after = finished.completedAt.toMillis()
+  return photos.find((p) => p.takenAt.toMillis() >= after) ?? null
+}
+
+/**
  * Badge rules, evaluated against the member's whole history.
  *
  * Every count here is of qualifying sessions only. Re-run after each RP-earning
@@ -299,6 +350,10 @@ export const evaluateBadges = (
   ) {
     won.push('no-days-off')
   }
+
+  // The last thing the block asks for. `finalDay` stands in for a target here:
+  // it is null until the schedule has loaded, and then nothing is awarded.
+  if (finalPhotoOf(input, context)) won.push('final-photo')
 
   // A badge the program does not define cannot be awarded: the ladder is
   // authored content, and `awardBadge` writes against the ids in it.

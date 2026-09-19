@@ -36,7 +36,7 @@ const ADJ =
     </button>
 
     <button
-      class="rounded-pill bg-rose-fill px-4 py-2 text-[13px] font-bold text-on-rose transition-opacity duration-100 active:opacity-70"
+      class="rounded-pill bg-primary-fill px-4 py-2 text-[13px] font-bold text-on-primary transition-opacity duration-100 active:opacity-70"
       @click="emit('skip')"
     >
       Skip

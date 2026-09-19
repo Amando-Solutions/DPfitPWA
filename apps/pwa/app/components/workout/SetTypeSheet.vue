@@ -110,7 +110,7 @@ const ROW =
         :class="[
           ROW,
           current === meta.type
-            ? 'bg-rose-softer shadow-[inset_0_0_0_1.5px_var(--rose)]'
+            ? 'bg-primary-softer shadow-[inset_0_0_0_1.5px_var(--primary)]'
             : 'shadow-[inset_0_0_0_1.5px_var(--hairline)]',
         ]"
       >
@@ -138,7 +138,7 @@ const ROW =
             name="check"
             :size="16"
             :stroke="3"
-            class="text-rose"
+            class="text-primary"
           />
         </button>
 

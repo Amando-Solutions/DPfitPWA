@@ -25,6 +25,10 @@ export const cohortSeed: Message[] = [
     text: 'Welcome in 💗 Week 1 is Foundation week, so dial in your form and find your baseline loads. Proof photo after every session, please.',
     sentAt: at('2026-08-18T07:30:00Z'),
     attachments: [],
+    editedAt: null,
+    replyTo: null,
+    mentions: [],
+    addressedUids: [],
     reactionCounts: { '🔥': 12, '💪': 8 },
   },
   {
@@ -37,6 +41,10 @@ export const cohortSeed: Message[] = [
     text: 'Just hit a PR on incline press 🙌 those tempo cues really help',
     sentAt: at('2026-08-18T08:05:00Z'),
     attachments: [],
+    editedAt: null,
+    replyTo: null,
+    mentions: [],
+    addressedUids: [],
     reactionCounts: { '👏': 5 },
   },
   {
@@ -49,6 +57,10 @@ export const cohortSeed: Message[] = [
     text: 'Down 1.4kg this week and feeling strong 😤',
     sentAt: at('2026-08-18T08:32:00Z'),
     attachments: [],
+    editedAt: null,
+    replyTo: null,
+    mentions: [],
+    addressedUids: [],
     reactionCounts: { '🔥': 9 },
   },
 ]
@@ -64,6 +76,10 @@ export const coachSeed: Message[] = [
     text: 'Hey! I’m here for anything: form checks, swaps, or a bad week. Send me a clip whenever you want eyes on a lift 💪',
     sentAt: at('2026-08-17T18:00:00Z'),
     attachments: [],
+    editedAt: null,
+    replyTo: null,
+    mentions: [],
+    addressedUids: [],
     reactionCounts: {},
   },
 ]

@@ -11,6 +11,32 @@ rules_version = '2';
 // object regardless of what is written here — so these rules govern who can
 // obtain one in the first place, and the app never puts a progress photo URL
 // anywhere a peer can read it.
+//
+// That is also why reads here can be narrow. Every image and file the app
+// shows is rendered from a download URL stored on a document, and the only
+// read the app makes through these rules is the uploader asking for the URL of
+// what they just uploaded. So nothing is readable here but your own uploads and
+// the program's artwork, and a `read` — which includes *listing* a folder — is
+// never granted across members.
+//
+// MEMBERSHIP
+//
+// An account is not a membership: anybody can make one with the public API key
+// and no access code. So every rule below that a member relies on also asks
+// for a member document in good standing, read from Firestore, mirroring
+// `isMember()` in `firestore.rules`. Two limits apply to reading it from here:
+//
+//   - Only the `(default)` database is reachable. This file serves two
+//     buckets (see `firebase.json`), and the staging bucket's members live in
+//     the `staging` database, so the staging bucket skips the membership check
+//     and keeps what it always had: signed in.
+//   - The first deploy of these rules prompts to let Storage read Firestore.
+//     Accept it, or every member upload is refused.
+//
+// Each member check is a billed Firestore read. The one-device check in
+// `firestore.rules` is not repeated here, which would be a second: a device
+// signed out by a later sign-in can still reach its own uploads until its
+// session ends, and nothing of anybody else's.
 // =============================================================================
 
 service firebase.storage {
@@ -22,6 +48,41 @@ service firebase.storage {
 
     function isSelf(uid) {
       return signedIn() && request.auth.uid == uid;
+    }
+
+    /** The staging bucket, whose member documents are out of reach. See the header. */
+    function isStagingBucket() {
+      return bucket == 'recomp-48b7b-staging';
+    }
+
+    /**
+     * The same standing `firestore.rules` asks of a member: the email the
+     * membership was made with (`keepsMemberEmail`) and a sign-in the account
+     * trusts (`trustsSignIn`). Kept in step with those by hand — rules cannot
+     * share code across services.
+     */
+    function inGoodStanding(member) {
+      let bound = member.get('email', '');
+      return (bound == '' || bound.lower() == request.auth.token.get('email', '').lower())
+        && (request.auth.token.firebase.sign_in_provider != 'google.com'
+            || request.auth.token.get('email_verified', false) == true
+            || !('joinedWith' in member));
+    }
+
+    /** A member in good standing. On the staging bucket, anybody signed in. */
+    function isMember() {
+      return signedIn() && (isStagingBucket() || (
+        firestore.exists(/databases/(default)/documents/members/$(request.auth.uid))
+        && inGoodStanding(
+             firestore.get(/databases/(default)/documents/members/$(request.auth.uid)).data)
+      ));
+    }
+
+    /** A member of this cohort. On the staging bucket, anybody signed in. */
+    function inCohort(cohortId) {
+      return isMember() && (isStagingBucket()
+        || firestore.get(/databases/(default)/documents/members/$(request.auth.uid)).data.cohortId
+             == cohortId);
     }
 
     /** Images only, and small enough that a full-size camera dump is refused. */
@@ -37,41 +98,48 @@ service firebase.storage {
     // generous for anything the app itself sends and still rejects a raw
     // 12 MP original pushed straight at the bucket.
     match /members/{uid}/{folder}/{file} {
-      allow read: if isSelf(uid);
-      allow write: if isSelf(uid)
+      allow read: if isSelf(uid) && isMember();
+      allow write: if isSelf(uid) && isMember()
         && folder in ['progress', 'proof']
         && isImageUnder(4);
-      allow delete: if isSelf(uid);
+      allow delete: if isSelf(uid) && isMember();
     }
 
     // --- Program artwork ---------------------------------------------------
     // `programs/{programId}/workoutDays/{dayId}/hero.jpg` and friends.
     //
-    // Coach-authored content every member of every cohort renders, so it is
-    // readable by anyone signed in. Nothing here is writable from the client:
-    // program content is authored through the admin tools, which use the Admin
-    // SDK and bypass these rules entirely. Saying so explicitly beats leaving
-    // the path unmatched, because an unmatched path denies by default for a
-    // reason nobody reading this file can see.
+    // Coach-authored content every member renders, and part of what they pay
+    // for, so members read it and accounts without a membership do not.
+    // Nothing here is writable from the client: program content is authored
+    // through the admin tools, which use the Admin SDK and bypass these rules
+    // entirely. Saying so explicitly beats leaving the path unmatched, because
+    // an unmatched path denies by default for a reason nobody reading this file
+    // can see.
     match /programs/{programId}/{allPaths=**} {
-      allow read: if signedIn();
+      allow read: if isMember();
       allow write, delete: if false;
     }
 
     // --- Chat attachments --------------------------------------------------
     // `chat/{cohortId}/{uid}/…`
     //
-    // Readable by anyone signed in, because a download URL is a bearer token
-    // and a message's recipients need to be able to open what they were sent.
-    // Writable only under your own uid, so nothing can be planted in somebody
-    // else's name.
+    // Readable by the uploader alone. A message's recipients open what they
+    // were sent through the download URL on the message, which no rule here
+    // governs, so nobody else needs a read — and a read is also a *list*. This
+    // folder holds attachments sent to the coach in private as well as those
+    // sent to the cohort, and a cohort-wide read would let any member list and
+    // open another member's private thread.
+    //
+    // Writable only under your own uid and your own cohort, so nothing can be
+    // planted in somebody else's name or somebody else's cohort.
     //
     // The size ceiling matches `MAX_FILE_BYTES` in `lib/attachments.ts`, with
     // room for the base64 expansion an upload carries.
     match /chat/{cohortId}/{uid}/{file} {
-      allow read: if signedIn();
-      allow write: if isSelf(uid) && request.resource.size < 2 * 1024 * 1024;
-      allow delete: if isSelf(uid);
+      allow read: if isSelf(uid) && inCohort(cohortId);
+      allow write: if isSelf(uid) && inCohort(cohortId)
+        && request.resource.size < 2 * 1024 * 1024;
+      allow delete: if isSelf(uid) && isMember();
     }
   }
 }

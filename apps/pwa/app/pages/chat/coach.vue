@@ -3,12 +3,58 @@
 definePageMeta({ layout: false })
 
 import { useDataSourceClient } from '~/lib/datasource'
-import type { ChatAttachment, ChatMessageView } from '~/data/types'
+import type {
+  ChatAttachment,
+  ChatMention,
+  ChatMessageView,
+  ChatReaction,
+  ChatReplyRef,
+  TypingPeer,
+} from '~/data/types'
+import { toggledReactions } from '~/lib/chat'
+import { readThreadCache, writeThreadCache } from '~/lib/chat-cache'
+import { trustedTimestamp } from '~/lib/time'
 import type { PendingAttachment } from '~/lib/attachments'
 
 const data = useDataSourceClient()
 const store = useAppStore()
-const messages = ref<ChatMessageView[]>([])
+/**
+ * Whose reading of the thread this is, for the on-disk copy below.
+ *
+ * The store has the member by the time this screen can be reached — the route
+ * that leads here is gated on it — so this is read once rather than watched.
+ */
+const viewerUid = computed(() => store.member.value?.id ?? '')
+
+/**
+ * The thread as it was last seen, drawn before anything is fetched.
+ *
+ * `ref([])` is what made opening this screen a blank one: the live listener
+ * cannot deliver until the member has been read, the thread resolved and the
+ * query opened, and until then there was nothing on screen at all — for a
+ * conversation that had been on this device since the last time it was read.
+ * Seeded synchronously, so the first paint already has the thread in it; the
+ * listener replaces it wholesale a moment later, with the same messages plus
+ * whatever has been said since.
+ *
+ * It is also what the screen falls back to with no connection. Firestore's own
+ * cache answers offline too, and answers more fully, but it answers a tick
+ * later — and if the member document itself cannot be read, not at all.
+ */
+const messages = ref<ChatMessageView[]>(readThreadCache('coach', viewerUid.value))
+
+/**
+ * Whether the live thread has delivered yet.
+ *
+ * Until it has, what is on screen is the copy restored from disk, and the view
+ * treats it as the placeholder it is — see `ChatView`'s `live` prop. It never
+ * goes back to false: a listener that stops leaves the last real thread up,
+ * which is still the thread.
+ */
+const live = ref(false)
+
+/** Everyone else with the composer open, live. See `DataSource.watchTyping`. */
+const typing = ref<TypingPeer[]>([])
 
 /**
  * Whose thread this is, from the cohort document rather than a fixture.
@@ -24,8 +70,61 @@ const coachTitle = computed(() => store.coach.value?.title?.trim() || 'Direct me
 /** Set once a write has failed for want of room. See `DataSource.storageFull`. */
 const storageFull = ref(false)
 
+/**
+ * The thread, live — so the coach's reply lands here rather than on the next
+ * reload. See `DataSource.watchMessages`, and the cohort thread, which does
+ * exactly the same thing.
+ */
+let unwatch: (() => void) | null = null
+let unwatchTyping: (() => void) | null = null
+let unmounted = false
+
 onMounted(async () => {
-  messages.value = await data.listMessages('coach')
+  const stop = await data.watchMessages(
+    'coach',
+    (next) => {
+      messages.value = next
+      live.value = true
+      // Kept as it arrives rather than on the way out: the screen can be left
+      // by a route change, a closed tab or a killed app, and only the first of
+      // those would ever reach an unmount hook.
+      writeThreadCache('coach', viewerUid.value, next)
+    },
+    (error) => {
+      console.error('[chat] the live thread stopped', error)
+    },
+  )
+
+  if (unmounted) stop()
+  else unwatch = stop
+
+  const stopTyping = await data.watchTyping(
+    'coach',
+    (peers) => {
+      typing.value = peers
+    },
+    (error) => {
+      // Losing this listener leaves the indicator permanently empty, which
+      // is the right way for it to fail: nobody is worse off for not knowing
+      // that someone is typing. Logged, and otherwise left alone.
+      console.error('[chat] the typing listener stopped', error)
+    },
+  )
+
+  if (unmounted) stopTyping()
+  else unwatchTyping = stopTyping
+})
+
+onBeforeUnmount(() => {
+  unmounted = true
+  unwatch?.()
+  unwatch = null
+  unwatchTyping?.()
+  unwatchTyping = null
+  // The composer emits this on its way out too. Repeated here because leaving
+  // the screen is the one exit that is certain, and a marker nobody clears is
+  // somebody the cohort sees typing a message that will never arrive.
+  data.setTyping('coach', false)
 })
 
 /**
@@ -39,7 +138,12 @@ onMounted(async () => {
  * Anything that throws here reaches the composer, which keeps the draft and
  * shows the reason. So the messages thrown are ones a member can read.
  */
-const send = async (payload: { text: string; attachments: PendingAttachment[] }) => {
+const send = async (payload: {
+  text: string
+  attachments: PendingAttachment[]
+  replyTo: ChatReplyRef | null
+  mentions: ChatMention[]
+}) => {
   const attachments = await Promise.all(
     payload.attachments.map((item) =>
       item.kind === 'image'
@@ -60,19 +164,105 @@ const send = async (payload: { text: string; attachments: PendingAttachment[] })
     ),
   )
 
-  messages.value = [
-    ...messages.value,
-    await data.sendMessage('coach', payload.text, attachments),
-  ]
-  storageFull.value = await data.storageFull()
+  const sent = await data.sendMessage(
+    'coach',
+    payload.text,
+    attachments,
+    payload.replyTo,
+    payload.mentions,
+  )
+  // The watcher has usually delivered this already. See the cohort thread.
+  if (!messages.value.some((m) => m.id === sent.id)) {
+    messages.value = [...messages.value, sent]
+  }
+  // Not awaited, and deliberately outside what the composer treats as the
+  // send. The message has landed by this line; a device-space check that
+  // failed must not be reported to the member as a message that did not go,
+  // and must not put their draft back in the box underneath it.
+  data
+    .storageFull()
+    .then((full) => {
+      storageFull.value = full
+    })
+    .catch(() => {
+      // Not knowing how full the device is changes nothing that just happened.
+    })
 }
 
-/** Hold a message to react; the data source hands back the new counts. */
+/**
+ * Rewrite a message, on screen first and in the document behind it.
+ *
+ * Drawn before it is written, like a reaction and for the same reason: the
+ * member is looking at the bubble they just corrected, and a round trip between
+ * the tap and the words changing is the whole of what the interaction feels
+ * like. The watcher settles the real document a moment later — including the
+ * server's `editedAt`, which is the one field this cannot guess.
+ *
+ * A refusal puts the old words back and rethrows, so the composer can hand the
+ * member their correction along with the reason it did not go. Rethrowing is
+ * the point: swallowing it here would leave the thread showing an edit the
+ * server never took.
+ */
+const editMessage = async (payload: {
+  messageId: string
+  text: string
+  mentions: ChatMention[]
+}) => {
+  const before = messages.value.find((m) => m.id === payload.messageId)
+  if (!before) return
+
+  const apply = (message: ChatMessageView) => {
+    messages.value = messages.value.map((m) => (m.id === payload.messageId ? message : m))
+  }
+
+  apply({
+    ...before,
+    text: payload.text,
+    mentions: payload.mentions,
+    editedAt: trustedTimestamp(),
+  })
+
+  try {
+    apply(
+      await data.editMessage('coach', payload.messageId, payload.text, payload.mentions),
+    )
+  } catch (cause) {
+    apply(before)
+    throw cause
+  }
+}
+
+/**
+ * Hold a message to react.
+ *
+ * Drawn before it is written. The toggle is decided by the chip the member
+ * tapped and nothing else — see `toggledReactions` — so waiting on a two
+ * document transaction and its confirming read before moving the count put a
+ * visible beat between the tap and anything happening. The write still settles
+ * the real counts, including whatever anyone else did in the meantime, and the
+ * chips move to those when it lands.
+ */
 const react = async (payload: { messageId: string; emoji: string }) => {
-  const reactions = await data.toggleReaction('coach', payload.messageId, payload.emoji)
-  messages.value = messages.value.map((m) =>
-    m.id === payload.messageId ? { ...m, reactions } : m,
-  )
+  const before = messages.value.find((m) => m.id === payload.messageId)
+  if (!before) return
+
+  const apply = (reactions: ChatReaction[]) => {
+    messages.value = messages.value.map((m) =>
+      m.id === payload.messageId ? { ...m, reactions } : m,
+    )
+  }
+
+  apply(toggledReactions(before.reactions, payload.emoji))
+
+  try {
+    apply(await data.toggleReaction('coach', payload.messageId, payload.emoji))
+  } catch (cause) {
+    // Put the chip back where it was. A reaction is not worth a message across
+    // the screen, but leaving a count the server never took is worse than the
+    // pause this replaced: the member would go on believing they had reacted.
+    apply(before.reactions)
+    console.error('[chat] the reaction did not stick', cause)
+  }
 }
 </script>
 
@@ -82,14 +272,19 @@ const react = async (payload: { messageId: string; emoji: string }) => {
       <ScreenHeader :title="coachName" />
       <ChatView
         :messages="messages"
+        thread="coach"
+        :typing="typing"
         eyebrow="Direct message"
         :title="coachName"
         :subtitle="coachTitle"
         placeholder="Message your coach…"
         class="dm-page__view [&_.chat__composer]:pb-[calc(16px+env(safe-area-inset-bottom))] [&_.chat__header]:hidden"
+        :live="live"
         :storage-full="storageFull"
         :send="send"
+        :edit="editMessage"
         @react="react"
+        @typing="(on: boolean) => data.setTyping('coach', on)"
       />
     </div>
   </div>

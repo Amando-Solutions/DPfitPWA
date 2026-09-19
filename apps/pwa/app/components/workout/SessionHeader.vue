@@ -14,6 +14,24 @@ const props = withDefaults(
     imageUrl?: string
     /** Label for the right-hand button. Omitted, and no button is drawn. */
     action?: string
+    /**
+     * Freezes the action button.
+     *
+     * The save screen sets it while a write is open: this button and the one
+     * at the foot of that screen run the same handler, and it is the one that
+     * stays on screen and in reach when the body below it is frozen.
+     */
+    actionDisabled?: boolean
+    /**
+     * Where Back goes with no history behind it. Omitted, and no Back is drawn.
+     *
+     * Leaving is safe mid-workout: the session is persisted as it is logged,
+     * and Train offers to resume it. The only way out of this screen used to be
+     * "Cancel", which throws the workout away.
+     */
+    back?: string
+    /** Freezes Back for the same reason as `actionDisabled`. */
+    backDisabled?: boolean
     unit?: Units
   }>(),
   { unit: 'kg' },
@@ -68,8 +86,18 @@ const STAT_VALUE = 'text-[17px] font-bold tabular-nums'
     <div
       class="relative px-5 pt-(--screen-pad-top) pb-4 lg:mx-auto lg:max-w-(--focus-max) lg:px-10 lg:pt-6 lg:pb-5"
     >
-      <div class="mb-3.5 flex items-center justify-between gap-3">
-        <h1 class="m-0 min-w-0 truncate font-display text-[17px] font-bold lg:text-[20px]">
+      <div class="mb-3.5 flex items-center gap-3">
+        <!-- Chevron only on iOS: the title already says where this is, and a
+             "‹ Train" label beside it would crowd the name off the row. -->
+        <BackButton
+          v-if="back"
+          :fallback="back"
+          :label="false"
+          tone="photo"
+          :disabled="backDisabled"
+          class="-mr-1.5"
+        />
+        <h1 class="m-0 min-w-0 flex-1 truncate font-display text-[17px] font-bold lg:text-[20px]">
           {{ title }}
         </h1>
         <!--
@@ -79,7 +107,8 @@ const STAT_VALUE = 'text-[17px] font-bold tabular-nums'
         -->
         <button
           v-if="action"
-          class="shrink-0 rounded-pill bg-on-photo/14 px-4 py-2 text-[13px] font-bold text-on-photo transition-opacity duration-100 active:opacity-70"
+          class="shrink-0 rounded-pill bg-on-photo/14 px-4 py-2 text-[13px] font-bold text-on-photo transition-opacity duration-100 active:opacity-70 disabled:opacity-45"
+          :disabled="actionDisabled"
           @click="emit('action')"
         >
           {{ action }}
@@ -91,7 +120,7 @@ const STAT_VALUE = 'text-[17px] font-bold tabular-nums'
           <span :class="STAT_LABEL">Duration</span>
           <!-- The one monospace face left on this screen. A clock ticking in a
                proportional font redraws at a different width every second. -->
-          <span :class="STAT_VALUE" class="font-data text-rose-on-inverse">
+          <span :class="STAT_VALUE" class="font-data text-primary-on-inverse">
             {{ duration }}
           </span>
         </div>

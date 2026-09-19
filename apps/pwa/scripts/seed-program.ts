@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 // =============================================================================
-// Write the authored content the app reads: the program, the training week,
-// the guide library, the cohort, and its announcement and notification decks.
+// Write the authored content the app reads: the program, its dated weeks and
+// their days, the guide library, the cohort, and its announcement and
+// notification decks.
 //
 // The app used to `import` all of this out of `app/data/program.ts`, so every
 // cohort on every deploy was shown the same six-week plan, the same badges and
@@ -30,11 +31,10 @@ import {
   PROGRAM_ID as FIXTURE_PROGRAM_ID,
   announcements,
   cohort,
-  coreCardioDay,
   guides,
   notificationSeed,
-  planDays,
   program,
+  trainingWeeks,
 } from '../app/data/program'
 
 // --- Arguments ---------------------------------------------------------------
@@ -95,6 +95,27 @@ if (!DATABASE) {
  */
 const PROGRAM_ID = flag('program-id', FIXTURE_PROGRAM_ID).trim()
 const COHORT_ID = flag('cohort-id', cohort.id).trim()
+
+/**
+ * Week 1, day 1, as `YYYY-MM-DD`. Every week and day is dated from it.
+ *
+ * Defaults to the fixture cohort's `startDate` read in its own timezone — not
+ * sliced off the ISO string, which for a midnight-in-Lagos start is the
+ * previous day in UTC and would date the whole block a day early.
+ */
+const START_DATE = flag(
+  'start-date',
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: cohort.timezone || 'UTC',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(cohort.startDate.toDate()),
+).trim()
+if (!/^\d{4}-\d{2}-\d{2}$/.test(START_DATE)) {
+  console.error(`--start-date must be YYYY-MM-DD. Got: ${START_DATE}`)
+  process.exit(1)
+}
 
 /**
  * The coach, denormalised onto the cohort.
@@ -226,15 +247,22 @@ const plan = (): Planned[] => {
     data: body(program),
   })
 
-  // The finisher is a workout day like any other — `optional: true` is what
-  // keeps it out of the weekly quota — so it is seeded into the same
-  // collection rather than treated as a special case.
-  for (const day of [...planDays, coreCardioDay]) {
+  // Each week, then its days beneath it. The finisher is a workout day like
+  // any other — `optional: true` is what keeps it out of the weekly quota — so
+  // it is seeded into the same collection rather than treated as a special case.
+  for (const { days, ...week } of trainingWeeks(START_DATE)) {
     out.push({
-      path: `programs/${PROGRAM_ID}/workoutDays/${day.id}`,
-      label: `workout day ${day.dayNumber} · ${day.label}`,
-      data: body(day),
+      path: `programs/${PROGRAM_ID}/weeks/${week.id}`,
+      label: `week ${week.weekNumber} · ${week.startDate} → ${week.endDate}`,
+      data: body(week),
     })
+    for (const day of days) {
+      out.push({
+        path: `programs/${PROGRAM_ID}/weeks/${week.id}/days/${day.id}`,
+        label: `  ${day.date} · day ${day.dayNumber} · ${day.label}`,
+        data: body(day),
+      })
+    }
   }
 
   for (const guide of guides) {
@@ -256,12 +284,14 @@ const plan = (): Planned[] => {
     //
     // `liveCall` because seeding one would put a fake Google Meet link on
     // every member's Home screen and a dead button is worse than no card —
-    // it is a decision, so it starts null and the coach makes it. The count
+    // it is a decision, so it starts empty and the admin app fills it in. The
+    // map is written with its fields rather than as `null` so they are there
+    // to edit; missing `startsAt` or `joinUrl` renders no card. The count
     // because nothing in the app maintains it and a seeded 48 is a number
     // that is wrong from the first member who joins. `memberCount` is not
     // read by any screen (Chat counts the board projection), and it should
     // not start out lying either.
-    liveCall: null,
+    liveCall: { startsAt: null, durationMinutes: 60, joinUrl: null },
     memberCount: 0,
     leaderboardVisible: false,
     // `--no-coach` leaves the block off the document entirely rather than
@@ -309,6 +339,7 @@ const run = async () => {
   console.log(`database   ${DATABASE}`)
   console.log(`program    programs/${PROGRAM_ID}`)
   console.log(`cohort     cohorts/${COHORT_ID}`)
+  console.log(`week 1     starts ${START_DATE}`)
   console.log(
     COACH ? `coach      ${COACH.name} · ${COACH.title}` : 'coach      (not written)',
   )
@@ -379,9 +410,9 @@ const run = async () => {
   }
 
   console.log(
-    '\nThe live call is not seeded as a decision: it is on the cohort document as\n' +
-      '`liveCall`, and Home renders no card while it is null. Set it with\n' +
-      '`bun run live-call -- --database=… --when="…" --url=…`, or in the console.',
+    '\nThe live call is not seeded as a decision: `liveCall` on the cohort document\n' +
+      'is written empty, and Home renders no card until the admin app sets its\n' +
+      '`startsAt` and `joinUrl`. See "The weekly live call" in FIREBASE.md.',
   )
 }
 
