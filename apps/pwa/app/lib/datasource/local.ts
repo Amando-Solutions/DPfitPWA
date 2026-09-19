@@ -168,6 +168,7 @@ const withViewer = (message: Message, viewerUid: string, mine: string[]): ChatMe
 
   return {
     ...message,
+    authorName: message.isCoach ? 'Coach' : message.authorName,
     // Seeds and anything stored before replies existed have no such field. See
     // the note on the Firestore implementation's `viewOf`.
     replyTo: message.replyTo ?? null,

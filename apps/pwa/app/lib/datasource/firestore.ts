@@ -2434,7 +2434,7 @@ export class FirestoreDataSource implements DataSource {
   }
 
   private viewOf(message: Message, viewerUid: string, mine: string[]): ChatMessageView {
-    const reactions: ChatReaction[] = Object.entries(message.reactionCounts ?? {})
+    const reactions: ChatReaction[] = (Object.entries(message.reactionCounts ?? {}) as [string, number][])
       .filter(([, count]) => count > 0)
       .map(([emoji, count]) => ({ emoji, count, mine: mine.includes(emoji) }))
 
@@ -2444,6 +2444,7 @@ export class FirestoreDataSource implements DataSource {
 
     return {
       ...rest,
+      authorName: message.isCoach ? 'Coach' : message.authorName,
       // Every message sent before replies existed is missing the field
       // entirely, and `v-if="m.replyTo"` on an absent key is fine while
       // `replyTo.authorName` on one is not. Normalised on the way out so the

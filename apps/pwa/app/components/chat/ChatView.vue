@@ -1572,6 +1572,7 @@ const rows = computed(() =>
       quoteShape: quoteShape(m, startsRun),
       variant: bubbleVariant(m),
       time: formatTime(m.sentAt),
+      authorLabel: m.isCoach ? 'Coach' : m.authorName,
       /**
        * Somebody else has answered this member. Colours the quote, which is
        * the half that says `@You`, so it only means anything on a reply.
@@ -1716,6 +1717,7 @@ const TOOL =
               runs,
               startsUnread,
               quoteShape: quoteCorners,
+              authorLabel,
             } in rows"
             :key="m.id"
           >
@@ -1821,8 +1823,8 @@ const TOOL =
                     stays in one column instead of stepping left under the avatar.
                   -->
                   <Avatar v-if="!m.isSelf && startsRun" size="xs" class="mt-4">
-                    <AvatarImage :src="m.authorAvatarUrl ?? ''" :alt="m.authorName" loading="lazy" />
-                    <AvatarFallback :class="m.isCoach && 'bg-secondary text-on-secondary'">{{ m.authorName.charAt(0).toUpperCase() }}</AvatarFallback>
+                    <AvatarImage :src="m.authorAvatarUrl ?? ''" :alt="authorLabel" loading="lazy" />
+                    <AvatarFallback :class="m.isCoach && 'bg-secondary text-on-secondary'">{{ authorLabel.charAt(0).toUpperCase() }}</AvatarFallback>
                   </Avatar>
                   <span v-else-if="!m.isSelf" class="w-7.5 shrink-0" aria-hidden="true" />
 
@@ -1832,7 +1834,7 @@ const TOOL =
                       class="text-[11.5px] font-semibold"
                       :class="m.isCoach ? 'text-secondary-ink' : 'text-muted'"
                     >
-                      {{ m.authorName }}
+                      {{ authorLabel }}
                     </span>
 
                     <!-- Photos and files bring their own edges, so the bubble hugs them. -->
