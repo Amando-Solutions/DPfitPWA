@@ -17,8 +17,8 @@
 //
 // Three things follow, and each one is a deliberate loss:
 //
-//   1. The price lives in the Selar dashboard, not in `PRICE_MINOR`. The
-//      constant here is now what the page advertises and what a sale is
+//   1. The price lives in the Selar dashboard, not in `NUXT_PUBLIC_PRICE`.
+//      That value is now what the page advertises and what a sale is
 //      checked against — not what is charged. Keeping the two agreeing is a
 //      person's job, so `describeAmount` exists to make a mismatch loud in the
 //      log rather than silent.
@@ -334,7 +334,7 @@ export const isFromSelar = (secret: string, given: string | undefined) => {
  *
  * Deliberately not a gate. Selar converts prices into the buyer's own currency
  * — a member paying from London pays in pounds, and the notification says so —
- * so a strict `amountMinor === PRICE_MINOR && currency === 'NGN'` check would
+ * so a strict `amountMinor === price.minor && currency === 'NGN'` check would
  * turn every international sale into a refused seat. The forged-webhook threat
  * this would have covered is covered by the shared secret instead, and what is
  * left is a bookkeeping question: did the buyer pay roughly what the page said?

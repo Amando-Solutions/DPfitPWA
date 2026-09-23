@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { PRICE, PRICE_INCLUDES, REGISTER_ANCHOR } from '~/data/landing'
+import { PRICE_INCLUDES, REGISTER_ANCHOR } from '~/data/landing'
+
+const price = usePrice()
 </script>
 
 <template>
@@ -13,7 +15,7 @@ import { PRICE, PRICE_INCLUDES, REGISTER_ANCHOR } from '~/data/landing'
           <p class="eyebrow-section text-[var(--primary-fill)]">
             Six weeks, group challenge
           </p>
-          <p class="title-price mt-5 text-ink">{{ PRICE }}</p>
+          <p class="title-price mt-5 text-ink">{{ price.label }}</p>
           <p
             class="mt-3.5 font-data text-[11.5px] tracking-[0.12em] text-ink-mute uppercase"
           >

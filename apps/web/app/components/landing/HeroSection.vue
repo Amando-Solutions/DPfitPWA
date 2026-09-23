@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { HERO_STATS, REGISTER_ANCHOR, type ChallengeStart } from '~/data/landing'
+import { heroStats, REGISTER_ANCHOR, type ChallengeStart } from '~/data/landing'
+
+const stats = heroStats(usePrice().label)
 
 /**
  * When the challenge starts, read rather than written.
@@ -165,7 +167,7 @@ const startsClause = computed(() =>
              the term before its definition in the markup, where a screen reader
              wants them. -->
         <div
-          v-for="stat in HERO_STATS"
+          v-for="stat in stats"
           :key="stat.caption"
           class="flex flex-col-reverse bg-night px-0 pt-6.5 pb-8.5 sm:px-6 sm:first:pl-0"
         >
