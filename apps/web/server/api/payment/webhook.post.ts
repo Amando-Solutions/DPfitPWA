@@ -25,7 +25,7 @@
 // out of access logs and referrers, and Zapier's Webhooks action can set one.
 // The query parameter exists because Selar's own hook may not be able to.
 // =============================================================================
-import { PRICE_MINOR, PRICE_CURRENCY } from '../../../app/data/landing'
+import { readPrice } from '../../../app/data/landing'
 import { firestore } from '../../utils/firebase'
 import { findRegistrationForSale, fulfilRegistration } from '../../utils/fulfilment'
 import { describeAmount, isFromSelar, parseSaleEvent } from '../../utils/selar'
@@ -69,7 +69,8 @@ export default defineEventHandler(async (event) => {
   }
 
   const db = firestore()
-  const amount = describeAmount(sale, PRICE_MINOR, PRICE_CURRENCY)
+  const price = readPrice(config.public)
+  const amount = describeAmount(sale, price.minor, price.currency)
 
   // Never a reason to refuse a seat, always a reason to write it down. Selar
   // prices convert into the buyer's own currency, so a mismatch here is
@@ -91,8 +92,8 @@ export default defineEventHandler(async (event) => {
   if (!reference) {
     await db.collection('unmatchedSales').add({
       ...sale,
-      expectedAmountMinor: PRICE_MINOR,
-      expectedCurrency: PRICE_CURRENCY,
+      expectedAmountMinor: price.minor,
+      expectedCurrency: price.currency,
       amountNote: amount.note,
       resolved: false,
       receivedAt: new Date(),

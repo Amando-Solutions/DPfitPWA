@@ -8,18 +8,18 @@
 // submitted, which meant anyone who filled it in and walked away held a seat.
 //
 // What changed with Selar is where the amount comes from. Paystack was handed
-// `PRICE_MINOR` here, so the sum charged could not drift from the sum
+// the price here, so the sum charged could not drift from the sum
 // advertised. Selar owns its own price: the product is created once in their
-// dashboard and this route only points a browser at it. `PRICE_MINOR` is still
-// written onto the registration, but now as a record of what the page promised
-// rather than as an instruction — see the note on the constant itself.
+// dashboard and this route only points a browser at it. The configured price
+// is still written onto the registration, but now as a record of what the page promised
+// rather than as an instruction — see `readPrice` in `app/data/landing.ts`.
 //
 // The cookie set at the end is the other thing Selar forces. Paystack redirected
 // the buyer back with the reference in the query string; Selar redirects to a
 // fixed URL and says nothing, so this is the only way the confirmation page can
 // know which registration to watch.
 // =============================================================================
-import { PRICE_MINOR, PRICE_CURRENCY } from '../../app/data/landing'
+import { readPrice } from '../../app/data/landing'
 import { firestore } from '../utils/firebase'
 import { checkoutUrl, newReference, SelarError } from '../utils/selar'
 import type { Registration } from '../utils/access-code'
@@ -146,6 +146,7 @@ export default defineEventHandler(async (event) => {
 
   const registration = validate((await readBody(event)) ?? {})
   const config = useRuntimeConfig()
+  const price = readPrice(config.public)
 
   if (!config.selarProductUrl) {
     console.error(
@@ -204,8 +205,8 @@ export default defineEventHandler(async (event) => {
         // What the page advertised. `paidAmountMinor` and `paidCurrency` are
         // written beside these when the sale arrives, and the two legitimately
         // differ: Selar converts the price into the buyer's own currency.
-        amountMinor: PRICE_MINOR,
-        currency: PRICE_CURRENCY,
+        amountMinor: price.minor,
+        currency: price.currency,
         paidAmountMinor: null,
         paidCurrency: null,
         saleReference: null,

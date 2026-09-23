@@ -1,4 +1,5 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
+import { readPrice } from './app/data/landing'
 
 /**
  * The site's own origin, for the share card and the canonical URL.
@@ -15,6 +16,19 @@
  */
 const siteUrl = (process.env.NUXT_PUBLIC_SITE_URL || '').replace(/\/+$/, '')
 const absolute = (path: string) => `${siteUrl}${path}`
+
+/**
+ * The advertised price, in major units — `30000` is ₦30,000.
+ *
+ * Read at BUILD time for the same reason as the site URL: the price is printed
+ * into prerendered HTML. The server routes read it again at runtime through
+ * `runtimeConfig`, so both have to be set from the same environment or the page
+ * and the webhook's check disagree. `readPrice` runs once here so a value that
+ * does not parse fails the build instead of printing `₦NaN`.
+ */
+const price = process.env.NUXT_PUBLIC_PRICE || '30000'
+const priceCurrency = process.env.NUXT_PUBLIC_PRICE_CURRENCY || 'NGN'
+readPrice({ price, priceCurrency })
 
 export default defineNuxtConfig({
   // Same design system as the member app in `apps/pwa`: tokens, type ramp,
@@ -176,6 +190,13 @@ export default defineNuxtConfig({
        * restart.
        */
       instagramHandle: process.env.NUXT_PUBLIC_INSTAGRAM_HANDLE || '',
+
+      /**
+       * What the page advertises and what the webhook checks a sale against.
+       * Not what Selar charges — see `readPrice` in `app/data/landing.ts`.
+       */
+      price,
+      priceCurrency,
     },
   },
 
