@@ -92,8 +92,8 @@ who edits their email on Selar's checkout form produces a sale that matches
 nothing; rather than lose it, the webhook writes it to `unmatchedSales`, which
 is a short queue of people who have paid and are owed a code by hand.
 
-**The price is advertised here and charged there.** `PRICE_MINOR` in
-`app/data/landing.ts` is kobo and the `₦30,000` on the page is derived from it,
+**The price is advertised here and charged there.** `NUXT_PUBLIC_PRICE` is in
+naira (`30000`) and the `₦30,000` on the page is derived from it,
 but Selar's dashboard is what actually charges. The two are kept equal by hand.
 A sale that comes in under the advertised amount *in the same currency* is
 logged as a mismatch and issued anyway — and it is issued anyway because Selar

@@ -12,41 +12,68 @@
  */
 
 /**
- * The one-time price, in the smallest unit of `PRICE_CURRENCY`.
+ * The one-time price, as the page advertises it and a sale is checked against.
  *
- * Kobo, not naira, because that is how money is counted anywhere it is counted
- * exactly. The display string below is derived from this rather than authored
- * beside it: two numbers that must agree is a page that can advertise one
- * price while charging another.
+ * Configured, not authored: `NUXT_PUBLIC_PRICE` in major units (naira — `30000`
+ * is ₦30,000) and `NUXT_PUBLIC_PRICE_CURRENCY`, read through `runtimeConfig`.
+ * Everything here works in minor units (kobo), because that is how money is
+ * counted anywhere it is counted exactly, and the display string is derived
+ * from the same number: two numbers that must agree is a page that can
+ * advertise one price while charging another.
  *
  * BUT READ THIS BEFORE CHANGING IT. Under Paystack this number *was* the
  * price — `register.post.ts` handed it over and that is what was charged.
  * Selar does not work that way. The product is created in Selar's dashboard
- * and carries its own price, so this constant no longer instructs anything; it
- * is what the page promises, and what a sale is checked against in
- * `describeAmount`. Changing it changes the promise and not the charge. The
- * two are kept equal by hand, and a sale that comes in under this amount in
- * this currency is logged as a mismatch — which is the only warning there is
- * that the dashboard and the page have drifted apart.
+ * and carries its own price, so this no longer instructs anything; it is what
+ * the page promises, and what a sale is checked against in `describeAmount`.
+ * Changing it changes the promise and not the charge. The two are kept equal
+ * by hand, and a sale that comes in under this amount in this currency is
+ * logged as a mismatch — which is the only warning there is that the dashboard
+ * and the page have drifted apart.
+ *
+ * The currency is ISO 4217, and only the one the price is *quoted* in. Selar
+ * converts prices into the buyer's own currency at checkout, so a real sale
+ * can and often does arrive in something else; `describeAmount` reports that
+ * as unchecked rather than as a failure.
  */
-export const PRICE_MINOR = 3_000_000
+export interface Price {
+  /** Smallest unit of `currency` — kobo for NGN. */
+  minor: number
+  currency: string
+  /** Formatted for display, e.g. `₦30,000`. */
+  label: string
+}
 
 /**
- * ISO 4217, and only the currency the price is *quoted* in.
+ * The price out of `runtimeConfig.public`, or a thrown error.
  *
- * Selar converts prices into the buyer's own currency at checkout, so a real
- * sale can and often does arrive in something else. Nothing refuses it: see
- * `describeAmount`, which reports an amount in another currency as unchecked
- * rather than as a failure.
+ * Throws rather than falling back, because a price that does not parse would
+ * otherwise print as `₦NaN` on a prerendered page, or check every sale against
+ * nothing. `nuxt.config.ts` calls this once so a bad value fails the build.
  */
-export const PRICE_CURRENCY = 'NGN'
-
-/** The one-time price of the challenge, formatted for display. */
-export const PRICE = new Intl.NumberFormat('en-NG', {
-  style: 'currency',
-  currency: PRICE_CURRENCY,
-  maximumFractionDigits: 0,
-}).format(PRICE_MINOR / 100)
+export const readPrice = (config: { price: unknown; priceCurrency: unknown }): Price => {
+  const major = Number(String(config.price).replace(/,/g, ''))
+  if (!Number.isFinite(major) || major <= 0) {
+    throw new Error(
+      `NUXT_PUBLIC_PRICE must be a positive number in major units (e.g. 30000), got "${config.price}".`,
+    )
+  }
+  const currency = String(config.priceCurrency || '').toUpperCase()
+  if (!/^[A-Z]{3}$/.test(currency)) {
+    throw new Error(
+      `NUXT_PUBLIC_PRICE_CURRENCY must be an ISO 4217 code (e.g. NGN), got "${config.priceCurrency}".`,
+    )
+  }
+  return {
+    minor: Math.round(major * 100),
+    currency,
+    label: new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency,
+      maximumFractionDigits: 0,
+    }).format(major),
+  }
+}
 
 /** Where every "Join the Challenge" call-to-action points. */
 export const REGISTER_ANCHOR = '#register'
@@ -68,7 +95,7 @@ export const NAV_LINKS: NavLink[] = [
  *
  * Declared here rather than beside the route because both ends need it and
  * this file is the one place the page and its server already share — the same
- * reason `PRICE_MINOR` is read from here by `register.post.ts`. Both fields are
+ * reason `readPrice` is read from here by `register.post.ts`. Both fields are
  * nullable together: the badge has a date or it has none.
  */
 export interface ChallengeStart {
@@ -83,8 +110,8 @@ export interface HeroStat {
   caption: string
 }
 
-export const HERO_STATS: HeroStat[] = [
-  { value: PRICE, caption: 'One-time · 6 weeks' },
+export const heroStats = (price: string): HeroStat[] => [
+  { value: price, caption: 'One-time · 6 weeks' },
   { value: '6 wks', caption: 'Structured phases' },
   { value: '2×', caption: 'Live calls / week' },
 ]

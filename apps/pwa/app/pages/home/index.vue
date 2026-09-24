@@ -3,6 +3,7 @@
 definePageMeta({ layout: 'app' })
 
 import { useDataSourceClient } from '~/lib/datasource'
+import { formatTime } from '~/lib/time'
 import type { ChatMessageView } from '~/data/types'
 
 const store = useAppStore()
@@ -518,6 +519,11 @@ const STAT_VALUE =
               <strong class="coach__name text-[14px] font-bold text-ink">Coach</strong>
               <span class="py-0.5 px-1.75 rounded-pill bg-primary-soft text-primary text-[11px]">Cohort chat</span>
             </div>
+            <time
+              :datetime="coachNote.sentAt.toDate().toISOString()"
+              :title="coachNote.sentAt.toDate().toLocaleString()"
+              class="coach__time mt-1 block text-[12px] text-muted tabular-nums"
+            >Sent {{ formatTime(coachNote.sentAt) }}</time>
             <p class="coach__body mt-1.5 mx-0 mb-0 text-[13.5px] leading-[1.45] text-muted">{{ coachNote.text }}</p>
             <NuxtLink to="/chat" class="coach__reply inline-flex items-center min-h-7 mt-1.25 text-[13px] font-bold text-primary">Reply in chat →</NuxtLink>
           </div>
