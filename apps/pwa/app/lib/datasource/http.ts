@@ -6,6 +6,7 @@ import {
   type CheckInInput,
   type DataSource,
   type DeviceClaim,
+  type OutgoingMessage,
   type PendingFile,
   type PhotoInput,
   type SessionInput,
@@ -503,12 +504,18 @@ export class HttpDataSource implements DataSource {
     attachments: ChatAttachment[] = [],
     replyTo: ChatReplyRef | null = null,
     mentions: ChatMention[] = [],
+    outgoing?: OutgoingMessage,
   ) {
+    // `id` is an idempotency key as much as a name: a backend should answer a
+    // second POST under an id it already holds with the message it has, not a
+    // copy. See `DataSource.sendMessage`. The instant goes out in the same
+    // `$ts` shape responses come back in.
     return this.send<ChatMessageView>(`/threads/${threadId}/messages`, 'POST', {
       text,
       attachments,
       replyTo,
       mentions,
+      ...(outgoing && { id: outgoing.id, sentAt: { $ts: outgoing.sentAt.toMillis() } }),
     })
   }
 

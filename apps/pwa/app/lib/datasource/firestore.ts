@@ -24,6 +24,7 @@ import {
   getDocs,
   increment,
   limit,
+  limitToLast,
   onSnapshot,
   orderBy,
   query,
@@ -73,6 +74,7 @@ import {
   type CheckInInput,
   type DataSource,
   type DeviceClaim,
+  type OutgoingMessage,
   type PendingFile,
   type PhotoInput,
   type SessionInput,
@@ -1763,9 +1765,18 @@ export class FirestoreDataSource implements DataSource {
     )
   }
 
-  /** The thread's last 200 messages, oldest first. Shared by both readers. */
+  /**
+   * The thread's last 200 messages, oldest first. Shared by both readers.
+   *
+   * `limitToLast`, not `limit`. With the order ascending, `limit(200)` is the
+   * *first* 200 messages ever sent, so a thread froze the moment it passed two
+   * hundred: nothing said after that was inside the window, and the live
+   * listener never saw it — not somebody else's message, not your own. This
+   * takes the 200 at the far end and still hands them back oldest first,
+   * which is the order the screen draws in.
+   */
   private threadQuery(ref: CollectionReference<DocumentData>) {
-    return query(ref, orderBy('sentAt', 'asc'), limit(200))
+    return query(ref, orderBy('sentAt', 'asc'), limitToLast(200))
   }
 
   /**
@@ -1808,7 +1819,12 @@ export class FirestoreDataSource implements DataSource {
     await this.cacheMyReactions(snap.docs, member.id)
 
     return snap.docs.map((d) =>
-      this.viewOf(withId<Message>(d), member.id, this.myReactions.get(d.ref.path) ?? []),
+      this.viewOf(
+        withId<Message>(d),
+        member.id,
+        this.myReactions.get(d.ref.path) ?? [],
+        d.metadata.hasPendingWrites,
+      ),
     )
   }
 
@@ -1825,6 +1841,15 @@ export class FirestoreDataSource implements DataSource {
    * immediately, so the bubble appears at once and is simply confirmed a moment
    * later. That is why `sendMessage`'s return value need not be appended by
    * hand.
+   *
+   * "Confirmed a moment later" is the tick, and it is why this listens with
+   * `includeMetadataChanges`. When the server acknowledges a message nothing
+   * in it changes — every field was written here — so a listener that only
+   * hears about data would never hear that it landed, and the clock on it
+   * would stay up for good. `hasPendingWrites` is the SDK's own answer to "has
+   * the server got this yet", and it survives a reload: a message sent
+   * offline sits in the persistent cache's queue, comes back from it pending,
+   * and goes out when the connection does. See `ChatDelivery`.
    */
   async watchMessages(
     threadId: ThreadId,
@@ -1836,20 +1861,43 @@ export class FirestoreDataSource implements DataSource {
 
     let stopped = false
     let latest = 0
+    let delivered = false
+    let lastPending = ''
 
     const publish = (docs: QueryDocumentSnapshot<DocumentData>[]) => {
       onMessages(
         docs.map((d) =>
-          this.viewOf(withId<Message>(d), member.id, this.myReactions.get(d.ref.path) ?? []),
+          this.viewOf(
+            withId<Message>(d),
+            member.id,
+            this.myReactions.get(d.ref.path) ?? [],
+            d.metadata.hasPendingWrites,
+          ),
         ),
       )
     }
 
     const stop = onSnapshot(
       this.threadQuery(ref),
+      { includeMetadataChanges: true },
       async (snap) => {
-        const seq = (latest += 1)
         if (stopped) return
+
+        // Metadata changes include the ones nobody can see: the snapshot going
+        // from cached to confirmed, the connection coming and going. Each is a
+        // whole thread republished and written to disk for nothing, so the
+        // only metadata change let through is the one that moves a clock to a
+        // tick. Before `latest` is bumped, so a skipped snapshot does not
+        // cancel a reaction lookup that a real one is still waiting on.
+        const pending = snap.docs
+          .filter((d) => d.metadata.hasPendingWrites)
+          .map((d) => d.id)
+          .join()
+        if (delivered && !snap.docChanges().length && pending === lastPending) return
+        delivered = true
+        lastPending = pending
+
+        const seq = (latest += 1)
 
         // Draw the thread out of the snapshot first, before going anywhere for
         // the reactions.
@@ -1937,6 +1985,7 @@ export class FirestoreDataSource implements DataSource {
     attachments: ChatAttachment[] = [],
     replyTo: ChatReplyRef | null = null,
     mentions: ChatMention[] = [],
+    outgoing?: OutgoingMessage,
   ): Promise<ChatMessageView> {
     const member = await this.requireMember()
     const ref = await this.messagesRef(threadId)
@@ -1947,7 +1996,7 @@ export class FirestoreDataSource implements DataSource {
       authorAvatarUrl: member.profile.avatarUrl || '',
       isCoach: false,
       text,
-      sentAt: Timestamp.now(),
+      sentAt: outgoing?.sentAt ?? Timestamp.now(),
       editedAt: null,
       attachments,
       replyTo,
@@ -1956,7 +2005,11 @@ export class FirestoreDataSource implements DataSource {
       reactionCounts: {},
     }
 
-    const created = doc(ref)
+    // Resolves when the server has it, not when the write is queued: offline,
+    // that is whenever the connection comes back, which is what keeps the
+    // outbox's clock honest. The listener has shown the bubble since the line
+    // above it ran.
+    const created = outgoing ? doc(ref, outgoing.id) : doc(ref)
     await setDoc(created, message)
     return this.viewOf({ id: created.id, ...message }, member.id, [])
   }
@@ -2433,7 +2486,19 @@ export class FirestoreDataSource implements DataSource {
     return doc(firebaseDb(), 'signIns', uid)
   }
 
-  private viewOf(message: Message, viewerUid: string, mine: string[]): ChatMessageView {
+  /**
+   * `pending` is the snapshot's `hasPendingWrites`: this device has written to
+   * the document and the server has not said so yet. On the member's own
+   * message that is the clock — a send, or an edit, still on its way. On
+   * anybody else's it is only ever a reaction, which is not the message being
+   * sent and is not drawn as one.
+   */
+  private viewOf(
+    message: Message,
+    viewerUid: string,
+    mine: string[],
+    pending = false,
+  ): ChatMessageView {
     const reactions: ChatReaction[] = (Object.entries(message.reactionCounts ?? {}) as [string, number][])
       .filter(([, count]) => count > 0)
       .map(([emoji, count]) => ({ emoji, count, mine: mine.includes(emoji) }))
@@ -2441,6 +2506,7 @@ export class FirestoreDataSource implements DataSource {
     // Who reacted is for the author's inbox, not the thread, and the thread is
     // kept on disk. See `lib/chat-cache.ts`.
     const { reactors: _reactors, reactedAt: _reactedAt, ...rest } = message
+    const isSelf = message.authorUid === viewerUid
 
     return {
       ...rest,
@@ -2455,8 +2521,9 @@ export class FirestoreDataSource implements DataSource {
       editedAt: message.editedAt ?? null,
       mentions: message.mentions ?? [],
       addressedUids: message.addressedUids ?? [],
-      isSelf: message.authorUid === viewerUid,
+      isSelf,
       reactions,
+      ...(isSelf && { delivery: pending ? 'sending' : 'sent' }),
     }
   }
 

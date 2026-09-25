@@ -487,6 +487,16 @@ export interface DataSource {
    * the sender's record of who they named, not a claim this layer re-derives:
    * scanning the text for `@` here would highlight names nobody picked and
    * would have to guess where a name with a space in it ends.
+   *
+   * `outgoing` is the id and the moment the sender settled on when they
+   * pressed send, which is before any of this runs — see `useChatOutbox`,
+   * which draws the bubble under that id first and writes it here after. Both
+   * are optional, and a caller that leaves them out gets a fresh id and "now".
+   *
+   * The id is what makes a retry safe. A write that failed on the way back —
+   * the server took it, the answer never arrived — and is then sent again
+   * lands on the same document rather than beside it, so the thread cannot
+   * end up saying the same thing twice.
    */
   sendMessage(
     threadId: ThreadId,
@@ -494,6 +504,7 @@ export interface DataSource {
     attachments?: ChatAttachment[],
     replyTo?: ChatReplyRef | null,
     mentions?: ChatMention[],
+    outgoing?: OutgoingMessage,
   ): Promise<ChatMessageView>
 
   /**
@@ -646,6 +657,14 @@ export interface PendingFile {
   mimeType: string
   /** `data:…;base64,…`. Where this ends up is the implementation's business. */
   dataUrl: string
+}
+
+/** Who a message is before it is written: see `DataSource.sendMessage`. */
+export interface OutgoingMessage {
+  /** An auto id in Firestore's shape. See `newMessageId`. */
+  id: string
+  /** When the member pressed send, off the trusted clock. */
+  sentAt: Timestamp
 }
 
 export type SessionInput = Omit<

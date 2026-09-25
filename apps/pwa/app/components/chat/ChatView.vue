@@ -2,6 +2,7 @@
 import { Bubble, BubbleContent, BubbleReactions } from '~/components/ui/bubble'
 import type {
   ChatAttachment,
+  ChatDelivery,
   ChatMention,
   ChatMessageView,
   ChatReplyRef,
@@ -84,23 +85,23 @@ const props = withDefaults(
      */
     focusMessage?: string
     /**
-     * Send the composer's contents. A prop rather than an emit, because this
-     * one has to be awaited.
+     * Send the composer's contents, and let go of them.
      *
-     * Sending a message with photos on it is an upload and then a write, over
-     * a phone connection, and either half can fail. As an emit there was
-     * nothing to await: the composer cleared itself the instant it fired, so a
-     * refused upload took the member's text and their four photos with it and
-     * told them nothing — the rejection surfaced as an unhandled promise on a
-     * screen that looked like it had sent. Awaiting means the draft survives a
-     * failure and the reason for it can be shown where the message still is.
+     * This used to be awaited, so a refused upload could hand the member their
+     * text and their four photos back in the composer. That made the composer
+     * the place a send's fate was told, which it cannot be offline: an upload
+     * with no network behind it takes ten minutes to give up, and the field sat
+     * locked for all of them. The screen behind this puts the message in the
+     * thread at once — see `useChatOutbox` — and whatever happens to it
+     * afterwards is drawn on its bubble: a clock, a tick, or "Not sent" with a
+     * way to try again. So the composer's part ends when it hands over.
      */
     send: (payload: {
       text: string
       attachments: PendingAttachment[]
       replyTo: ChatReplyRef | null
       mentions: ChatMention[]
-    }) => Promise<void>
+    }) => void
     /**
      * Rewrite a message this member already sent. Awaited for the reason `send`
      * is: the thread is the only place a refusal can be shown, and the member
@@ -143,6 +144,10 @@ const emit = defineEmits<{
    * is the screen's to know, not this component's.
    */
   (e: 'seen', messageIds: string[]): void
+  /** Send a message that failed again. See `ChatDelivery`. */
+  (e: 'retry', messageId: string): void
+  /** Throw away a message that failed rather than send it. */
+  (e: 'discard', messageId: string): void
 }>()
 
 const store = useAppStore()
@@ -178,6 +183,24 @@ const scrollToEnd = async (smooth = false) => {
 const viewerUid = computed(
   () => props.messages.find((m) => m.isSelf)?.authorUid ?? store.member.value?.id ?? '',
 )
+
+/** The browser's word on the network, for the line above the composer. */
+const online = useOnline()
+
+/**
+ * Whether a message exists on the server yet, which is what everything a hold
+ * or a swipe does is attached to.
+ *
+ * A reaction is a write against the message's document, an edit rewrites it,
+ * and a reply quotes it for everybody else to tap through to. None of those has
+ * anything to land on while the message is still on its way, or never got
+ * there — so until it has a tick, it has no hold menu and no reply gesture,
+ * the same as a message with a clock on it in WhatsApp.
+ */
+const onServer = (id: string) => {
+  const delivery = props.messages.find((m) => m.id === id)?.delivery
+  return !delivery || delivery === 'sent'
+}
 
 // --- Attachments -----------------------------------------------------------
 /**
@@ -308,7 +331,7 @@ let flashTimer: ReturnType<typeof setTimeout> | null = null
 
 const startReply = (id: string) => {
   const target = props.messages.find((m) => m.id === id)
-  if (!target) return
+  if (!target || !onServer(id)) return
   // One strip above the field, one draft in it, so a reply ends an edit — and
   // `cancelEdit` puts back the draft the edit stashed, which is very often the
   // message the member was about to reply with anyway.
@@ -837,6 +860,9 @@ const startPress = (event: PointerEvent, id: string) => {
   const bubble = bubbleIn(row)
   resetPress()
   swallowNextClick = false
+  // After the reset rather than before it, so a click left armed by some other
+  // message's gesture cannot swallow "Try again" on this one.
+  if (!onServer(id)) return
 
   pressOnControl = Boolean((event.target as HTMLElement).closest('button, a'))
   pressing.value = id
@@ -897,6 +923,7 @@ const movePress = (event: PointerEvent) => {
 }
 
 const openReactions = (id: string, bubble: HTMLElement) => {
+  if (!onServer(id)) return
   const box = bubble.getBoundingClientRect()
   const message = props.messages.find((m) => m.id === id)
 
@@ -988,15 +1015,12 @@ const closePicker = () => (reacting.value = null)
 
 // --- Sending ---------------------------------------------------------------
 /**
- * True while photos are going up, and only then.
+ * Why the last edit did not go, in the member's words.
  *
- * It used to cover every send, which is what made the composer sit there
- * holding a member's text after they had pressed send. A text message needs no
- * such state: it is on screen before the write is acknowledged — see `submit`.
+ * Edits only. A send that fails says so on its own bubble, where the message
+ * is — see `submit` — so this line is left to the one write that still has its
+ * words back in the composer when it is refused.
  */
-const sending = ref(false)
-
-/** Why the last send did not go, in the member's words. */
 const sendError = ref('')
 
 /**
@@ -1008,20 +1032,20 @@ const sendError = ref('')
  */
 const canSend = computed(() =>
   editing.value
-    ? !sending.value && Boolean(draft.value.trim())
-    : !sending.value && Boolean(draft.value.trim() || pending.value.length),
+    ? Boolean(draft.value.trim())
+    : Boolean(draft.value.trim() || pending.value.length),
 )
 
 /**
  * What went wrong, in the member's words.
  *
- * The upload and the write both throw sentences written to be read, so one is
- * shown as-is. The cause still goes to the console: what a member needs to read
- * and what whoever configured the project needs to read are rarely the same.
+ * The write throws sentences written to be read, so one is shown as-is. The
+ * cause still goes to the console: what a member needs to read and what
+ * whoever configured the project needs to read are rarely the same.
  */
 const reportFailure = (cause: unknown) => {
-  console.error('[chat] send failed', cause)
-  sendError.value = cause instanceof Error ? cause.message : 'Could not send that. Try again.'
+  console.error('[chat] edit failed', cause)
+  sendError.value = cause instanceof Error ? cause.message : 'Could not save that. Try again.'
 }
 
 /**
@@ -1071,33 +1095,27 @@ const submitEdit = () => {
 }
 
 /**
- * Send, in two paths, because the two kinds of message have nothing in common
- * from the member's side.
+ * Send, and clear the composer for the next one — photos or not.
  *
- * A **text** message is already on screen before the write is acknowledged. The
- * data source hands it to the local cache, and every listener on the thread —
- * including this screen's — is called with it immediately; the promise from the
- * write resolves later, when the *server* says so. Waiting for that before
- * emptying the composer meant a member watched their own words sit in the box
- * for a round trip after they had pressed send, with the bubble already drawn
- * above it. Worse, offline that promise never resolves at all, so the composer
- * stayed full and the button stayed disabled for a message that had been sent
- * as far as anyone could tell. So the composer clears first and the write is
- * followed up on afterwards.
+ * The message is in the thread by the time this returns, with a clock on it.
+ * Text is drawn by the data source's own pending write, photos by the local
+ * copies the composer already decoded, and from there the bubble is what says
+ * how it went: a tick when the server has it, "Not sent" with a way to try
+ * again when it will not get there on its own. See `useChatOutbox`.
  *
- * A message with **photos** genuinely has nothing to show yet: the bytes have
- * to reach Cloud Storage before a document can reference them, so there is no
- * bubble to appear and the tray is the only evidence the send is happening.
- * That one keeps the old behaviour — hold everything, show the progress, and
- * keep the draft if it fails, because the photos were decoded in memory and are
- * no longer anywhere the member could pick them from again.
+ * Which is why nothing here waits, and nothing is put back. Offline, the write
+ * behind a text message does not resolve until the connection returns, and an
+ * upload takes ten minutes to give up; a composer that waited on either sat
+ * full and locked for that long over a message that was, as far as the member
+ * could see, already sent. And a failure that pushed the words back into the
+ * field took them off the screen and out of the order they were said in,
+ * which reads as the app having lost them.
  */
 const submit = () => {
   if (!canSend.value) return
   if (editing.value) return submitEdit()
 
   const text = draft.value.trim()
-  const items = pending.value
   const answering = replyingTo.value
   // Settled against the text rather than sent as collected: a name that was
   // picked and then deleted is not a mention, and the document should not carry
@@ -1105,55 +1123,24 @@ const submit = () => {
   const mentions = mentionsInText(text, draftMentions.value)
   const payload = {
     text,
-    attachments: items.map((item) => item.attachment),
+    attachments: pending.value.map((item) => item.attachment),
     replyTo: answering ? replyRefFor(answering) : null,
     mentions,
   }
 
-  sendError.value = ''
-
-  if (items.length) {
-    sending.value = true
-    props
-      .send(payload)
-      .then(() => {
-        draft.value = ''
-        draftMentions.value = []
-        pending.value = []
-        replyingTo.value = null
-        attachError.value = ''
-        stopTyping()
-      })
-      .catch(reportFailure)
-      .finally(() => {
-        sending.value = false
-        scrollToEnd()
-      })
-    return
-  }
-
-  // Cleared before the send rather than after it. `stopTyping` is called
-  // outright rather than left to the watcher on `draft`, which would not run
-  // until the next tick: pressing send is the clearest statement there is that
-  // the typing is over.
+  // `stopTyping` is called outright rather than left to the watcher on
+  // `draft`, which would not run until the next tick: pressing send is the
+  // clearest statement there is that the typing is over.
   draft.value = ''
   draftMentions.value = []
+  pending.value = []
   replyingTo.value = null
   attachError.value = ''
+  sendError.value = ''
   stopTyping()
-  scrollToEnd()
 
-  props.send(payload).catch((cause) => {
-    reportFailure(cause)
-    // Put it back — unless something has been typed since. Overwriting a draft
-    // the member is in the middle of writing, to restore one they have already
-    // seen fail, loses the message they still care about to save the one they
-    // do not.
-    if (draft.value || pending.value.length) return
-    draft.value = text
-    draftMentions.value = mentions
-    replyingTo.value = answering
-  })
+  props.send(payload)
+  scrollToEnd()
 }
 
 /**
@@ -1395,11 +1382,63 @@ onBeforeUnmount(() => {
  *
  * The first delivery is neither case. It is the thread arriving, and it goes to
  * wherever the member left off.
+ *
+ * Watched as the array rather than its length, because the length stopped
+ * meaning anything once the thread could fill up. It is the last 200 messages,
+ * so every arrival in a full thread pushes the oldest off the top and the
+ * count stays exactly where it was: keyed on the length, a busy cohort's chat
+ * simply stopped following the conversation. The array also carries every
+ * clock turning into a tick and every reaction, so what decides whether
+ * anything *arrived* is `arrivalsSince`, not the fact that this ran.
  */
 let placeRestored = false
 
+/**
+ * How many messages have landed at the end of the thread since `before`.
+ *
+ * Counted from wherever the old newest message sits now, which is the same
+ * answer whether or not anything fell off the top to make room. When that
+ * message is gone — the member deleted a failed one at the end — it falls back
+ * to the change in length, which is negative for exactly that case and so
+ * counts nothing.
+ */
+const arrivalsSince = (before: ChatMessageView[], next: ChatMessageView[]) => {
+  const newest = before.at(-1)
+  if (!newest) return next.length
+  const at = next.findIndex((m) => m.id === newest.id)
+  if (at < 0) return Math.max(0, next.length - before.length)
+  return next.length - 1 - at
+}
+
+/**
+ * Keep the read marker on the message it marks, not the position it was at.
+ *
+ * `seenIndex` is a position, and a full thread moves every message up one
+ * each time something arrives. Left alone the marker would slide down onto a
+ * message nobody has read — one more for every arrival — and leaving the screen
+ * writes that down as where the member got to, which is what the tab's dot and
+ * the unread band are both read from.
+ *
+ * Walks back to the nearest message still here when the marked one is not: a
+ * failed message that was deleted, or one old enough to have fallen off the
+ * top.
+ */
+const reanchorSeen = (before: ChatMessageView[], next: ChatMessageView[]) => {
+  const index = seenIndex.value
+  if (index < 0 || before[index]?.id === next[index]?.id) return
+  for (let i = index; i >= 0; i -= 1) {
+    const id = before[i]?.id
+    const at = id ? next.findIndex((m) => m.id === id) : -1
+    if (at >= 0) {
+      seenIndex.value = at
+      return
+    }
+  }
+  seenIndex.value = -1
+}
+
 watch(
-  [() => props.messages.length, () => props.live],
+  [() => props.messages, () => props.live],
   ([next, live], previous) => {
     if (!live) {
       // The restored copy gets the placeholder treatment: sit at the newest
@@ -1408,7 +1447,7 @@ watch(
       // read and writing that decision down — see `openAtEnd` — and neither
       // belongs to a thread that is missing however much of itself was never
       // cached.
-      if (next) scrollToEnd()
+      if (next.length) scrollToEnd()
       return
     }
 
@@ -1417,7 +1456,7 @@ watch(
     // restored tail are older than everything the member has seen, and
     // treating the difference as arrivals would put a "140 new" button on a
     // conversation where nothing had happened at all.
-    if (!placeRestored && next) {
+    if (!placeRestored && next.length) {
       placeRestored = true
       // `finally`, so a placement that throws still lets the buttons work
       // rather than hiding them for the rest of the visit.
@@ -1435,15 +1474,26 @@ watch(
     }
 
     // `immediate` runs this once before anything has arrived, where there is no
-    // previous length at all. Zero is the honest reading of that.
-    const before = previous?.[0] ?? 0
+    // previous thread at all. Empty is the honest reading of that.
+    const before = previous?.[0] ?? []
+    reanchorSeen(before, next)
 
-    if (next > before && !atEnd()) {
-      newBelow.value += next - before
+    // Nothing new at the end — a tick, a reaction, an edit, or a failed
+    // message deleted — says nothing about where the member wants to be.
+    const arrived = arrivalsSince(before, next)
+    if (!arrived) return
+
+    if (!atEnd()) {
+      newBelow.value += arrived
       atBottom.value = false
       return
     }
-    scrollToEnd()
+    // The marker is moved here as well as by the scroll it causes, because in
+    // a full thread there may be no scroll: the message that fell off the top
+    // can be as tall as the one that arrived, and then `scrollTop` is already
+    // where it is being set to and no event fires. The member is looking at
+    // the new message either way, and the tab's dot is read off this.
+    void scrollToEnd().then(trackSeen)
   },
   { immediate: true },
 )
@@ -1490,6 +1540,17 @@ watch(editing, (target) => {
 watch(typingLine, (line) => {
   if (line && atEnd()) scrollToEnd()
 })
+
+// A send that fails grows its row without adding one — the run breaks above
+// it and "Not sent" takes the place of the time — so a thread sitting at the
+// bottom would leave the one line the member now has to act on just under the
+// composer, out of sight.
+watch(
+  () => props.messages.reduce((count, m) => count + (m.delivery === 'failed' ? 1 : 0), 0),
+  (failed, before) => {
+    if (failed > before && atEnd()) scrollToEnd()
+  },
+)
 
 // Shadcn's variants own the bubble skin; this local shape keeps the app's
 // sender/receiver tail treatment.
@@ -1544,12 +1605,27 @@ const quoteShape = (m: ChatMessageView, startsRun: boolean) => {
  * message of a run carries the face, the name and the tail; the last carries
  * the timestamp, because one time under a run describes the whole run and
  * a time under every bubble is noise nobody reads.
+ *
+ * The tick goes beside that time, on the same reasoning, and is the run's
+ * rather than the last message's: a clock if anything in the run is still on
+ * its way, a tick once all of it is there. Four ticks down one side of a run
+ * would be four copies of one fact; one tick over a run whose first message
+ * is still uploading would be a claim that is not true yet. A message that
+ * *failed* never shares a run — see `continuesRun` — so it has the line to
+ * itself.
  */
-const rows = computed(() =>
-  props.messages.map((m, index) => {
+const rows = computed(() => {
+  /** Whether the run being walked has anything in it still sending. */
+  let runSending = false
+
+  return props.messages.map((m, index) => {
     const attachments = m.attachments ?? []
     const next = props.messages[index + 1]
     const startsRun = !continuesRun(m, props.messages[index - 1])
+    const endsRun = !next || !continuesRun(next, m)
+    const delivery: ChatDelivery = m.isSelf ? (m.delivery ?? 'sent') : 'sent'
+    if (startsRun) runSending = false
+    if (delivery === 'sending') runSending = true
     const mentions = m.mentions ?? []
     // Answered by name, and named with an `@`, are two different facts about
     // one message and are needed separately: the first is what colours the
@@ -1564,7 +1640,14 @@ const rows = computed(() =>
       images: attachments.filter((a) => a.kind === 'image'),
       files: attachments.filter((a) => a.kind !== 'image'),
       startsRun,
-      endsRun: !next || !continuesRun(next, m),
+      endsRun,
+      /** This message on its own. Drives the veil over photos still going up. */
+      delivery,
+      /**
+       * What the run's closing line says about the member's own run, or
+       * `null` for anybody else's and for every bubble but the last.
+       */
+      status: m.isSelf && endsRun ? (runSending ? 'sending' : delivery) : null,
       first: index === 0,
       /** This message opens the unread run, so the band is drawn above it. */
       startsUnread: index === unreadFrom.value,
@@ -1596,8 +1679,8 @@ const rows = computed(() =>
        */
       runs: mentionSegments(m.text, mentions),
     }
-  }),
-)
+  })
+})
 
 /**
  * Replies aimed at this member that they have not scrolled past yet.
@@ -1718,6 +1801,8 @@ const TOOL =
               startsUnread,
               quoteShape: quoteCorners,
               authorLabel,
+              delivery,
+              status,
             } in rows"
             :key="m.id"
           >
@@ -1900,15 +1985,26 @@ const TOOL =
                           </span>
                         </button>
 
+                        <!--
+                          Keyed by position, not by id. A photo being sent is
+                          drawn from the copy on the device, and once the live
+                          thread has it the same photo arrives again under its
+                          storage path. Keyed by that, the swap would be a new
+                          element loading a new picture from nothing — a blank
+                          tile where the photo just was. By position it is the
+                          same `<img>` with a new `src`, which the browser keeps
+                          painting until the replacement has decoded. The photos
+                          on a message never reorder, so position is stable.
+                        -->
                         <div
                           v-if="images.length"
                           class="max-w-58"
                           :class="images.length > 1 ? 'grid grid-cols-2 gap-1' : 'flex'"
                         >
                           <button
-                            v-for="shot in images"
-                            :key="shot.id"
-                            class="block overflow-hidden rounded-xl bg-fill-subtle leading-none"
+                            v-for="(shot, i) in images"
+                            :key="i"
+                            class="relative block overflow-hidden rounded-xl bg-fill-subtle leading-none"
                             :aria-label="'Open ' + shot.name"
                             @click="viewing = shot"
                           >
@@ -1920,6 +2016,21 @@ const TOOL =
                               loading="lazy"
                               decoding="async"
                             />
+                            <!--
+                              Still going up. On the photo rather than only
+                              beside the time, because a run can end in a sent
+                              message while a photo above it is still uploading,
+                              and this is what says which one the clock is for.
+                            -->
+                            <span
+                              v-if="delivery === 'sending'"
+                              class="absolute inset-0 grid place-items-center bg-black/30"
+                              aria-hidden="true"
+                            >
+                              <span
+                                class="size-6 rounded-full border-2 border-white/35 border-t-white animate-spin motion-reduce:animate-none"
+                              />
+                            </span>
                           </button>
                         </div>
 
@@ -2002,13 +2113,67 @@ const TOOL =
                         </button>
                       </BubbleReactions>
 
-                      <!-- One time per run, closing it out under everything else. -->
+                      <!--
+                        A message that did not go, in the place its time would
+                        have been. The red mark is WhatsApp's, because it is the
+                        one every member already knows means "this did not
+                        send"; the two actions sit beside it rather than behind
+                        a tap on it, so neither has to be discovered.
+
+                        No time: it was never said, as far as anybody else is
+                        concerned, and "Try again" dates it afresh. The reason is
+                        there for a screen reader and on hover, not written out —
+                        it is nearly always "check your connection", which the
+                        mark already says.
+                      -->
+                      <div
+                        v-if="status === 'failed'"
+                        class="flex items-center gap-1.5 self-start text-[11px] leading-none"
+                        role="status"
+                      >
+                        <span
+                          class="grid size-4 shrink-0 place-items-center rounded-full bg-danger-fill text-[10.5px] font-bold text-on-danger"
+                          aria-hidden="true"
+                        >!</span>
+                        <span class="font-semibold text-danger" :title="m.deliveryError">
+                          Not sent<span v-if="m.deliveryError" class="sr-only">. {{ m.deliveryError }}</span>
+                        </span>
+                        <span class="text-faint" aria-hidden="true">·</span>
+                        <!-- Padded out past the text, so the target is a thumb's and not a letter's. -->
+                        <button
+                          class="-mx-1 -my-2 px-1 py-2 font-semibold text-primary"
+                          @click="emit('retry', m.id)"
+                        >
+                          Try again
+                        </button>
+                        <span class="text-faint" aria-hidden="true">·</span>
+                        <button
+                          class="-mx-1 -my-2 px-1 py-2 font-semibold text-muted"
+                          @click="emit('discard', m.id)"
+                        >
+                          Delete
+                        </button>
+                      </div>
+
+                      <!--
+                        One time per run, closing it out under everything else,
+                        and on the member's own runs whether it has gone: a clock
+                        until the server has all of it, then a tick. See `rows`.
+                      -->
                       <span
-                        v-if="endsRun"
-                        class="text-[10.5px] text-muted tabular-nums"
+                        v-else-if="endsRun"
+                        class="inline-flex items-center gap-1 text-[10.5px] text-muted tabular-nums"
                         :class="m.isSelf ? 'self-start' : 'self-end'"
                       >
                         {{ time }}
+                        <template v-if="status === 'sending'">
+                          <AppIcon name="clock" :size="11" :stroke="2.2" />
+                          <span class="sr-only">Sending</span>
+                        </template>
+                        <template v-else-if="status === 'sent'">
+                          <AppIcon name="check" :size="12" />
+                          <span class="sr-only">Sent</span>
+                        </template>
                       </span>
                     </Bubble>
                   </div>
@@ -2109,9 +2274,22 @@ const TOOL =
       class="chat__composer flex shrink-0 flex-col gap-2 px-5 pt-3 pb-[calc(16px+var(--tabbar-gutter))] lg:px-0"
     >
       <p v-if="reading" class="m-0 text-xs text-muted">Adding to your message…</p>
-      <p v-else-if="sending" class="m-0 text-xs text-muted">Uploading and sending…</p>
       <p v-else-if="sendError" class="m-0 text-xs text-primary">{{ sendError }}</p>
       <p v-else-if="attachError" class="m-0 text-xs text-primary">{{ attachError }}</p>
+      <!--
+        Why the clocks are not turning into ticks, said once, here, rather than
+        left for the member to work out from a thread that has stopped moving.
+        And a promise, because that is what they need to know before pressing
+        send: it will go by itself, and nothing has to be typed twice.
+      -->
+      <p
+        v-else-if="!online"
+        class="m-0 flex items-center gap-1.5 text-xs text-muted"
+        role="status"
+      >
+        <AppIcon name="clock" :size="13" :stroke="2.2" />
+        You’re offline. Messages will send when you reconnect.
+      </p>
       <p v-else-if="storageFull" class="m-0 text-xs text-orange-text">
         This device is out of space. Anything you send now will be gone after a
         reload, so clear a few progress photos to make room.
@@ -2334,7 +2512,7 @@ const TOOL =
           <button
             :class="TOOL"
             aria-label="Attach a file"
-            :disabled="reading || sending || roomLeft <= 0 || Boolean(editing)"
+            :disabled="reading || roomLeft <= 0 || Boolean(editing)"
             @click="openPicker(attachInput)"
           >
             <AppIcon name="paperclip" :size="19" :stroke="1.9" />
@@ -2342,16 +2520,16 @@ const TOOL =
           <button
             :class="TOOL"
             aria-label="Take a photo"
-            :disabled="reading || sending || roomLeft <= 0 || Boolean(editing)"
+            :disabled="reading || roomLeft <= 0 || Boolean(editing)"
             @click="openPicker(cameraInput)"
           >
             <AppIcon name="camera" :size="19" />
           </button>
         </div>
 
-        <!-- Disabled while a send is in flight, not just dimmed: an upload
-             takes long enough on a phone that a second tap is the natural
-             thing to do, and it would send the same photos twice. -->
+        <!-- Never held for a send in flight: the composer empties as it
+             hands the message over, so a second tap has nothing to send
+             twice. Off only when there is nothing in it to send. -->
         <button
           class="grid size-12 shrink-0 place-items-center rounded-full bg-primary-fill text-on-primary transition-[transform,opacity,background-color] duration-100 ease-out active:scale-[0.94] motion-reduce:transition-none motion-reduce:active:scale-100"
           :class="!canSend && 'opacity-45'"

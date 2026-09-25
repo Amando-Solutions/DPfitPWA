@@ -9,6 +9,7 @@ import {
   type CheckInInput,
   type DataSource,
   type DeviceClaim,
+  type OutgoingMessage,
   type PendingFile,
   type PhotoInput,
   type SessionInput,
@@ -731,16 +732,23 @@ export class LocalDataSource implements DataSource {
     attachments: ChatAttachment[] = [],
     replyTo: ChatReplyRef | null = null,
     mentions: ChatMention[] = [],
+    outgoing?: OutgoingMessage,
   ): Promise<ChatMessageView> {
     const [user, member] = await Promise.all([this.getAuthUser(), this.getMember()])
+    const mine = storage.read<Record<string, Message[]>>(KEY.messages, {})
+    // The same id twice is a retry of a write that did land, and landing it
+    // again would be the duplicate the id exists to prevent.
+    const already = outgoing && mine[threadId]?.find((m) => m.id === outgoing.id)
+    if (already) return withViewer(already, already.authorUid, [])
+
     const message: Message = {
-      id: uid('msg'),
+      id: outgoing?.id ?? uid('msg'),
       authorUid: user?.uid ?? 'me',
       authorName: member?.profile.displayName || 'You',
       authorAvatarUrl: member?.profile.avatarUrl ?? '',
       isCoach: false,
       text,
-      sentAt: trustedTimestamp(),
+      sentAt: outgoing?.sentAt ?? trustedTimestamp(),
       editedAt: null,
       attachments,
       replyTo,
@@ -748,7 +756,6 @@ export class LocalDataSource implements DataSource {
       addressedUids: addressedUidsOf({ authorUid: user?.uid ?? 'me', mentions, replyTo }),
       reactionCounts: {},
     }
-    const mine = storage.read<Record<string, Message[]>>(KEY.messages, {})
     storage.write(KEY.messages, {
       ...mine,
       [threadId]: [...(mine[threadId] ?? []), message],

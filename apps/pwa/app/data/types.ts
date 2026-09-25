@@ -1252,10 +1252,37 @@ export interface ChatReaction {
   mine: boolean
 }
 
+/**
+ * How far one of the member's own messages has got, as WhatsApp's ticks say it.
+ *
+ * `sending` is the clock: on screen, not on the server yet — in flight, or
+ * queued behind a connection that is not there. `sent` is the tick: the server
+ * has it, so everyone else can read it. `failed` is the red mark: it is not
+ * going to go without the member doing something, and the thread says so where
+ * the message is rather than taking it off the screen.
+ *
+ * There is no "delivered" or "read". Those are claims about somebody else's
+ * phone, and in a room of forty they would be forty claims per message; the
+ * question this answers is the sender's own — did it go?
+ */
+export type ChatDelivery = 'sending' | 'sent' | 'failed'
+
 export interface ChatMessageView extends Message {
   /** True of the viewer, so it cannot be a stored field. */
   isSelf: boolean
   reactions: ChatReaction[]
+  /**
+   * Whether this device's copy has reached the server. See `ChatDelivery`.
+   *
+   * Like `isSelf`, a fact about the reader rather than the message: the same
+   * document is `sending` on the phone that wrote it and simply there on every
+   * other. Absent means sent, which is what every implementation that has no
+   * way to hold a write back — and every view cached before this existed —
+   * already means by leaving it out. Only ever set on the member's own.
+   */
+  delivery?: ChatDelivery
+  /** Why a `failed` message did not go, in the member's words. */
+  deliveryError?: string
 }
 
 export interface BadgeView extends BadgeDef {

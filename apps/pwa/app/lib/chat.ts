@@ -30,14 +30,50 @@ import type {
  */
 export const GROUP_WINDOW_MS = 5 * 60 * 1000
 
-/** Whether `message` continues the run `previous` started. */
+/**
+ * Whether `message` continues the run `previous` started.
+ *
+ * A message that did not send stands alone, on both sides. It is not part of
+ * the conversation everyone else is reading, and it carries its own line where
+ * the run's time would go — "Not sent", and what to do about it — so a run
+ * that carried on under it would lose its time to that line, and one that
+ * carried on over it would hang the failure on messages that went.
+ */
 export const continuesRun = (
   message: ChatMessageView,
   previous: ChatMessageView | undefined,
 ): boolean => {
   if (!previous) return false
   if (previous.authorUid !== message.authorUid) return false
+  if (message.delivery === 'failed' || previous.delivery === 'failed') return false
   return message.sentAt.toMillis() - previous.sentAt.toMillis() <= GROUP_WINDOW_MS
+}
+
+const ID_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+
+/**
+ * A new message id, made on the device before anything is written.
+ *
+ * The same shape Firestore's own auto ids take — twenty characters from the
+ * same sixty-two, from the platform's secure random source — so a message
+ * named here is indistinguishable from one the SDK named, and still has no `-`
+ * in it for `chatReactionsNotificationId` to trip on.
+ *
+ * Bytes at or past the last whole multiple of 62 are thrown away rather than
+ * wrapped with `%`, which would make the first eight characters likelier than
+ * the rest.
+ */
+export const newMessageId = (): string => {
+  const cutoff = 256 - (256 % ID_ALPHABET.length)
+  let id = ''
+  while (id.length < 20) {
+    for (const byte of crypto.getRandomValues(new Uint8Array(40))) {
+      if (byte >= cutoff) continue
+      id += ID_ALPHABET[byte % ID_ALPHABET.length]
+      if (id.length === 20) break
+    }
+  }
+  return id
 }
 
 /**
