@@ -94,6 +94,7 @@ import type {
   CheckIn,
   Cohort,
   CohortDoc,
+  LiveCall,
   EarnedBadge,
   Guide,
   LeaderboardEntry,
@@ -296,18 +297,28 @@ const withId = <T>(snap: QueryDocumentSnapshot<DocumentData>): T =>
  * Shared by `getCohort` and `watchCohort`, so the boot read and the listener
  * cannot disagree about whether the board is on.
  */
-const cohortFrom = (snap: DocumentSnapshot<DocumentData>): Cohort | null => {
+const cohortFrom = (snap: DocumentSnapshot<DocumentData>, liveCalls: LiveCall[]): Cohort | null => {
   if (!snap.exists()) return null
   const data = snap.data() as Partial<CohortDoc>
   return {
     ...(data as CohortDoc),
     id: snap.id,
-    liveCall: liveCallFrom(data.liveCall),
+    liveCalls,
     leaderboardVisible: data.leaderboardVisible === true,
     leaderboardRevealWeek:
       typeof data.leaderboardRevealWeek === 'number' ? data.leaderboardRevealWeek : 1,
   }
 }
+
+/**
+ * The cohort's scheduled calls, complete ones only. A handful of documents per
+ * cohort, so no date filter: one equality query needs no composite index.
+ */
+const liveCallsQuery = (cohortId: string) =>
+  query(collection(firebaseDb(), 'liveCalls'), where('cohortId', '==', cohortId))
+
+const liveCallsFrom = (docs: QueryDocumentSnapshot<DocumentData>[]): LiveCall[] =>
+  docs.flatMap((snap) => liveCallFrom(snap.data()) ?? [])
 
 /**
  * A reward economy with nothing in it.
@@ -366,6 +377,25 @@ const normaliseProgram = (id: string, data: Partial<ProgramDoc>): Program => {
       : emptyRewards(),
   }
 }
+
+/** What the admin app assumes when nobody has set a threshold anywhere. */
+const DEFAULT_QUALIFYING_PERCENT = 80
+
+const validPercent = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 100 ? value : null
+
+/**
+ * The qualifying threshold a session is judged against.
+ *
+ * The admin app sets it once for the whole platform, on `settings/platform`
+ * (its Settings page), and no longer writes it on programs: a program created
+ * since has none, and `x >= undefined` would fail every session. So the
+ * platform value wins, then a program that still carries its own, then the
+ * admin app's default. A settings read that fails (rules not yet deployed,
+ * offline) falls through rather than taking the program load down with it.
+ */
+const resolveQualifyingPercent = (platform: unknown, program: unknown): number =>
+  validPercent(platform) ?? validPercent(program) ?? DEFAULT_QUALIFYING_PERCENT
 
 /**
  * A week as the schedule can use it, or `null` with the reason logged.
@@ -1212,10 +1242,18 @@ export class FirestoreDataSource implements DataSource {
   /** The cohort document, defaulted. See `cohortFrom`. */
   async getCohort(): Promise<Cohort | null> {
     const member = await this.requireMember()
-    return cohortFrom(await getDoc(doc(firebaseDb(), 'cohorts', member.cohortId)))
+    const [cohort, calls] = await Promise.all([
+      getDoc(doc(firebaseDb(), 'cohorts', member.cohortId)),
+      getDocs(liveCallsQuery(member.cohortId)),
+    ])
+    return cohortFrom(cohort, liveCallsFrom(calls.docs))
   }
 
-  /** One `onSnapshot` on the document `getCohort` reads, normalised the same way. */
+  /**
+   * Two `onSnapshot`s — the document `getCohort` reads and the cohort's
+   * `liveCalls` — merged, normalised the same way. Delivers once both have
+   * answered, then again on every change to either.
+   */
   async watchCohort(
     onCohort: (cohort: Cohort | null) => void,
     onError?: (error: unknown) => void,
@@ -1223,22 +1261,39 @@ export class FirestoreDataSource implements DataSource {
     const member = await this.requireMember()
 
     let stopped = false
+    let cohortSnap: DocumentSnapshot<DocumentData> | null = null
+    let calls: LiveCall[] | null = null
+    const deliver = () => {
+      if (!stopped && cohortSnap && calls) onCohort(cohortFrom(cohortSnap, calls))
+    }
+    const fail = (error: unknown) => {
+      if (!stopped) onError?.(error)
+    }
 
-    const stop = onSnapshot(
+    const stopCohort = onSnapshot(
       doc(firebaseDb(), 'cohorts', member.cohortId),
       (snap) => {
-        if (!stopped) onCohort(cohortFrom(snap))
+        cohortSnap = snap
+        deliver()
       },
-      (error) => {
-        if (!stopped) onError?.(error)
+      fail,
+    )
+    const stopCalls = onSnapshot(
+      liveCallsQuery(member.cohortId),
+      (snap) => {
+        calls = liveCallsFrom(snap.docs)
+        deliver()
       },
+      fail,
     )
 
     return () => {
       stopped = true
-      stop()
+      stopCohort()
+      stopCalls()
     }
   }
+
 
   async watchAnnouncements(
     onAnnouncements: (announcements: Announcement[]) => void,
@@ -2614,11 +2669,24 @@ export class FirestoreDataSource implements DataSource {
       throw new DataSourceError('This cohort has no program attached.', 'not-found')
     }
 
-    const snap = await getDoc(doc(firebaseDb(), 'programs', programId))
+    const [snap, settings] = await Promise.all([
+      getDoc(doc(firebaseDb(), 'programs', programId)),
+      getDoc(doc(firebaseDb(), 'settings', 'platform')).catch((cause) => {
+        console.warn('[datasource] settings/platform could not be read; using the program threshold.', cause)
+        return null
+      }),
+    ])
     if (!snap.exists()) {
       throw new DataSourceError('This cohort has no program attached.', 'not-found')
     }
-    this.programCache = normaliseProgram(snap.id, snap.data() as Partial<ProgramDoc>)
+    const program = normaliseProgram(snap.id, snap.data() as Partial<ProgramDoc>)
+    this.programCache = {
+      ...program,
+      qualifyingSetPercent: resolveQualifyingPercent(
+        settings?.data()?.qualifyingSetPercent,
+        program.qualifyingSetPercent,
+      ),
+    }
     return this.programCache
   }
 
