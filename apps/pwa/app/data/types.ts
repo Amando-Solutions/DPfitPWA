@@ -242,24 +242,17 @@ export interface CoachRef {
 }
 
 /**
- * The weekly live call, as the admin app writes it on the cohort document.
+ * One scheduled call: a `liveCalls/{callId}` document, written by the admin app.
  *
- * One call for the whole cohort: there are no slots to assign, no attendance
- * to record and nothing to mark as done, so every member sees the same card.
- *
- * `startsAt` is one occurrence and the call repeats every seven days from it,
- * so it is set once rather than every week. Moving the call is moving that
- * instant, and the weeks after follow it. Skipping a week is moving it a week
- * later, because nothing before `startsAt` is a call.
- *
- * Every field is nullable because the map exists before anybody has filled it
- * in: a new cohort carries it empty, so the admin app edits fields that are
- * already there. A map missing `startsAt` or `joinUrl` is no call at all — a
- * time with no link is a button that goes nowhere, and a link with no time is
- * a meeting nobody knows to attend. `Cohort.liveCall` is that reading of it.
+ * Each is a one-off on a date. Nothing repeats: a weekly call is a call per
+ * week. Members read the calls for their own cohort, and Home shows the one on
+ * today's date, if any. A document missing `startsAt` or an http(s) `joinUrl`
+ * is no call at all — see `liveCallFrom`.
  */
 export interface LiveCallDoc {
-  /** When one occurrence starts. The same instant for every member, whatever their zone. */
+  title: string
+  cohortId: string
+  /** When the call starts. The same instant for every member, whatever their zone. */
   startsAt: Timestamp | null
   /** How long the join button stays open after `startsAt`. 60 when unset. */
   durationMinutes: number | null
@@ -294,12 +287,6 @@ export interface CohortDoc extends Audited {
   programVersion: number | null
   archivedAt: Timestamp | null
   /**
-   * The weekly call, or `null` when this cohort has none. Set by the admin app
-   * — see FIREBASE.md — and read on Home, which shows it on the day it happens
-   * and nothing on any other day.
-   */
-  liveCall: LiveCallDoc | null
-  /**
    * Whether the cohort leaderboard is visible to members yet.
    *
    * Off for the opening weeks on purpose. Ranking people before they have a
@@ -319,8 +306,12 @@ export interface CohortDoc extends Audited {
   leaderboardRevealWeek: number
 }
 
-/** The cohort as the app handles it: the live call already read as complete or absent. */
-export type Cohort = WithId<Omit<CohortDoc, 'liveCall'> & { liveCall: LiveCall | null }>
+/**
+ * The cohort as the app handles it, with its scheduled calls attached: the
+ * `liveCalls` documents for this cohort, already read as complete, incomplete
+ * ones dropped. Not a field on the cohort document.
+ */
+export type Cohort = WithId<CohortDoc & { liveCalls: LiveCall[] }>
 
 // =============================================================================
 // Programs — `programs/{programId}`
@@ -409,6 +400,10 @@ export interface ProgramDoc extends Audited {
   /**
    * The share of a session's *prescribed* sets that has to be logged for the
    * session to earn anything. The gate the whole reward system hangs off.
+   *
+   * Set platform-wide on `settings/platform` by the admin app, which no longer
+   * writes it on new programs; older programs still carry their own. The data
+   * source resolves the two onto this field (`resolveQualifyingPercent`).
    */
   qualifyingSetPercent: number
   rewards: RewardConfig

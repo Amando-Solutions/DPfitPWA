@@ -701,11 +701,11 @@ const buildStore = () => {
   const coach = computed(() => state.value.cohort?.coach ?? null)
 
   /**
-   * The weekly call as it stands today, or `null` when today has none.
+   * Today's scheduled call, or `null` when today has none.
    *
-   * Null is the common case, not an error: six days a week there is no call,
-   * and a cohort between blocks has none at all. Set on the cohort document by
-   * the admin app — see FIREBASE.md.
+   * Null is the common case, not an error: most days have no call. The calls
+   * are the cohort's `liveCalls` documents, scheduled in the admin app — see
+   * FIREBASE.md.
    *
    * Read through `liveCallFrom` here as well as in `FirestoreDataSource`, which
    * is not redundant: Home's `v-if` is the one thing standing between a member
@@ -716,7 +716,10 @@ const buildStore = () => {
    * it is read. `LiveCallCard` wakes the store at each change; see there.
    */
   const liveCallToday = computed(() =>
-    todaysLiveCall(liveCallFrom(state.value.cohort?.liveCall), now.value),
+    todaysLiveCall(
+      (state.value.cohort?.liveCalls ?? []).flatMap((call) => liveCallFrom(call) ?? []),
+      now.value,
+    ),
   )
 
   /** Whether the cohort's board is switched on, and the week it was promised for. */

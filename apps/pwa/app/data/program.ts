@@ -100,18 +100,17 @@ export const cohort: Cohort = {
   programVersion: PROGRAM_VERSION,
   archivedAt: null,
   /**
-   * The weekly live call: Tuesdays, 7:00 PM in Lagos, from week 1.
-   *
-   * One call for the whole cohort, repeating weekly from `startsAt`. Home shows
-   * it on Tuesdays only, so in mock mode on any other day there is no card —
-   * move `startsAt` onto today's weekday to see it, and before, during and
-   * after the hour to see its three states.
+   * Scheduled calls, as the app attaches them from `liveCalls`. One at 7:00 PM
+   * local time today, so mock mode always has a card: open it before, during
+   * and after that hour to see its three states.
    */
-  liveCall: {
-    startsAt: at('2026-08-18T18:00:00Z'),
-    durationMinutes: 60,
-    joinUrl: 'https://meet.google.com/dpf-recomp-live',
-  },
+  liveCalls: [
+    {
+      startsAt: Timestamp.fromDate(new Date(new Date().setHours(19, 0, 0, 0))),
+      durationMinutes: 60,
+      joinUrl: 'https://meet.google.com/dpf-recomp-live',
+    },
+  ],
   /**
    * Off for the opening weeks on purpose. Ranking people before they have a
    * couple of weeks of habit behind them turns "did I show up" into "am I

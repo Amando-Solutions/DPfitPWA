@@ -12,7 +12,7 @@ one. Read them before changing anything in `app/lib/datasource/firestore.ts`.
 | `accessCodes/{code}` | One seat. Keyed by the code, so redemption is a single `getDoc` and uniqueness is the database's problem, not a query's. |
 | `registrations/{reference}` | One attempt to buy a seat: the form's answers plus the payment. Keyed by a reference the landing site generates before sending the buyer to Selar, because the document exists before the code does — `code` is `null` until money moves. Coach-readable; every client write is denied, since the only writer is the landing site's Admin SDK routes. |
 | `unmatchedSales/{id}` | A Selar sale that matched no registration — usually a buyer who changed their email address at checkout. Money received, nothing issued, and a queue for whoever fixes it by hand. Same rule shape as `registrations`. |
-| `cohorts/{cohortId}` | The cohort, with the coach denormalised onto it. Also the weekly `liveCall` and whether the leaderboard is on. |
+| `cohorts/{cohortId}` | The cohort, with the coach denormalised onto it. Also whether the leaderboard is on. Live calls are in `liveCalls`. |
 | `cohorts/{id}/notifications/{id}` | Coach-authored inbox lines. |
 | `cohorts/{id}/announcements/{id}` | The card deck behind the inbox. Longer-form, and carries a call to action. |
 | `cohorts/{id}/leaderboard/{uid}` | Name, avatar, qualifying-session count. A projection — see below. |
@@ -691,124 +691,42 @@ stock photograph:
   --coach-uid=<their auth uid> --coach-avatar=https://…
 ```
 
-Two things it deliberately does **not** fill in. `liveCall` is written with
-its fields empty, because a placeholder meeting link on every member's Home
-screen is worse than no card — see below. And `memberCount` starts at `0`,
+Two things it deliberately does **not** fill in. No live calls are seeded,
+because a placeholder meeting link on every member's Home screen is worse than
+no card — see below. And `memberCount` starts at `0`,
 because nothing in the app maintains it and a seeded number is wrong from the
 first member who joins.
 
-## The weekly live call
+## Live calls
 
-Each cohort has one weekly call. The admin app sets it on the cohort document
-and the PWA shows it on Home **on the day of the call only**, with the join
-button disabled until the call starts. The admin app — a separate app, not in
-this repo — is the only writer. Until it exists, edit the map in the console.
-
-### The fields
-
-`cohorts/{cohortId}.liveCall` is a map:
-
-| field | type | example | notes |
-|---|---|---|---|
-| `startsAt` | timestamp or null | `16 September 2026 at 21:00:00 UTC+1` | When one occurrence starts. **The call repeats every 7 days from this instant.** |
-| `durationMinutes` | number or null | `60` | How long the join button stays open after `startsAt`. `null`, missing, `0` or anything over `1440` reads as `60`. |
-| `joinUrl` | string or null | `https://meet.google.com/abc-defg-hij` | Opened in a new tab. Must start with `https://` (or `http://`). |
-
-**No card unless `startsAt` and `joinUrl` are both set.** A time with no link is
-a button that goes nowhere, and a link with no time is a meeting nobody knows to
-attend, so either one missing reads as "no call". So do `liveCall: null`, a
-missing `liveCall`, and anything that is not a map.
-
-### What members see
-
-Times are in the member's own time zone, on the member's own calendar.
-
-| now | card | button |
-|---|---|---|
-| Not the day of an occurrence | none | — |
-| The day of it, before `startsAt` | "Live call today", "9:00 – 10:00 PM" | disabled, "Opens at 9:00 PM" |
-| `startsAt` until `startsAt + durationMinutes` | the same, plus a "Live now" tag | "Join the call", opens `joinUrl` |
-| After it ends, for the rest of that day | "Ended at 10:00 PM. Same time next week." | disabled, "Call ended" |
-
-The button opens at the exact second in `startsAt`, off the app's network-backed
-clock rather than the phone's. A call that runs past midnight keeps its card
-until it ends. The app watches the cohort document, so a change reaches members
-with the app open without a reload.
-
-### Writing it from the admin app
-
-1. **Write `startsAt` as a Firestore Timestamp.** A string or a number reads as
-   no call. This is not like the schedule's `YYYY-MM-DD` date strings: a call
-   is an instant, and every member has to be sent to the same one.
-2. **Build the Timestamp in the cohort's time zone, not the admin's browser
-   zone.** A coach who picks "Wednesday 9:00 PM" means 9 PM in
-   `cohorts/{id}.timezone` (`Africa/Lagos`). `new Date('2026-09-16T21:00')` is
-   9 PM wherever the admin's laptop happens to be. Lagos is UTC+1 all year, so
-   the offset can go straight into the string; for a zone with daylight saving,
-   use a library such as `date-fns-tz` (`fromZonedTime(input, cohort.timezone)`).
-3. **Set it once.** Any occurrence works as `startsAt`, past or future, because
-   the app counts forward from it in whole weeks. There is no need to update it
-   every week.
-4. **Validate before writing.** No security rule checks the shape — cohort
-   writes are `allow write: if isCoach()` — so a bad value is saved without
-   complaint and members simply get no card. Check that `joinUrl` is an
-   `https://` link and that `durationMinutes` is between 1 and 1440.
-5. **Write fields, don't delete the map.** Keep all three keys present, set to
-   `null` when empty, so the fields stay in the console to edit.
+Calls are scheduled in the admin app (**Live calls** in its sidebar), one
+document per call in the top-level `liveCalls` collection:
 
 ```ts
-import { Timestamp, doc, serverTimestamp, updateDoc } from 'firebase/firestore'
-
-const audit = (admin) => ({
-  updatedAt: serverTimestamp(),
-  updatedByUid: admin.uid,
-  updatedByEmail: admin.email,
-})
-
-// Set the call: Wednesdays, 9:00 PM Lagos time, for an hour.
-await updateDoc(doc(db, 'cohorts', cohortId), {
-  liveCall: {
-    startsAt: Timestamp.fromDate(new Date('2026-09-16T21:00:00+01:00')),
-    durationMinutes: 60,
-    joinUrl: 'https://meet.google.com/abc-defg-hij',
-  },
-  ...audit(admin),
-})
-
-// Turn it off, keeping the day and time for when it comes back.
-await updateDoc(doc(db, 'cohorts', cohortId), {
-  'liveCall.joinUrl': null,
-  ...audit(admin),
-})
+{
+  title: string            // "Weekly live call"
+  cohortId: string         // the one cohort it is for
+  cohortName: string
+  startsAt: Timestamp      // the instant it starts, the same for every member
+  durationMinutes: number  // 5–480; how long the join button stays open
+  joinUrl: string          // https — Meet, Zoom, anything; opened in a new tab
+  updatedAt, updatedByUid, updatedByEmail
+}
 ```
 
-### Changing the schedule
+Each call is a one-off. Nothing repeats: a weekly call is one document per
+week. The app reads its member's cohort with
+`where('cohortId', '==', member.cohortId)` — one equality filter, so no
+composite index — alongside the cohort document, and Home shows the call on
+the member's current calendar day, if there is one (`todaysLiveCall` in
+`lib/domain/liveCall.ts`): upcoming with a disabled button, live with a join
+button, then ended for the rest of the day. A document missing `startsAt` or an
+http(s) `joinUrl` is no call (`liveCallFrom`).
 
-| to | do |
-|---|---|
-| Move the call to another day or time | Set `startsAt` to the new occurrence. The weeks after follow it. |
-| Skip one week | Set `startsAt` to the occurrence *after* the skipped one. Nothing before `startsAt` is a call. |
-| Stop the calls | Set `joinUrl` (or `startsAt`) to `null`. |
-| Change the link | Set `joinUrl`. It applies to today's call too, even mid-call. |
-
-Things that will surprise somebody:
-
-- **It never stops on its own.** The call keeps repeating after the cohort's
-  `endDate` until the admin clears it.
-- **The calendar day is the member's.** A 9 PM Wednesday Lagos call is 4 PM
-  Wednesday in New York and 6 AM *Thursday* in Sydney, and each of those
-  members sees the card on their own day.
-- **It repeats every 7 × 24 hours**, not at the same clock time. In a zone with
-  daylight saving the call would shift an hour for part of the year. Lagos has
-  none, so this only matters if a cohort is ever run from a zone that does.
-
-### Older cohort documents
-
-A cohort written before this shape has `liveCall: null`, no `liveCall` key, the
-old `{ when, joinUrl }` map, or a bare timestamp typed in as `liveCall` itself.
-All of them read as no call. Fix one by writing the whole map as above; the
-`scripts/seed-program.ts` seed now writes
-`{ startsAt: null, durationMinutes: 60, joinUrl: null }` on a new cohort.
+Rules: operators write, with the shape checked; a member reads only calls whose
+`cohortId` is their own cohort. Nothing else is involved — no scheduled
+function, no copy on the cohort document. The old `cohorts/{id}.liveCall` field
+is no longer read.
 
 ## The leaderboard switch
 
