@@ -242,24 +242,17 @@ export interface CoachRef {
 }
 
 /**
- * The weekly live call, as the admin app writes it on the cohort document.
+ * One scheduled call: a `liveCalls/{callId}` document, written by the admin app.
  *
- * One call for the whole cohort: there are no slots to assign, no attendance
- * to record and nothing to mark as done, so every member sees the same card.
- *
- * `startsAt` is one occurrence and the call repeats every seven days from it,
- * so it is set once rather than every week. Moving the call is moving that
- * instant, and the weeks after follow it. Skipping a week is moving it a week
- * later, because nothing before `startsAt` is a call.
- *
- * Every field is nullable because the map exists before anybody has filled it
- * in: a new cohort carries it empty, so the admin app edits fields that are
- * already there. A map missing `startsAt` or `joinUrl` is no call at all — a
- * time with no link is a button that goes nowhere, and a link with no time is
- * a meeting nobody knows to attend. `Cohort.liveCall` is that reading of it.
+ * Each is a one-off on a date. Nothing repeats: a weekly call is a call per
+ * week. Members read the calls for their own cohort, and Home shows the one on
+ * today's date, if any. A document missing `startsAt` or an http(s) `joinUrl`
+ * is no call at all — see `liveCallFrom`.
  */
 export interface LiveCallDoc {
-  /** When one occurrence starts. The same instant for every member, whatever their zone. */
+  title: string
+  cohortId: string
+  /** When the call starts. The same instant for every member, whatever their zone. */
   startsAt: Timestamp | null
   /** How long the join button stays open after `startsAt`. 60 when unset. */
   durationMinutes: number | null
@@ -294,12 +287,6 @@ export interface CohortDoc extends Audited {
   programVersion: number | null
   archivedAt: Timestamp | null
   /**
-   * The weekly call, or `null` when this cohort has none. Set by the admin app
-   * — see FIREBASE.md — and read on Home, which shows it on the day it happens
-   * and nothing on any other day.
-   */
-  liveCall: LiveCallDoc | null
-  /**
    * Whether the cohort leaderboard is visible to members yet.
    *
    * Off for the opening weeks on purpose. Ranking people before they have a
@@ -319,8 +306,12 @@ export interface CohortDoc extends Audited {
   leaderboardRevealWeek: number
 }
 
-/** The cohort as the app handles it: the live call already read as complete or absent. */
-export type Cohort = WithId<Omit<CohortDoc, 'liveCall'> & { liveCall: LiveCall | null }>
+/**
+ * The cohort as the app handles it, with its scheduled calls attached: the
+ * `liveCalls` documents for this cohort, already read as complete, incomplete
+ * ones dropped. Not a field on the cohort document.
+ */
+export type Cohort = WithId<CohortDoc & { liveCalls: LiveCall[] }>
 
 // =============================================================================
 // Programs — `programs/{programId}`
@@ -409,6 +400,10 @@ export interface ProgramDoc extends Audited {
   /**
    * The share of a session's *prescribed* sets that has to be logged for the
    * session to earn anything. The gate the whole reward system hangs off.
+   *
+   * Set platform-wide on `settings/platform` by the admin app, which no longer
+   * writes it on new programs; older programs still carry their own. The data
+   * source resolves the two onto this field (`resolveQualifyingPercent`).
    */
   qualifyingSetPercent: number
   rewards: RewardConfig
@@ -910,6 +905,27 @@ export interface NotificationStateDoc {
   readAt: Timestamp
 }
 
+/**
+ * `members/{uid}/pushDevices/{deviceId}` — one browser the inbox is pushed to.
+ *
+ * Written when the member turns push on and refreshed as the app opens,
+ * deleted when they turn it off or sign out. Read only by the push functions
+ * (`apps/functions/src/push.ts`, which restates the fields it reads).
+ */
+export interface PushDeviceDoc {
+  /** The FCM registration token. */
+  token: string
+  /**
+   * `auth_time` of the sign-in that registered it, as on `signIns/{uid}`. A
+   * device is pushed to only while the two match, so one that loses the account
+   * to a later sign-in goes quiet without having to be told.
+   */
+  authTime: number
+  /** For support, when a member says one phone gets them and another doesn't. */
+  platform: 'ios' | 'android' | 'desktop'
+  updatedAt: Timestamp
+}
+
 // =============================================================================
 // Chat — `cohorts/{cohortId}/threads/{threadId}/messages/{messageId}`
 //
@@ -1252,10 +1268,37 @@ export interface ChatReaction {
   mine: boolean
 }
 
+/**
+ * How far one of the member's own messages has got, as WhatsApp's ticks say it.
+ *
+ * `sending` is the clock: on screen, not on the server yet — in flight, or
+ * queued behind a connection that is not there. `sent` is the tick: the server
+ * has it, so everyone else can read it. `failed` is the red mark: it is not
+ * going to go without the member doing something, and the thread says so where
+ * the message is rather than taking it off the screen.
+ *
+ * There is no "delivered" or "read". Those are claims about somebody else's
+ * phone, and in a room of forty they would be forty claims per message; the
+ * question this answers is the sender's own — did it go?
+ */
+export type ChatDelivery = 'sending' | 'sent' | 'failed'
+
 export interface ChatMessageView extends Message {
   /** True of the viewer, so it cannot be a stored field. */
   isSelf: boolean
   reactions: ChatReaction[]
+  /**
+   * Whether this device's copy has reached the server. See `ChatDelivery`.
+   *
+   * Like `isSelf`, a fact about the reader rather than the message: the same
+   * document is `sending` on the phone that wrote it and simply there on every
+   * other. Absent means sent, which is what every implementation that has no
+   * way to hold a write back — and every view cached before this existed —
+   * already means by leaving it out. Only ever set on the member's own.
+   */
+  delivery?: ChatDelivery
+  /** Why a `failed` message did not go, in the member's words. */
+  deliveryError?: string
 }
 
 export interface BadgeView extends BadgeDef {

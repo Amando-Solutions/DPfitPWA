@@ -24,17 +24,17 @@ const steps = computed(() => (props.method === 'ios' ? IOS_STEPS : MENU_STEPS))
 </script>
 
 <template>
-  <div class="install-steps [display:flex] [flex-direction:column] [gap:16px]">
-    <ol class="install-steps__list [list-style:none] [margin:0] [padding:0] [display:flex] [flex-direction:column] [gap:12px]">
-      <li v-for="(step, i) in steps" :key="i" class="install-steps__step [display:flex] [align-items:center] [gap:12px]">
-        <span class="install-steps__icon [width:32px] [height:32px] [border-radius:var(--radius-pill)] [background:var(--primary-soft)] [color:var(--primary)] [display:grid] [place-items:center] [flex-shrink:0]">
+  <div class="install-steps flex flex-col gap-4">
+    <ol class="install-steps__list [list-style:none] m-0 p-0 flex flex-col gap-3">
+      <li v-for="(step, i) in steps" :key="i" class="install-steps__step flex items-center gap-3">
+        <span class="install-steps__icon w-8 h-8 rounded-pill [background:var(--primary-soft)] text-primary grid place-items-center shrink-0">
           <AppIcon :name="step.icon" :size="16" />
         </span>
-        <span class="install-steps__text [flex:1] [min-width:0] [font-size:13.5px] [line-height:1.45] [color:var(--ink)]">{{ step.text }}</span>
+        <span class="install-steps__text flex-1 min-w-0 text-[13.5px] leading-[1.45] text-(--ink)">{{ step.text }}</span>
       </li>
     </ol>
 
-    <p v-if="method === 'ios'" class="install-steps__note [margin:0] [padding:10px_12px] [border-radius:var(--radius-md)] [background:var(--fill-subtle)] [font-size:12px] [line-height:1.45] [color:var(--violet-45)]">
+    <p v-if="method === 'ios'" class="install-steps__note m-0 p-[10px_12px] rounded-md [background:var(--fill-subtle)] text-[12px] leading-[1.45] text-(--violet-45)">
       No Share button? You are in another app&rsquo;s built-in browser. Open DP
       Fitness in Safari first.
     </p>

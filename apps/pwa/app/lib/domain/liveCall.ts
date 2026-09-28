@@ -4,7 +4,6 @@ import type { LiveCall } from '~/data/types'
 import { dateKey } from '~/lib/time'
 
 const MINUTE_MS = 60 * 1000
-const WEEK_MS = 7 * 24 * 60 * MINUTE_MS
 
 /** How long a call runs when the admin has not said. */
 export const DEFAULT_CALL_MINUTES = 60
@@ -16,12 +15,11 @@ const isTimestamp = (value: unknown): value is Timestamp =>
   typeof (value as Timestamp | null)?.toMillis === 'function'
 
 /**
- * A stored `liveCall` map, read as a call or as no call.
+ * A `liveCalls` document, read as a call or as no call.
  *
- * Takes `unknown` because the admin app is not the only way a value gets
- * there: a timestamp typed straight into the console as `liveCall` itself, or
- * a map from before `startsAt` existed, are both documents this has already
- * met, and both have to come out as `null` rather than as a card.
+ * Takes `unknown` because a document typed straight into the console can be
+ * missing anything, and it has to come out as `null` rather than as a card
+ * with a dead button.
  *
  * `startsAt` and an `http(s)` `joinUrl` are required. `durationMinutes` is not,
  * because a call with no stated length is still a call.
@@ -64,39 +62,32 @@ export interface LiveCallToday {
 /**
  * The call to show on Home right now, or `null` when today has none.
  *
- * A call is shown on the day it happens *for the member*. `startsAt` is an
- * instant, so a 7 PM Lagos call is 7 PM for a member in Lagos and 6 PM for one
- * in London, and each sees it on their own calendar day. One that runs past
- * midnight stays until it ends, because a member still in it should not lose
- * the card at 00:00.
+ * `calls` are the cohort's dated calls from the `liveCalls` collection, each a
+ * one-off: nothing repeats. A call is shown on the day it happens *for the
+ * member*. `startsAt` is an instant, so a 7 PM Lagos call is 7 PM for a member
+ * in Lagos and 6 PM for one in London, and each sees it on their own calendar
+ * day. One that runs past midnight stays until it ends, because a member still
+ * in it should not lose the card at 00:00.
  *
- * Occurrences are `startsAt` plus whole weeks of milliseconds, not "the same
- * wall-clock time next week". The two differ by an hour across a
- * daylight-saving change. Africa/Lagos has none; a cohort run from a zone that
- * does would see its call shift an hour for part of the year.
+ * With more than one call today, a live call wins, then the next one to start,
+ * then the last one to have ended.
  */
-export const todaysLiveCall = (call: LiveCall | null, now: Date): LiveCallToday | null => {
-  if (!call) return null
-
-  const first = call.startsAt.toMillis()
-  const length = call.durationMinutes * MINUTE_MS
+export const todaysLiveCall = (calls: LiveCall[], now: Date): LiveCallToday | null => {
   const at = now.getTime()
   const today = dateKey(now)
+  let ended: LiveCallToday | null = null
 
-  // The latest occurrence that has started, then the one after it. Before
-  // `startsAt` there is only the first.
-  const latest = Math.max(0, Math.floor((at - first) / WEEK_MS))
-
-  for (const start of [first + latest * WEEK_MS, first + (latest + 1) * WEEK_MS]) {
-    const end = start + length
+  const sorted = [...calls].sort((a, b) => a.startsAt.toMillis() - b.startsAt.toMillis())
+  for (const call of sorted) {
+    const start = call.startsAt.toMillis()
+    const end = start + call.durationMinutes * MINUTE_MS
     const base = { startsAt: new Date(start), endsAt: new Date(end), joinUrl: call.joinUrl }
 
     if (start <= at && at < end) return { ...base, phase: 'live', changesAt: base.endsAt }
     if (dateKey(base.startsAt) !== today) continue
-    return at < start
-      ? { ...base, phase: 'upcoming', changesAt: base.startsAt }
-      : { ...base, phase: 'ended', changesAt: null }
+    if (at < start) return { ...base, phase: 'upcoming', changesAt: base.startsAt }
+    ended = { ...base, phase: 'ended', changesAt: null }
   }
 
-  return null
+  return ended
 }

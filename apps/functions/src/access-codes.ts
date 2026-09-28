@@ -23,29 +23,10 @@
 // write. So every field is written, including the ones whose value is `null`.
 // =============================================================================
 import { randomBytes } from 'node:crypto'
-import { getApps, initializeApp } from 'firebase-admin/app'
-import { getFirestore, Timestamp, type Firestore } from 'firebase-admin/firestore'
+import { Timestamp, type Firestore } from 'firebase-admin/firestore'
 import { logger } from 'firebase-functions'
 import { HttpsError } from 'firebase-functions/https'
-
-// --- Where ------------------------------------------------------------------
-
-/**
- * The databases a code may be minted into.
- *
- * One deployment serves both, because they share a project — and so share
- * Firebase Auth, the admin claim and the service account. Anybody allowed to
- * mint into one is already allowed to mint into the other, so letting the
- * caller name the database gives nothing away. The list exists so a typo is
- * refused rather than silently writing somewhere nobody reads.
- */
-export const DATABASES = ['(default)', 'staging'] as const
-export type DatabaseId = (typeof DATABASES)[number]
-
-const app = getApps()[0] ?? initializeApp()
-
-const database = (id: DatabaseId): Firestore =>
-  id === '(default)' ? getFirestore(app) : getFirestore(app, id)
+import { DATABASES, database, type DatabaseId } from './databases.js'
 
 // --- What -------------------------------------------------------------------
 

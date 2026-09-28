@@ -44,6 +44,12 @@ export interface FirebaseWebConfig {
    * database, which is the one mistake in this area that cannot be undone.
    */
   databaseId: string
+  /**
+   * The public key of the project's Web Push certificate, which `getToken`
+   * needs to subscribe a device. Public by design, like everything else here:
+   * the private half never leaves Firebase. Empty turns push off.
+   */
+  vapidKey: string
 }
 
 let app: FirebaseApp | null = null
@@ -80,6 +86,8 @@ const require_ = (): FirebaseApp => {
   }
   return app
 }
+
+export const firebaseApp = (): FirebaseApp => require_()
 
 export const firebaseAuth = (): Auth => getAuth(require_())
 

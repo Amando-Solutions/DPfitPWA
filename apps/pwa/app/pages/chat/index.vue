@@ -4,21 +4,20 @@ definePageMeta({ layout: false })
 
 import { useDataSourceClient } from '~/lib/datasource'
 import type {
-  ChatAttachment,
   ChatMention,
   ChatMessageView,
   ChatReaction,
-  ChatReplyRef,
   TypingPeer,
 } from '~/data/types'
+import type { OutgoingPayload } from '~/composables/useChatOutbox'
 import { toggledReactions, type MentionCandidate } from '~/lib/chat'
 import { readThreadCache, writeThreadCache } from '~/lib/chat-cache'
 import { trustedTimestamp } from '~/lib/time'
-import type { PendingAttachment } from '~/lib/attachments'
 
 const data = useDataSourceClient()
 const store = useAppStore()
 const route = useRoute()
+const outbox = useChatOutbox('cohort')
 
 /**
  * The message a notification was tapped for, from `?message=`.
@@ -53,6 +52,17 @@ const viewerUid = computed(() => store.member.value?.id ?? '')
  * later — and if the member document itself cannot be read, not at all.
  */
 const messages = ref<ChatMessageView[]>(readThreadCache('cohort', viewerUid.value))
+
+/**
+ * What the screen draws: the thread, with the member's own messages that have
+ * not reached it slotted in — photos still uploading, and sends that failed.
+ *
+ * Kept apart from `messages` rather than mixed into it, because `messages` is
+ * what goes to disk and what the live listener replaces wholesale. A copy
+ * carrying four decoded photos has no business in the first, and would be
+ * wiped by the second on the next delivery. See `useChatOutbox`.
+ */
+const thread = computed(() => outbox.merge(messages.value))
 
 /**
  * Whether the live thread has delivered yet.
@@ -92,6 +102,7 @@ onMounted(async () => {
     (next) => {
       messages.value = next
       live.value = true
+      outbox.settle(next)
       // Kept as it arrives rather than on the way out: the screen can be left
       // by a route change, a closed tab or a killed app, and only the first of
       // those would ever reach an unmount hook.
@@ -207,67 +218,24 @@ const mentionable = computed<MentionCandidate[]>(() => {
 })
 
 /**
- * Upload first, then send.
+ * Hand the message to the outbox, which draws it and sends it.
  *
- * The composer hands over decoded files, not stored ones: documents cap at
- * 1 MiB, so the bytes have to reach Cloud Storage before a message can
- * reference them. Uploading in parallel keeps a four-photo send from taking
- * four round trips.
- *
- * Anything that throws here reaches the composer, which keeps the draft and
- * shows the reason. So the messages thrown are ones a member can read.
+ * Uploads, the write, the clock, the tick and "Not sent" all live there — see
+ * `useChatOutbox` — because they have to carry on if this screen is left
+ * mid-upload, and the next time it is opened has to find them as they were.
  */
-const send = async (payload: {
-  text: string
-  attachments: PendingAttachment[]
-  replyTo: ChatReplyRef | null
-  mentions: ChatMention[]
-}) => {
-  const attachments = await Promise.all(
-    payload.attachments.map((item) =>
-      item.kind === 'image'
-        ? data
-            .uploadImage(item.image, 'chat')
-            .then(
-              (stored): ChatAttachment => ({
-                id: stored.storagePath,
-                kind: 'image',
-                name: item.name,
-                bytes: stored.bytes,
-                mimeType: item.mimeType,
-                storagePath: stored.storagePath,
-                downloadUrl: stored.downloadUrl,
-              }),
-            )
-        : data.uploadAttachment(item.file),
-    ),
+const send = (payload: OutgoingPayload) => {
+  // Checked once the attempt has settled, which on the device store is the
+  // write that could have filled it. Never reported as the message failing:
+  // a space check that goes wrong changes nothing that just happened.
+  void outbox.send(payload).then(() =>
+    data
+      .storageFull()
+      .then((full) => {
+        storageFull.value = full
+      })
+      .catch(() => {}),
   )
-
-  const sent = await data.sendMessage(
-    'cohort',
-    payload.text,
-    attachments,
-    payload.replyTo,
-    payload.mentions,
-  )
-  // Usually already here: the watcher sees this member's own write as it is
-  // made. Appending it is for the implementation that cannot — the polled one,
-  // where the next tick is seconds away and the bubble should not be.
-  if (!messages.value.some((m) => m.id === sent.id)) {
-    messages.value = [...messages.value, sent]
-  }
-  // Not awaited, and deliberately outside what the composer treats as the
-  // send. The message has landed by this line; a device-space check that
-  // failed must not be reported to the member as a message that did not go,
-  // and must not put their draft back in the box underneath it.
-  data
-    .storageFull()
-    .then((full) => {
-      storageFull.value = full
-    })
-    .catch(() => {
-      // Not knowing how full the device is changes nothing that just happened.
-    })
 }
 
 /**
@@ -353,7 +321,7 @@ const react = async (payload: { messageId: string; emoji: string }) => {
 
     <div class="chat-page__main flex-1 min-h-0 flex flex-col lg:min-w-0 lg:w-full lg:max-w-(--focus-max) lg:my-0 lg:mx-auto lg:pt-8 lg:px-10 lg:pb-0">
       <ChatView
-        :messages="messages"
+        :messages="thread"
         thread="cohort"
         :typing="typing"
         eyebrow="Private group"
@@ -367,6 +335,8 @@ const react = async (payload: { messageId: string; emoji: string }) => {
         :send="send"
         :edit="editMessage"
         @react="react"
+        @retry="outbox.retry"
+        @discard="outbox.discard"
         @typing="(on: boolean) => data.setTyping('cohort', on)"
         @seen="store.markChatMessagesSeen"
       />

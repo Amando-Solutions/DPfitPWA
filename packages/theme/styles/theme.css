@@ -148,6 +148,20 @@
   --success-softer: rgba(94, 126, 76, 0.07);
   --success-ring: rgba(94, 126, 76, 0.34);
 
+  /* --- Danger ("did not happen") -----------------------------------------
+     Something the member did has not taken effect and needs them: a chat
+     message that did not send. Not the primary, which is what the app's own
+     errors borrowed until now — a violet "!" reads as a brand accent, and the
+     one mark every messenger has taught people to act on is a red one.
+
+     `--danger` is the red as type: 6.1:1 on the page. `--danger-fill` is the
+     red as a shape with white on it, and is the same in both themes, because
+     it has to clear 3:1 against white *and* against the dark page, and a
+     lighter red that only ever sits on one of them could not. */
+  --danger: #b02418;
+  --danger-fill: #e5484d;
+  --on-danger: #ffffff;
+
   /* --- The logo -----------------------------------------------------------
      The plum the mark is drawn in, and the only colour the brand files carry
      that is not already an accent here. It is a token rather than a literal
@@ -466,6 +480,9 @@
   --success-softer: rgba(94, 126, 76, 0.1);
   --success-ring: rgba(94, 126, 76, 0.45);
 
+  /* Lifted like `--set-fail`, the other red: #b02418 is 2.1:1 on this ground. */
+  --danger: #ff8d7e;
+
   /* On a dark ground the brand's own answer is the white lockup, so the mark
      stops being plum and joins the wordmark. Following `--text` rather than a
      flat #fff keeps it the same warm off-white as the type beside it. */
@@ -619,6 +636,10 @@
   --color-success-soft: var(--success-soft);
   --color-success-softer: var(--success-softer);
   --color-success-ring: var(--success-ring);
+
+  --color-danger: var(--danger);
+  --color-danger-fill: var(--danger-fill);
+  --color-on-danger: var(--on-danger);
 
   --color-orange: var(--orange);
   --color-orange-soft: var(--orange-soft);

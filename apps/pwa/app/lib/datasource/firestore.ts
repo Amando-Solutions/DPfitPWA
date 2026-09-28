@@ -24,6 +24,7 @@ import {
   getDocs,
   increment,
   limit,
+  limitToLast,
   onSnapshot,
   orderBy,
   query,
@@ -73,9 +74,12 @@ import {
   type CheckInInput,
   type DataSource,
   type DeviceClaim,
+  type OutgoingMessage,
   type PendingFile,
   type PhotoInput,
+  type PushDeviceInput,
   type SessionInput,
+  type SupportContact,
   type Unsubscribe,
 } from './types'
 import type {
@@ -91,6 +95,7 @@ import type {
   CheckIn,
   Cohort,
   CohortDoc,
+  LiveCall,
   EarnedBadge,
   Guide,
   LeaderboardEntry,
@@ -106,6 +111,7 @@ import type {
   ProgramDoc,
   ProgramWeek,
   ProgressPhoto,
+  PushDeviceDoc,
   RewardConfig,
   SessionLog,
   SignInDoc,
@@ -292,18 +298,28 @@ const withId = <T>(snap: QueryDocumentSnapshot<DocumentData>): T =>
  * Shared by `getCohort` and `watchCohort`, so the boot read and the listener
  * cannot disagree about whether the board is on.
  */
-const cohortFrom = (snap: DocumentSnapshot<DocumentData>): Cohort | null => {
+const cohortFrom = (snap: DocumentSnapshot<DocumentData>, liveCalls: LiveCall[]): Cohort | null => {
   if (!snap.exists()) return null
   const data = snap.data() as Partial<CohortDoc>
   return {
     ...(data as CohortDoc),
     id: snap.id,
-    liveCall: liveCallFrom(data.liveCall),
+    liveCalls,
     leaderboardVisible: data.leaderboardVisible === true,
     leaderboardRevealWeek:
       typeof data.leaderboardRevealWeek === 'number' ? data.leaderboardRevealWeek : 1,
   }
 }
+
+/**
+ * The cohort's scheduled calls, complete ones only. A handful of documents per
+ * cohort, so no date filter: one equality query needs no composite index.
+ */
+const liveCallsQuery = (cohortId: string) =>
+  query(collection(firebaseDb(), 'liveCalls'), where('cohortId', '==', cohortId))
+
+const liveCallsFrom = (docs: QueryDocumentSnapshot<DocumentData>[]): LiveCall[] =>
+  docs.flatMap((snap) => liveCallFrom(snap.data()) ?? [])
 
 /**
  * A reward economy with nothing in it.
@@ -362,6 +378,25 @@ const normaliseProgram = (id: string, data: Partial<ProgramDoc>): Program => {
       : emptyRewards(),
   }
 }
+
+/** What the admin app assumes when nobody has set a threshold anywhere. */
+const DEFAULT_QUALIFYING_PERCENT = 80
+
+const validPercent = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 100 ? value : null
+
+/**
+ * The qualifying threshold a session is judged against.
+ *
+ * The admin app sets it once for the whole platform, on `settings/platform`
+ * (its Settings page), and no longer writes it on programs: a program created
+ * since has none, and `x >= undefined` would fail every session. So the
+ * platform value wins, then a program that still carries its own, then the
+ * admin app's default. A settings read that fails (rules not yet deployed,
+ * offline) falls through rather than taking the program load down with it.
+ */
+const resolveQualifyingPercent = (platform: unknown, program: unknown): number =>
+  validPercent(platform) ?? validPercent(program) ?? DEFAULT_QUALIFYING_PERCENT
 
 /**
  * A week as the schedule can use it, or `null` with the reason logged.
@@ -697,6 +732,19 @@ export class FirestoreDataSource implements DataSource {
 
   async checkAccessCode(code: string): Promise<string> {
     return (await this.readSeat(code)).code
+  }
+
+  async getSupportContact(): Promise<SupportContact | null> {
+    try {
+      const data = (await getDoc(doc(firebaseDb(), 'settings', 'public'))).data()
+      const whatsapp = typeof data?.coachWhatsapp === 'string' ? data.coachWhatsapp.trim() : ''
+      if (!whatsapp) return null
+      const name = typeof data?.coachName === 'string' ? data.coachName.trim() : ''
+      return { name: name || 'your coach', whatsapp }
+    } catch (cause) {
+      console.warn('[datasource] settings/public could not be read.', cause)
+      return null
+    }
   }
 
   /**
@@ -1208,10 +1256,18 @@ export class FirestoreDataSource implements DataSource {
   /** The cohort document, defaulted. See `cohortFrom`. */
   async getCohort(): Promise<Cohort | null> {
     const member = await this.requireMember()
-    return cohortFrom(await getDoc(doc(firebaseDb(), 'cohorts', member.cohortId)))
+    const [cohort, calls] = await Promise.all([
+      getDoc(doc(firebaseDb(), 'cohorts', member.cohortId)),
+      getDocs(liveCallsQuery(member.cohortId)),
+    ])
+    return cohortFrom(cohort, liveCallsFrom(calls.docs))
   }
 
-  /** One `onSnapshot` on the document `getCohort` reads, normalised the same way. */
+  /**
+   * Two `onSnapshot`s — the document `getCohort` reads and the cohort's
+   * `liveCalls` — merged, normalised the same way. Delivers once both have
+   * answered, then again on every change to either.
+   */
   async watchCohort(
     onCohort: (cohort: Cohort | null) => void,
     onError?: (error: unknown) => void,
@@ -1219,22 +1275,39 @@ export class FirestoreDataSource implements DataSource {
     const member = await this.requireMember()
 
     let stopped = false
+    let cohortSnap: DocumentSnapshot<DocumentData> | null = null
+    let calls: LiveCall[] | null = null
+    const deliver = () => {
+      if (!stopped && cohortSnap && calls) onCohort(cohortFrom(cohortSnap, calls))
+    }
+    const fail = (error: unknown) => {
+      if (!stopped) onError?.(error)
+    }
 
-    const stop = onSnapshot(
+    const stopCohort = onSnapshot(
       doc(firebaseDb(), 'cohorts', member.cohortId),
       (snap) => {
-        if (!stopped) onCohort(cohortFrom(snap))
+        cohortSnap = snap
+        deliver()
       },
-      (error) => {
-        if (!stopped) onError?.(error)
+      fail,
+    )
+    const stopCalls = onSnapshot(
+      liveCallsQuery(member.cohortId),
+      (snap) => {
+        calls = liveCallsFrom(snap.docs)
+        deliver()
       },
+      fail,
     )
 
     return () => {
       stopped = true
-      stop()
+      stopCohort()
+      stopCalls()
     }
   }
+
 
   async watchAnnouncements(
     onAnnouncements: (announcements: Announcement[]) => void,
@@ -1720,6 +1793,28 @@ export class FirestoreDataSource implements DataSource {
   }
 
   // =========================================================================
+  // Push devices
+  //
+  // Under the member's own document, so the rule that already says "yours and
+  // nobody else's" for everything down there covers these too.
+  // =========================================================================
+  async registerPushDevice(input: PushDeviceInput): Promise<void> {
+    const user = await this.requireUser()
+    const device: PushDeviceDoc = {
+      token: input.token,
+      authTime: await authTimeOf(user),
+      platform: input.platform,
+      updatedAt: serverTimestamp() as unknown as Timestamp,
+    }
+    await setDoc(this.pushDeviceRef(user.uid, input.id), device)
+  }
+
+  async unregisterPushDevice(id: string): Promise<void> {
+    const user = await this.requireUser()
+    await deleteDoc(this.pushDeviceRef(user.uid, id))
+  }
+
+  // =========================================================================
   // Chat
   // =========================================================================
   /**
@@ -1763,9 +1858,18 @@ export class FirestoreDataSource implements DataSource {
     )
   }
 
-  /** The thread's last 200 messages, oldest first. Shared by both readers. */
+  /**
+   * The thread's last 200 messages, oldest first. Shared by both readers.
+   *
+   * `limitToLast`, not `limit`. With the order ascending, `limit(200)` is the
+   * *first* 200 messages ever sent, so a thread froze the moment it passed two
+   * hundred: nothing said after that was inside the window, and the live
+   * listener never saw it — not somebody else's message, not your own. This
+   * takes the 200 at the far end and still hands them back oldest first,
+   * which is the order the screen draws in.
+   */
   private threadQuery(ref: CollectionReference<DocumentData>) {
-    return query(ref, orderBy('sentAt', 'asc'), limit(200))
+    return query(ref, orderBy('sentAt', 'asc'), limitToLast(200))
   }
 
   /**
@@ -1808,7 +1912,12 @@ export class FirestoreDataSource implements DataSource {
     await this.cacheMyReactions(snap.docs, member.id)
 
     return snap.docs.map((d) =>
-      this.viewOf(withId<Message>(d), member.id, this.myReactions.get(d.ref.path) ?? []),
+      this.viewOf(
+        withId<Message>(d),
+        member.id,
+        this.myReactions.get(d.ref.path) ?? [],
+        d.metadata.hasPendingWrites,
+      ),
     )
   }
 
@@ -1825,6 +1934,15 @@ export class FirestoreDataSource implements DataSource {
    * immediately, so the bubble appears at once and is simply confirmed a moment
    * later. That is why `sendMessage`'s return value need not be appended by
    * hand.
+   *
+   * "Confirmed a moment later" is the tick, and it is why this listens with
+   * `includeMetadataChanges`. When the server acknowledges a message nothing
+   * in it changes — every field was written here — so a listener that only
+   * hears about data would never hear that it landed, and the clock on it
+   * would stay up for good. `hasPendingWrites` is the SDK's own answer to "has
+   * the server got this yet", and it survives a reload: a message sent
+   * offline sits in the persistent cache's queue, comes back from it pending,
+   * and goes out when the connection does. See `ChatDelivery`.
    */
   async watchMessages(
     threadId: ThreadId,
@@ -1836,20 +1954,43 @@ export class FirestoreDataSource implements DataSource {
 
     let stopped = false
     let latest = 0
+    let delivered = false
+    let lastPending = ''
 
     const publish = (docs: QueryDocumentSnapshot<DocumentData>[]) => {
       onMessages(
         docs.map((d) =>
-          this.viewOf(withId<Message>(d), member.id, this.myReactions.get(d.ref.path) ?? []),
+          this.viewOf(
+            withId<Message>(d),
+            member.id,
+            this.myReactions.get(d.ref.path) ?? [],
+            d.metadata.hasPendingWrites,
+          ),
         ),
       )
     }
 
     const stop = onSnapshot(
       this.threadQuery(ref),
+      { includeMetadataChanges: true },
       async (snap) => {
-        const seq = (latest += 1)
         if (stopped) return
+
+        // Metadata changes include the ones nobody can see: the snapshot going
+        // from cached to confirmed, the connection coming and going. Each is a
+        // whole thread republished and written to disk for nothing, so the
+        // only metadata change let through is the one that moves a clock to a
+        // tick. Before `latest` is bumped, so a skipped snapshot does not
+        // cancel a reaction lookup that a real one is still waiting on.
+        const pending = snap.docs
+          .filter((d) => d.metadata.hasPendingWrites)
+          .map((d) => d.id)
+          .join()
+        if (delivered && !snap.docChanges().length && pending === lastPending) return
+        delivered = true
+        lastPending = pending
+
+        const seq = (latest += 1)
 
         // Draw the thread out of the snapshot first, before going anywhere for
         // the reactions.
@@ -1937,6 +2078,7 @@ export class FirestoreDataSource implements DataSource {
     attachments: ChatAttachment[] = [],
     replyTo: ChatReplyRef | null = null,
     mentions: ChatMention[] = [],
+    outgoing?: OutgoingMessage,
   ): Promise<ChatMessageView> {
     const member = await this.requireMember()
     const ref = await this.messagesRef(threadId)
@@ -1947,7 +2089,7 @@ export class FirestoreDataSource implements DataSource {
       authorAvatarUrl: member.profile.avatarUrl || '',
       isCoach: false,
       text,
-      sentAt: Timestamp.now(),
+      sentAt: outgoing?.sentAt ?? Timestamp.now(),
       editedAt: null,
       attachments,
       replyTo,
@@ -1956,7 +2098,11 @@ export class FirestoreDataSource implements DataSource {
       reactionCounts: {},
     }
 
-    const created = doc(ref)
+    // Resolves when the server has it, not when the write is queued: offline,
+    // that is whenever the connection comes back, which is what keeps the
+    // outbox's clock honest. The listener has shown the bubble since the line
+    // above it ran.
+    const created = outgoing ? doc(ref, outgoing.id) : doc(ref)
     await setDoc(created, message)
     return this.viewOf({ id: created.id, ...message }, member.id, [])
   }
@@ -2433,7 +2579,23 @@ export class FirestoreDataSource implements DataSource {
     return doc(firebaseDb(), 'signIns', uid)
   }
 
-  private viewOf(message: Message, viewerUid: string, mine: string[]): ChatMessageView {
+  private pushDeviceRef(uid: string, id: string) {
+    return doc(firebaseDb(), 'members', uid, 'pushDevices', id)
+  }
+
+  /**
+   * `pending` is the snapshot's `hasPendingWrites`: this device has written to
+   * the document and the server has not said so yet. On the member's own
+   * message that is the clock — a send, or an edit, still on its way. On
+   * anybody else's it is only ever a reaction, which is not the message being
+   * sent and is not drawn as one.
+   */
+  private viewOf(
+    message: Message,
+    viewerUid: string,
+    mine: string[],
+    pending = false,
+  ): ChatMessageView {
     const reactions: ChatReaction[] = (Object.entries(message.reactionCounts ?? {}) as [string, number][])
       .filter(([, count]) => count > 0)
       .map(([emoji, count]) => ({ emoji, count, mine: mine.includes(emoji) }))
@@ -2441,6 +2603,7 @@ export class FirestoreDataSource implements DataSource {
     // Who reacted is for the author's inbox, not the thread, and the thread is
     // kept on disk. See `lib/chat-cache.ts`.
     const { reactors: _reactors, reactedAt: _reactedAt, ...rest } = message
+    const isSelf = message.authorUid === viewerUid
 
     return {
       ...rest,
@@ -2455,8 +2618,9 @@ export class FirestoreDataSource implements DataSource {
       editedAt: message.editedAt ?? null,
       mentions: message.mentions ?? [],
       addressedUids: message.addressedUids ?? [],
-      isSelf: message.authorUid === viewerUid,
+      isSelf,
       reactions,
+      ...(isSelf && { delivery: pending ? 'sending' : 'sent' }),
     }
   }
 
@@ -2519,11 +2683,24 @@ export class FirestoreDataSource implements DataSource {
       throw new DataSourceError('This cohort has no program attached.', 'not-found')
     }
 
-    const snap = await getDoc(doc(firebaseDb(), 'programs', programId))
+    const [snap, settings] = await Promise.all([
+      getDoc(doc(firebaseDb(), 'programs', programId)),
+      getDoc(doc(firebaseDb(), 'settings', 'platform')).catch((cause) => {
+        console.warn('[datasource] settings/platform could not be read; using the program threshold.', cause)
+        return null
+      }),
+    ])
     if (!snap.exists()) {
       throw new DataSourceError('This cohort has no program attached.', 'not-found')
     }
-    this.programCache = normaliseProgram(snap.id, snap.data() as Partial<ProgramDoc>)
+    const program = normaliseProgram(snap.id, snap.data() as Partial<ProgramDoc>)
+    this.programCache = {
+      ...program,
+      qualifyingSetPercent: resolveQualifyingPercent(
+        settings?.data()?.qualifyingSetPercent,
+        program.qualifyingSetPercent,
+      ),
+    }
     return this.programCache
   }
 

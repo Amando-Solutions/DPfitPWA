@@ -184,6 +184,7 @@ All configuration is public (bundled into the client), so never put secrets in a
 | `NUXT_PUBLIC_USE_MOCK_DATA` | `true` | `true` keeps everything on-device via localStorage. `false` reads from `NUXT_PUBLIC_API_BASE`. |
 | `NUXT_PUBLIC_API_BASE` | *(empty)* | Backend origin, used only when mock data is off. |
 | `NUXT_PUBLIC_APP_ENV` | `development` | Free-form label for the running environment. |
+| `NUXT_PUBLIC_FIREBASE_VAPID_KEY` | *(empty)* | Public Web Push key. Empty hides the push switch on Profile. See [FIREBASE.md → Push notifications](../../FIREBASE.md#push-notifications). |
 
 Live mode degrades safely: with mock data off but no API base, the app falls back
 to local storage rather than going blank.

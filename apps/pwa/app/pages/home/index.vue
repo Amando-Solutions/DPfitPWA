@@ -515,17 +515,21 @@ const STAT_VALUE =
         <div :class="CARD" class="flex gap-3.25">
           <span class="coach__avatar w-11 h-11 rounded-pill bg-secondary text-on-secondary grid place-items-center font-display font-black text-[16px] shrink-0">C</span>
           <div class="coach__text flex-1 min-w-0">
-            <div class="coach__head flex items-center gap-1.75">
-              <strong class="coach__name text-[14px] font-bold text-ink">Coach</strong>
-              <span class="py-0.5 px-1.75 rounded-pill bg-primary-soft text-primary text-[11px]">Cohort chat</span>
+            <div class="flex justify-between items-center">
+              <div class="coach__head flex items-center gap-1.75">
+                <strong class="coach__name text-[14px] font-bold text-ink">Coach</strong>
+                <span class="py-0.5 px-1.75 rounded-pill bg-primary-soft text-primary text-[11px]">Cohort chat</span>
+              </div>
+              <time
+                :datetime="coachNote.sentAt.toDate().toISOString()"
+                :title="coachNote.sentAt.toDate().toLocaleString()"
+                class="coach__time mt-1 block text-[12px] text-muted tabular-nums"
+              >{{ formatTime(coachNote.sentAt) }}</time>
             </div>
-            <time
-              :datetime="coachNote.sentAt.toDate().toISOString()"
-              :title="coachNote.sentAt.toDate().toLocaleString()"
-              class="coach__time mt-1 block text-[12px] text-muted tabular-nums"
-            >Sent {{ formatTime(coachNote.sentAt) }}</time>
             <p class="coach__body mt-1.5 mx-0 mb-0 text-[13.5px] leading-[1.45] text-muted">{{ coachNote.text }}</p>
-            <NuxtLink to="/chat" class="coach__reply inline-flex items-center min-h-7 mt-1.25 text-[13px] font-bold text-primary">Reply in chat →</NuxtLink>
+            <!-- To the message itself, which the thread centres and flashes, the
+                 same way an inbox mention lands. See `focusMessage` on /chat. -->
+            <NuxtLink :to="`/chat?message=${encodeURIComponent(coachNote.id)}`" class="coach__reply inline-flex items-center min-h-7 mt-1.25 text-[13px] font-bold text-primary">Reply in chat →</NuxtLink>
           </div>
         </div>
       </section>

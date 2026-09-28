@@ -6,8 +6,10 @@ import {
   type CheckInInput,
   type DataSource,
   type DeviceClaim,
+  type OutgoingMessage,
   type PendingFile,
   type PhotoInput,
+  type PushDeviceInput,
   type SessionInput,
   type Unsubscribe,
 } from './types'
@@ -168,6 +170,10 @@ export class HttpDataSource implements DataSource {
   }
 
   async resumeSignIn(): Promise<null> {
+    return null
+  }
+
+  async getSupportContact(): Promise<null> {
     return null
   }
 
@@ -409,6 +415,20 @@ export class HttpDataSource implements DataSource {
     await this.send('/notifications/read', 'POST', { ids })
   }
 
+  // --- Push devices --------------------------------------------------------
+  // The backend stamps the sign-in itself, from the session the request
+  // carries, for the reason given on `DataSource.registerPushDevice`.
+  async registerPushDevice(input: PushDeviceInput) {
+    await this.send(`/me/push-devices/${encodeURIComponent(input.id)}`, 'PUT', {
+      token: input.token,
+      platform: input.platform,
+    })
+  }
+
+  async unregisterPushDevice(id: string) {
+    await this.send(`/me/push-devices/${encodeURIComponent(id)}`, 'DELETE')
+  }
+
   // --- Chat ----------------------------------------------------------------
   listMessages(threadId: ThreadId) {
     return this.get<ChatMessageView[]>(`/threads/${threadId}/messages`)
@@ -503,12 +523,18 @@ export class HttpDataSource implements DataSource {
     attachments: ChatAttachment[] = [],
     replyTo: ChatReplyRef | null = null,
     mentions: ChatMention[] = [],
+    outgoing?: OutgoingMessage,
   ) {
+    // `id` is an idempotency key as much as a name: a backend should answer a
+    // second POST under an id it already holds with the message it has, not a
+    // copy. See `DataSource.sendMessage`. The instant goes out in the same
+    // `$ts` shape responses come back in.
     return this.send<ChatMessageView>(`/threads/${threadId}/messages`, 'POST', {
       text,
       attachments,
       replyTo,
       mentions,
+      ...(outgoing && { id: outgoing.id, sentAt: { $ts: outgoing.sentAt.toMillis() } }),
     })
   }
 

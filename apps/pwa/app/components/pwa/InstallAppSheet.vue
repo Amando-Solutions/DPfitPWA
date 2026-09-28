@@ -7,7 +7,7 @@ const install = useInstallApp()
 
 <template>
   <BottomSheet v-model="install.guideOpen.value" title="Install DP Fitness">
-    <p class="install-guide__lead [margin:0_0_16px] [font-size:13.5px] [line-height:1.5] [color:var(--violet-45)]">
+    <p class="install-guide__lead m-[0_0_16px] text-[13.5px] leading-normal text-(--violet-45)">
       Three taps and the challenge sits on your home screen: full screen, no
       address bar, and your sessions open offline.
       <!-- Only iOS walls the installed app off from the browser's storage, and
@@ -19,7 +19,7 @@ const install = useInstallApp()
       </template>
     </p>
 
-    <InstallAppSteps :method="install.method.value" class="[margin:0_0_16px]" />
+    <InstallAppSteps :method="install.method.value" class="m-[0_0_16px]" />
 
     <AppButton variant="secondary" @click="install.guideOpen.value = false">
       Got it

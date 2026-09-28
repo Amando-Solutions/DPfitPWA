@@ -24,6 +24,7 @@ import type {
   PhotoPose,
   Program,
   ProgressPhoto,
+  PushDeviceDoc,
   SessionLog,
   SessionLogDoc,
   StoredImage,
@@ -133,6 +134,14 @@ export interface DataSource {
    * email is given, in `createAccount`, without handing the address back.
    */
   checkAccessCode(code: string): Promise<string>
+
+  /**
+   * Who to message when a code won't work: the coach's name and WhatsApp number
+   * from `settings/public`, set in the admin console. Readable before sign-in,
+   * since that is exactly when it is needed. `null` when none is set or it
+   * cannot be read; the screen then offers only what it did before.
+   */
+  getSupportContact(): Promise<SupportContact | null>
 
   /**
    * Create the account a code pays for, and sign in to it.
@@ -408,6 +417,20 @@ export interface DataSource {
    */
   markNotificationsRead(ids: string[]): Promise<void>
 
+  // --- Push devices ---------------- `members/{uid}/pushDevices/{id}` -----
+  /**
+   * Push this member's inbox to the browser holding `token`, as device `id`.
+   *
+   * A replacement, not a merge: a rotated token or a later sign-in overwrites
+   * what the device registered before rather than adding a second entry. The
+   * sign-in it is stamped with is read here, from the session, so a caller
+   * cannot register a device for a sign-in it is not.
+   */
+  registerPushDevice(input: PushDeviceInput): Promise<void>
+
+  /** Stop pushing to device `id`. Resolves when it was never registered. */
+  unregisterPushDevice(id: string): Promise<void>
+
   // =========================================================================
   // Chat — `cohorts/{cohortId}/threads/{threadId}/messages`
   // =========================================================================
@@ -487,6 +510,16 @@ export interface DataSource {
    * the sender's record of who they named, not a claim this layer re-derives:
    * scanning the text for `@` here would highlight names nobody picked and
    * would have to guess where a name with a space in it ends.
+   *
+   * `outgoing` is the id and the moment the sender settled on when they
+   * pressed send, which is before any of this runs — see `useChatOutbox`,
+   * which draws the bubble under that id first and writes it here after. Both
+   * are optional, and a caller that leaves them out gets a fresh id and "now".
+   *
+   * The id is what makes a retry safe. A write that failed on the way back —
+   * the server took it, the answer never arrived — and is then sent again
+   * lands on the same document rather than beside it, so the thread cannot
+   * end up saying the same thing twice.
    */
   sendMessage(
     threadId: ThreadId,
@@ -494,6 +527,7 @@ export interface DataSource {
     attachments?: ChatAttachment[],
     replyTo?: ChatReplyRef | null,
     mentions?: ChatMention[],
+    outgoing?: OutgoingMessage,
   ): Promise<ChatMessageView>
 
   /**
@@ -648,6 +682,14 @@ export interface PendingFile {
   dataUrl: string
 }
 
+/** Who a message is before it is written: see `DataSource.sendMessage`. */
+export interface OutgoingMessage {
+  /** An auto id in Firestore's shape. See `newMessageId`. */
+  id: string
+  /** When the member pressed send, off the trusted clock. */
+  sentAt: Timestamp
+}
+
 export type SessionInput = Omit<
   SessionLogDoc,
   | 'createdAt'
@@ -667,7 +709,20 @@ export interface PhotoInput {
   image: ProcessedImage
 }
 
+export interface PushDeviceInput {
+  /** This browser's id for itself. See `lib/push`. */
+  id: string
+  token: string
+  platform: PushDeviceDoc['platform']
+}
+
 /** Thrown for expected, user-facing failures (bad access code, etc.). */
+export interface SupportContact {
+  name: string
+  /** As the coach typed it, e.g. `+234 812 345 6789`. */
+  whatsapp: string
+}
+
 export class DataSourceError extends Error {
   constructor(
     message: string,

@@ -4,20 +4,19 @@ definePageMeta({ layout: false })
 
 import { useDataSourceClient } from '~/lib/datasource'
 import type {
-  ChatAttachment,
   ChatMention,
   ChatMessageView,
   ChatReaction,
-  ChatReplyRef,
   TypingPeer,
 } from '~/data/types'
+import type { OutgoingPayload } from '~/composables/useChatOutbox'
 import { toggledReactions } from '~/lib/chat'
 import { readThreadCache, writeThreadCache } from '~/lib/chat-cache'
 import { trustedTimestamp } from '~/lib/time'
-import type { PendingAttachment } from '~/lib/attachments'
 
 const data = useDataSourceClient()
 const store = useAppStore()
+const outbox = useChatOutbox('coach')
 /**
  * Whose reading of the thread this is, for the on-disk copy below.
  *
@@ -42,6 +41,9 @@ const viewerUid = computed(() => store.member.value?.id ?? '')
  * later — and if the member document itself cannot be read, not at all.
  */
 const messages = ref<ChatMessageView[]>(readThreadCache('coach', viewerUid.value))
+
+/** The thread plus what has not reached it yet. See the cohort thread. */
+const thread = computed(() => outbox.merge(messages.value))
 
 /**
  * Whether the live thread has delivered yet.
@@ -85,6 +87,7 @@ onMounted(async () => {
     (next) => {
       messages.value = next
       live.value = true
+      outbox.settle(next)
       // Kept as it arrives rather than on the way out: the screen can be left
       // by a route change, a closed tab or a killed app, and only the first of
       // those would ever reach an unmount hook.
@@ -127,66 +130,16 @@ onBeforeUnmount(() => {
   data.setTyping('coach', false)
 })
 
-/**
- * Upload first, then send.
- *
- * The composer hands over decoded files, not stored ones: documents cap at
- * 1 MiB, so the bytes have to reach Cloud Storage before a message can
- * reference them. Uploading in parallel keeps a four-photo send from taking
- * four round trips.
- *
- * Anything that throws here reaches the composer, which keeps the draft and
- * shows the reason. So the messages thrown are ones a member can read.
- */
-const send = async (payload: {
-  text: string
-  attachments: PendingAttachment[]
-  replyTo: ChatReplyRef | null
-  mentions: ChatMention[]
-}) => {
-  const attachments = await Promise.all(
-    payload.attachments.map((item) =>
-      item.kind === 'image'
-        ? data
-            .uploadImage(item.image, 'chat')
-            .then(
-              (stored): ChatAttachment => ({
-                id: stored.storagePath,
-                kind: 'image',
-                name: item.name,
-                bytes: stored.bytes,
-                mimeType: item.mimeType,
-                storagePath: stored.storagePath,
-                downloadUrl: stored.downloadUrl,
-              }),
-            )
-        : data.uploadAttachment(item.file),
-    ),
+/** Hand the message to the outbox. See the cohort thread. */
+const send = (payload: OutgoingPayload) => {
+  void outbox.send(payload).then(() =>
+    data
+      .storageFull()
+      .then((full) => {
+        storageFull.value = full
+      })
+      .catch(() => {}),
   )
-
-  const sent = await data.sendMessage(
-    'coach',
-    payload.text,
-    attachments,
-    payload.replyTo,
-    payload.mentions,
-  )
-  // The watcher has usually delivered this already. See the cohort thread.
-  if (!messages.value.some((m) => m.id === sent.id)) {
-    messages.value = [...messages.value, sent]
-  }
-  // Not awaited, and deliberately outside what the composer treats as the
-  // send. The message has landed by this line; a device-space check that
-  // failed must not be reported to the member as a message that did not go,
-  // and must not put their draft back in the box underneath it.
-  data
-    .storageFull()
-    .then((full) => {
-      storageFull.value = full
-    })
-    .catch(() => {
-      // Not knowing how full the device is changes nothing that just happened.
-    })
 }
 
 /**
@@ -271,7 +224,7 @@ const react = async (payload: { messageId: string; emoji: string }) => {
     <div class="dm-page__main flex-1 min-h-0 flex flex-col lg:w-full lg:max-w-(--focus-max) lg:m-[0_auto] lg:p-[32px_40px_8px]">
       <ScreenHeader :title="coachName" />
       <ChatView
-        :messages="messages"
+        :messages="thread"
         thread="coach"
         :typing="typing"
         eyebrow="Direct message"
@@ -284,6 +237,8 @@ const react = async (payload: { messageId: string; emoji: string }) => {
         :send="send"
         :edit="editMessage"
         @react="react"
+        @retry="outbox.retry"
+        @discard="outbox.discard"
         @typing="(on: boolean) => data.setTyping('coach', on)"
       />
     </div>
