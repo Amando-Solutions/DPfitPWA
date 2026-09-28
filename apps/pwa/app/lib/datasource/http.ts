@@ -173,6 +173,10 @@ export class HttpDataSource implements DataSource {
     return null
   }
 
+  async getSupportContact(): Promise<null> {
+    return null
+  }
+
   async checkAccessCode(code: string) {
     const { code: normalised } = await this.send<{ code: string }>(
       '/auth/access-code/check',

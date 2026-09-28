@@ -69,6 +69,24 @@ export default defineEventHandler(async (event) => {
   }
 
   const db = firestore()
+
+  // The admin console's "automatic issuance" switch, on `settings/platform`.
+  // Off is a refusal, not a quiet 200: the sending Zap shows a failed task that
+  // still holds the sale, and replaying it once the switch is back on issues the
+  // code as normal. A settings read that fails counts as on, because refusing
+  // every sale over a blip would be the worse mistake.
+  const settings = await db.doc('settings/platform').get().catch((cause) => {
+    console.warn('[webhook] settings/platform could not be read; issuing as normal.', cause)
+    return null
+  })
+  if (settings?.get('autoIssueCodes') === false) {
+    console.warn(`[webhook] a sale from ${sale.email} was refused: automatic issuance is paused.`)
+    throw createError({
+      statusCode: 503,
+      statusMessage: 'Automatic code issuance is paused. Replay this sale once it is back on.',
+    })
+  }
+
   const price = readPrice(config.public)
   const amount = describeAmount(sale, price.minor, price.currency)
 

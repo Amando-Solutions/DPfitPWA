@@ -2,7 +2,7 @@
 // 04 · Access Code (idle) + 05 · Access Code Error, then Create Account
 definePageMeta({ layout: 'default' })
 
-import { DataSourceError, MIN_PASSWORD_LENGTH } from '~/lib/datasource'
+import { DataSourceError, MIN_PASSWORD_LENGTH, useDataSourceClient, type SupportContact } from '~/lib/datasource'
 import { storage } from '~/lib/storage'
 import { FIRST_SETUP_STEP } from '~/middleware/auth.global'
 
@@ -130,6 +130,26 @@ const accountFieldFor = (cause: unknown): Field => {
       return 'form'
   }
 }
+
+/**
+ * The coach's WhatsApp, offered under a code that didn't work.
+ *
+ * Fetched the first time a code fails rather than on load: most people type a
+ * good code, and a read nobody needed is still a read. `null` hides the line.
+ */
+const supportContact = ref<SupportContact | null>(null)
+let supportContactAsked = false
+const codeFailed = computed(
+  () => failure.value?.on === 'code' && CODE_FAILURES.includes(failure.value.code),
+)
+watch(codeFailed, async (failed) => {
+  if (!failed || supportContactAsked) return
+  supportContactAsked = true
+  supportContact.value = await useDataSourceClient().getSupportContact()
+})
+const whatsappHref = computed(() =>
+  supportContact.value ? `https://wa.me/${supportContact.value.whatsapp.replace(/\D/g, '')}` : '',
+)
 
 /**
  * Install first, on iOS in the browser.
@@ -511,6 +531,10 @@ watch([code, email, password, confirm], () => {
             mono
             :error="errorOn('code')"
           />
+          <p v-if="askingForCode && codeFailed && supportContact" class="m-0 -mt-2 text-[13px] leading-normal text-muted">
+            Still stuck? Check it and try again, or
+            <a :href="whatsappHref" target="_blank" rel="noopener noreferrer" class="access__link font-semibold text-primary">message {{ supportContact.name }} on WhatsApp</a>.
+          </p>
 
           <!-- Three fields and nothing else. The code that got the member here
                is held in `checkedCode` and neither shown nor editable: it has
