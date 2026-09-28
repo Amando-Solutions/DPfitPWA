@@ -527,7 +527,9 @@ const STAT_VALUE =
               >{{ formatTime(coachNote.sentAt) }}</time>
             </div>
             <p class="coach__body mt-1.5 mx-0 mb-0 text-[13.5px] leading-[1.45] text-muted">{{ coachNote.text }}</p>
-            <NuxtLink to="/chat" class="coach__reply inline-flex items-center min-h-7 mt-1.25 text-[13px] font-bold text-primary">Reply in chat →</NuxtLink>
+            <!-- To the message itself, which the thread centres and flashes, the
+                 same way an inbox mention lands. See `focusMessage` on /chat. -->
+            <NuxtLink :to="`/chat?message=${encodeURIComponent(coachNote.id)}`" class="coach__reply inline-flex items-center min-h-7 mt-1.25 text-[13px] font-bold text-primary">Reply in chat →</NuxtLink>
           </div>
         </div>
       </section>
