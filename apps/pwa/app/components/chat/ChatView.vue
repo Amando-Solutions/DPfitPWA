@@ -2457,7 +2457,7 @@ const TOOL =
             And `leading-[normal]` on both, which is the one that is not
             obvious. Chromium positions a field's text by the font's own
             `normal` line height and ignores the `line-height` it is given,
-            while the copy honours the 20px `text-sm` asks for — and the
+            while the copy honours the utility's explicit line height — and the
             half-leading that adds is rounded differently on each side, so the
             copy sat a full pixel above the text it was colouring. Every line
             jumped up by that pixel the instant a name was picked, since that is
@@ -2472,11 +2472,13 @@ const TOOL =
             whitespace, as the field does, so a line break between them would
             be a space the member never typed, pushing everything after it out
             of line with the caret.
+
+            Both layers use 16px text to prevent iOS from zooming on focus.
           -->
           <div class="relative h-full min-w-0 flex-1">
             <div
               v-if="draftRuns"
-              class="pointer-events-none absolute inset-0 flex items-center overflow-hidden text-sm leading-[normal] whitespace-pre text-ink"
+              class="pointer-events-none absolute inset-0 flex items-center overflow-hidden text-base leading-[normal] whitespace-pre text-ink"
               aria-hidden="true"
             ><span
                 class="shrink-0"
@@ -2489,7 +2491,7 @@ const TOOL =
             <input
               ref="composer"
               v-model="draft"
-              class="relative h-full w-full min-w-0 border-none bg-transparent text-sm leading-[normal] outline-none"
+              class="relative h-full w-full min-w-0 border-none bg-transparent text-base leading-[normal] outline-none"
               :class="draftRuns ? 'text-transparent caret-ink' : 'text-ink'"
               :placeholder="
                 editing ? 'Edit your message…' : replyingTo ? 'Write your reply…' : placeholder

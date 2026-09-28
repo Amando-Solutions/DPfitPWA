@@ -11,3 +11,27 @@
    which since the move points at the design system rather than at this app.
    Naming the app explicitly is what keeps `apps/pwa/app/**` in the scan. */
 @source '../..';
+
+/* PWA interaction defaults, including sheets teleported into body. Keep these
+   in the base layer so controls can still narrow panning (e.g. swipe-to-reply). */
+@layer base {
+  html,
+  body,
+  body * {
+    touch-action: pan-x pan-y;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* Fields must still support caret movement and editing. The client plugin
+     suppresses the native context menu without cancelling typing or focus. */
+  input,
+  textarea,
+  [contenteditable=''],
+  [contenteditable='true'],
+  [contenteditable='plaintext-only'] {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+}
