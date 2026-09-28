@@ -529,21 +529,26 @@ const SNAPSHOT_VALUE = 'text-[17px] font-bold text-on-inverse tabular-nums'
                a Web Push key. iOS in a browser tab is the exception, because
                adding the app to the Home Screen is a way to get it. -->
           <div v-if="push.availability.value !== 'unsupported'" class="flex flex-col gap-1.5">
-            <!-- Frozen while the permission prompt is up and while the
-                 registration is written. The hint and any error stay outside,
-                 so they're still read out. -->
+            <!-- Frozen while the registration is written, and only then. While
+                 the permission prompt is up the switch shows the member's
+                 answer-in-waiting and stays live: the prompt may never be
+                 answered, and tapping off is how they walk away from it. The
+                 hint and any error stay outside, so they're still read out. -->
             <div :class="ROW" :inert="push.busy.value">
               <span :class="ROW_LABEL">Push notifications</span>
               <Switch
-                :model-value="push.enabled.value"
+                :model-value="push.enabled.value || push.asking.value"
                 aria-label="Push notifications"
                 aria-describedby="push-hint"
                 :disabled="push.busy.value || !push.canToggle.value"
                 @update:model-value="onPushToggle"
               />
             </div>
-            <p id="push-hint" class="m-0 text-[12.5px] leading-[1.45] text-soft">
-              <template v-if="push.availability.value === 'needs-install'">
+            <p id="push-hint" aria-live="polite" class="m-0 text-[12.5px] leading-[1.45] text-soft">
+              <template v-if="push.asking.value">
+                Choose Allow in the prompt to finish turning this on.
+              </template>
+              <template v-else-if="push.availability.value === 'needs-install'">
                 Add DP Fitness to your Home Screen to turn these on.
                 <button type="button" class="p-0 font-bold text-primary" @click="install.openGuide()">
                   Show me how
