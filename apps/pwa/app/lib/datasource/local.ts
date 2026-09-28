@@ -235,6 +235,10 @@ export class LocalDataSource implements DataSource {
     return null
   }
 
+  async getSupportContact(): Promise<null> {
+    return null
+  }
+
   async checkAccessCode(code: string): Promise<string> {
     const normalised = code.trim().toUpperCase()
     if (!normalised) {

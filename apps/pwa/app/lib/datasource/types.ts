@@ -135,6 +135,14 @@ export interface DataSource {
   checkAccessCode(code: string): Promise<string>
 
   /**
+   * Who to message when a code won't work: the coach's name and WhatsApp number
+   * from `settings/public`, set in the admin console. Readable before sign-in,
+   * since that is exactly when it is needed. `null` when none is set or it
+   * cannot be read; the screen then offers only what it did before.
+   */
+  getSupportContact(): Promise<SupportContact | null>
+
+  /**
    * Create the account a code pays for, and sign in to it.
    *
    * The code is checked again, and `email` has to be the address it was issued
@@ -668,6 +676,12 @@ export interface PhotoInput {
 }
 
 /** Thrown for expected, user-facing failures (bad access code, etc.). */
+export interface SupportContact {
+  name: string
+  /** As the coach typed it, e.g. `+234 812 345 6789`. */
+  whatsapp: string
+}
+
 export class DataSourceError extends Error {
   constructor(
     message: string,

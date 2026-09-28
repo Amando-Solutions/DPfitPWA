@@ -76,6 +76,7 @@ import {
   type PendingFile,
   type PhotoInput,
   type SessionInput,
+  type SupportContact,
   type Unsubscribe,
 } from './types'
 import type {
@@ -727,6 +728,19 @@ export class FirestoreDataSource implements DataSource {
 
   async checkAccessCode(code: string): Promise<string> {
     return (await this.readSeat(code)).code
+  }
+
+  async getSupportContact(): Promise<SupportContact | null> {
+    try {
+      const data = (await getDoc(doc(firebaseDb(), 'settings', 'public'))).data()
+      const whatsapp = typeof data?.coachWhatsapp === 'string' ? data.coachWhatsapp.trim() : ''
+      if (!whatsapp) return null
+      const name = typeof data?.coachName === 'string' ? data.coachName.trim() : ''
+      return { name: name || 'your coach', whatsapp }
+    } catch (cause) {
+      console.warn('[datasource] settings/public could not be read.', cause)
+      return null
+    }
   }
 
   /**
