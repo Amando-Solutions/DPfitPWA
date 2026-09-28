@@ -739,8 +739,13 @@ The member app watches three things for as long as it is open:
 A new document appears in the inbox and lights the bell within a second or
 two.
 
-- **This is not a phone push notification.** Nothing reaches a member whose app
-  is closed. They see the notification the next time they open the app.
+- **It is also a phone push, for members who turned push on.** The switch is
+  under Profile → Preferences & Notifications. For those members, all three
+  sources above reach their phone within seconds, open app or not, through
+  the `pushNotification` and `pushMessage` functions in `apps/functions`.
+  Everyone else sees the line the next time they open the app. **So a test
+  notification written to a real cohort buzzes real phones.** Test in staging,
+  which has its own pair of functions.
 - **Read state belongs to the member app.** It lives at
   `members/{uid}/notificationState/{notificationId}`. The console never reads
   or writes it.
@@ -852,9 +857,13 @@ async function publishAnnouncement(db, cohortId, admin, card) {
 - **Editing doesn't notify again.** Read state is keyed by document id, so
   changing a notification a member has already read leaves it read. To tell
   people again, create a new document.
-- **Deleting removes it from every inbox.**
+- **Deleting removes it from every inbox**, but a push that has already gone
+  out stays on the phones it reached.
 - **No scheduling.** A `publishedAt` in the future appears immediately,
-  labelled "Just now".
+  labelled "Just now", and is pushed immediately too.
+- **The push says what the inbox says.** `title` is the notification's title
+  and `body` its text, and tapping it opens the inbox. A document with an
+  empty `title` and `body` isn't pushed.
 - **The deck updates live.** A new announcement appears on the deck without a
   reload. The deck shows the 20 newest by `publishedAt`.
 
@@ -1203,7 +1212,11 @@ queries fail until their index has built.
 
 The console shouldn't promise these, because the member app doesn't do them:
 
-- **Push notifications.** Nothing reaches a member whose app is closed.
+- **Push for the private coach thread.** Only the inbox's three sources are
+  pushed (section 6). A coach's message in a member's private thread lights
+  the Chat tab's dot and nothing else.
+- **Push to every member.** Push is opt-in, per device, so a notification
+  reaches the phones of only the members who turned it on.
 - **Targeted notifications.** Every notification goes to the whole cohort.
 - **Scheduled announcements.** A future `publishedAt` shows immediately.
 - **Program snapshots per cohort.** Program edits are live for everyone on the
@@ -1272,6 +1285,8 @@ The console shouldn't promise these, because the member app doesn't do them:
       set) and `publishedAt` (a Timestamp), plus `createdAt`, `createdByUid`
       and `createdByEmail`.
 - [ ] Notification ids are auto-generated and never start with `chat-`.
+- [ ] Test notifications go to a staging cohort. Every notification document is
+      pushed to the phones of the cohort's members who have push on.
 
 **Chat**
 

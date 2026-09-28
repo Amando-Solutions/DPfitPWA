@@ -29,6 +29,7 @@ one. Read them before changing anything in `app/lib/datasource/firestore.ts`.
 | `members/{uid}/photos/{id}` | Progress photos. |
 | `members/{uid}/badges/{badgeId}` | Awards, keyed so a double-award is a no-op. |
 | `members/{uid}/notificationState/{id}` | Read markers. Present means read. |
+| `members/{uid}/pushDevices/{id}` | One browser the inbox is pushed to: its FCM token and the sign-in that registered it. See **Push notifications**. |
 | `members/{uid}/lifecycleEvents/{id}` | Append-only status history. |
 | `signIns/{uid}` | The account's latest sign-in, which is the one device it is signed in on. See **One device at a time**. |
 
@@ -412,6 +413,62 @@ The new rules do not tolerate the old app, which never claims, so every member
 still on it is refused until the service worker picks up the new build. Members
 already signed in on several devices keep the account on whichever signed in
 most recently, and the others are signed out the next time they open the app.
+
+## Push notifications
+
+The inbox's three sources — coach notifications, mentions and replies in the
+cohort chat, and reactions to a member's own messages — are also sent as phone
+pushes to members who turn push on under Profile → Preferences &
+Notifications.
+
+**How it fits together**
+
+- **Turning it on.** The switch calls `Notification.requestPermission()` inside
+  the tap (Safari shows the prompt only from inside the tap). If the member says yes, the
+  app gets an FCM token through its own service worker and writes
+  `members/{uid}/pushDevices/{id}`, stamped with the sign-in's `auth_time`.
+  Nothing new in the rules: everything under `members/{uid}` is already the
+  member's own. `app/lib/push.ts` and `usePushNotifications` hold the client
+  side.
+- **Sending.** `pushNotification` and `pushMessage` in `apps/functions/src/push.ts`
+  are Firestore triggers, with a `*Staging` pair on the staging database. They
+  build the same lines the inbox draws and send them as data-only FCM
+  messages.
+- **Showing.** `apps/pwa/public/push-sw.js` is imported into the Workbox
+  worker. It draws the notification and routes a tap to the inbox or the
+  message. On Chromium it stays quiet while the app is in front. On Safari it
+  never does, because WebKit revokes a subscription that receives pushes
+  without showing them.
+- **One device at a time.** A device is pushed to only while its `authTime`
+  matches `signIns/{uid}`, so a phone that loses the account to a later
+  sign-in goes quiet at once, and its document is deleted the next time
+  anything is sent. Signing out deletes the document and ends the browser's
+  subscription.
+- **Housekeeping.** Tokens FCM reports as gone are deleted as they fail. The
+  app rewrites its document when the token changes, and at least weekly while
+  it's being opened.
+
+**Setting it up (once per project)**
+
+1. Console → Project settings → Cloud Messaging → Web Push certificates →
+   **Generate key pair**. Put the public key in the PWA's
+   `NUXT_PUBLIC_FIREBASE_VAPID_KEY` (see `.env.example`). The switch is hidden
+   until it's set, and in mock mode.
+2. If the web API key has application or API restrictions, allow the
+   **Firebase Installations API** and the **FCM Registration API**, or turning
+   push on fails with a 403 from `fcmregistrations.googleapis.com`.
+3. Deploy the functions. The four push triggers go out with
+   `createAccessCode` in the same codebase.
+
+**Where it doesn't work**
+
+- **iPhone and iPad** only from iOS 16.4, and only once the app is added to
+  the Home Screen. In a Safari tab, the switch is replaced by a line pointing to
+  the install steps.
+- **`nuxt dev`** has no service worker, so turning push on fails there. Use
+  `nuxt build` and `nuxt preview`.
+- **Private coach threads** aren't pushed, matching the inbox, which doesn't
+  list them either.
 
 ## Where access codes come from
 

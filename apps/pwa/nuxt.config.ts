@@ -1,6 +1,21 @@
-import { existsSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { basename, dirname } from 'node:path'
+
+/**
+ * `public/push-sw.js`, addressed by its contents.
+ *
+ * The generated worker pulls it in with `importScripts`, and a device only
+ * installs a new worker when `/sw.js` itself changes byte for byte. A fixed
+ * URL would let a change to the push handler ship without `sw.js` changing, and
+ * installed apps would keep the old handler. The hash puts it in `sw.js`, so
+ * the two can only move together, and makes the URL safe to cache.
+ */
+const pushWorker = `/push-sw.js?v=${createHash('sha256')
+  .update(readFileSync(new URL('./public/push-sw.js', import.meta.url)))
+  .digest('hex')
+  .slice(0, 12)}`
 
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
@@ -188,6 +203,9 @@ export default defineNuxtConfig({
         // `FirebaseWebConfig.databaseId` for why this is configuration and not
         // something derived from `NODE_ENV`.
         databaseId: process.env.NUXT_PUBLIC_FIREBASE_DATABASE_ID || '',
+        // The public half of the project's Web Push key pair. Empty hides the
+        // push switch. See `FirebaseWebConfig.vapidKey`.
+        vapidKey: process.env.NUXT_PUBLIC_FIREBASE_VAPID_KEY || '',
       },
     },
   },
@@ -313,8 +331,12 @@ pwa: {
 
     globPatterns: ['**/*.{js,css,html,png,svg,ico,woff2}'],
 
-    // Don't precache the onboarding illustrations.
-    globIgnores: ['**/onboarding_tour/**'],
+    // Don't precache the onboarding illustrations, or the push handler, which
+    // the worker loads itself through `importScripts` below.
+    globIgnores: ['**/onboarding_tour/**', 'push-sw.js'],
+
+    // Push and notification taps. See `public/push-sw.js` and `pushWorker`.
+    importScripts: [pushWorker],
 
     runtimeCaching: [
       {

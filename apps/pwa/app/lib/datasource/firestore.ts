@@ -77,6 +77,7 @@ import {
   type OutgoingMessage,
   type PendingFile,
   type PhotoInput,
+  type PushDeviceInput,
   type SessionInput,
   type Unsubscribe,
 } from './types'
@@ -108,6 +109,7 @@ import type {
   ProgramDoc,
   ProgramWeek,
   ProgressPhoto,
+  PushDeviceDoc,
   RewardConfig,
   SessionLog,
   SignInDoc,
@@ -1722,6 +1724,28 @@ export class FirestoreDataSource implements DataSource {
   }
 
   // =========================================================================
+  // Push devices
+  //
+  // Under the member's own document, so the rule that already says "yours and
+  // nobody else's" for everything down there covers these too.
+  // =========================================================================
+  async registerPushDevice(input: PushDeviceInput): Promise<void> {
+    const user = await this.requireUser()
+    const device: PushDeviceDoc = {
+      token: input.token,
+      authTime: await authTimeOf(user),
+      platform: input.platform,
+      updatedAt: serverTimestamp() as unknown as Timestamp,
+    }
+    await setDoc(this.pushDeviceRef(user.uid, input.id), device)
+  }
+
+  async unregisterPushDevice(id: string): Promise<void> {
+    const user = await this.requireUser()
+    await deleteDoc(this.pushDeviceRef(user.uid, id))
+  }
+
+  // =========================================================================
   // Chat
   // =========================================================================
   /**
@@ -2484,6 +2508,10 @@ export class FirestoreDataSource implements DataSource {
 
   private signInRef(uid: string) {
     return doc(firebaseDb(), 'signIns', uid)
+  }
+
+  private pushDeviceRef(uid: string, id: string) {
+    return doc(firebaseDb(), 'members', uid, 'pushDevices', id)
   }
 
   /**

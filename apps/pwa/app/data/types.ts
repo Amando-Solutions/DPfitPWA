@@ -910,6 +910,27 @@ export interface NotificationStateDoc {
   readAt: Timestamp
 }
 
+/**
+ * `members/{uid}/pushDevices/{deviceId}` — one browser the inbox is pushed to.
+ *
+ * Written when the member turns push on and refreshed as the app opens,
+ * deleted when they turn it off or sign out. Read only by the push functions
+ * (`apps/functions/src/push.ts`, which restates the fields it reads).
+ */
+export interface PushDeviceDoc {
+  /** The FCM registration token. */
+  token: string
+  /**
+   * `auth_time` of the sign-in that registered it, as on `signIns/{uid}`. A
+   * device is pushed to only while the two match, so one that loses the account
+   * to a later sign-in goes quiet without having to be told.
+   */
+  authTime: number
+  /** For support, when a member says one phone gets them and another doesn't. */
+  platform: 'ios' | 'android' | 'desktop'
+  updatedAt: Timestamp
+}
+
 // =============================================================================
 // Chat — `cohorts/{cohortId}/threads/{threadId}/messages/{messageId}`
 //

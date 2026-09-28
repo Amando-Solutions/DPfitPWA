@@ -24,6 +24,7 @@ import type {
   PhotoPose,
   Program,
   ProgressPhoto,
+  PushDeviceDoc,
   SessionLog,
   SessionLogDoc,
   StoredImage,
@@ -408,6 +409,20 @@ export interface DataSource {
    */
   markNotificationsRead(ids: string[]): Promise<void>
 
+  // --- Push devices ---------------- `members/{uid}/pushDevices/{id}` -----
+  /**
+   * Push this member's inbox to the browser holding `token`, as device `id`.
+   *
+   * A replacement, not a merge: a rotated token or a later sign-in overwrites
+   * what the device registered before rather than adding a second entry. The
+   * sign-in it is stamped with is read here, from the session, so a caller
+   * cannot register a device for a sign-in it is not.
+   */
+  registerPushDevice(input: PushDeviceInput): Promise<void>
+
+  /** Stop pushing to device `id`. Resolves when it was never registered. */
+  unregisterPushDevice(id: string): Promise<void>
+
   // =========================================================================
   // Chat — `cohorts/{cohortId}/threads/{threadId}/messages`
   // =========================================================================
@@ -684,6 +699,13 @@ export type CheckInInput = Omit<CheckInDoc, 'submittedAt' | 'weekNumber' | 'rewa
 export interface PhotoInput {
   pose: PhotoPose
   image: ProcessedImage
+}
+
+export interface PushDeviceInput {
+  /** This browser's id for itself. See `lib/push`. */
+  id: string
+  token: string
+  platform: PushDeviceDoc['platform']
 }
 
 /** Thrown for expected, user-facing failures (bad access code, etc.). */

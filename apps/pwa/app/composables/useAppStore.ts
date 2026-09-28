@@ -32,6 +32,7 @@ import {
   trustedTimestamp,
 } from '~/lib/time'
 import type { ProcessedImage } from '~/lib/image'
+import { releasePushDevice } from '~/lib/push'
 import { DEVICE_PREFIX, storage } from '~/lib/storage'
 import type {
   ActiveSessionDoc,
@@ -1469,6 +1470,11 @@ const buildStore = () => {
   }
 
   const signOut = async () => {
+    // First, while the session can still delete it: the device's push
+    // registration is the member's own document, and signing out doesn't stop
+    // the phone matching the sign-in the functions check. Never throws, and
+    // gives up after a few seconds offline. See `releasePushDevice`.
+    await releasePushDevice(data)
     await data.signOut()
     await hydrate(true)
   }

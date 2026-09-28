@@ -6,11 +6,17 @@
 //                    admin console and by the landing site's payment webhook;
 //                    `callers.ts` is how it tells them apart, `access-codes.ts`
 //                    is what it writes.
+//
+// pushNotification, pushMessage (and their *Staging twins)
+//                    The member app's inbox, sent as a phone push to members
+//                    who turned it on. One pair per database, because a trigger
+//                    watches exactly one. See `push.ts`.
 // =============================================================================
 import { setGlobalOptions } from 'firebase-functions'
 import { onCall } from 'firebase-functions/https'
 import { mintAccessCode, readInput, type CreateAccessCodeResult } from './access-codes.js'
 import { identifyCaller, REGION } from './callers.js'
+import { pushCohortMessage, pushCohortNotification } from './push.js'
 
 /**
  * Beside the data. Both Firestore databases are in `africa-south1`, and a
@@ -50,3 +56,12 @@ export const createAccessCode = onCall(async (request): Promise<CreateAccessCode
   const batchId = `${caller.batchPrefix}-${new Date().toISOString().slice(0, 7)}`
   return mintAccessCode(input, caller.actor, batchId)
 })
+
+// --- Push -------------------------------------------------------------------
+// Staging gets its own pair so the whole path can be tried there first: a
+// staging member's device is registered in the staging database, and only a
+// trigger on that database will ever find it.
+export const pushNotification = pushCohortNotification('(default)')
+export const pushMessage = pushCohortMessage('(default)')
+export const pushNotificationStaging = pushCohortNotification('staging')
+export const pushMessageStaging = pushCohortMessage('staging')

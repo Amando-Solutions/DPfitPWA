@@ -9,6 +9,7 @@ import {
   type OutgoingMessage,
   type PendingFile,
   type PhotoInput,
+  type PushDeviceInput,
   type SessionInput,
   type Unsubscribe,
 } from './types'
@@ -408,6 +409,20 @@ export class HttpDataSource implements DataSource {
   async markNotificationsRead(ids: string[]) {
     if (!ids.length) return
     await this.send('/notifications/read', 'POST', { ids })
+  }
+
+  // --- Push devices --------------------------------------------------------
+  // The backend stamps the sign-in itself, from the session the request
+  // carries, for the reason given on `DataSource.registerPushDevice`.
+  async registerPushDevice(input: PushDeviceInput) {
+    await this.send(`/me/push-devices/${encodeURIComponent(input.id)}`, 'PUT', {
+      token: input.token,
+      platform: input.platform,
+    })
+  }
+
+  async unregisterPushDevice(id: string) {
+    await this.send(`/me/push-devices/${encodeURIComponent(id)}`, 'DELETE')
   }
 
   // --- Chat ----------------------------------------------------------------

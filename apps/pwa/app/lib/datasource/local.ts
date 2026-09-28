@@ -667,6 +667,13 @@ export class LocalDataSource implements DataSource {
     })
   }
 
+  // Nothing on the device can send a push, and the switch that would call
+  // these is hidden in mock mode (see `usePushNotifications`). Resolving keeps
+  // the contract without recording a device nothing will ever reach.
+  async registerPushDevice(): Promise<void> {}
+
+  async unregisterPushDevice(): Promise<void> {}
+
   // =========================================================================
   // Chat
   // =========================================================================
