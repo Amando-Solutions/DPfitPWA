@@ -266,7 +266,7 @@ const discard = async () => {
       <div class="complete__notes mt-1.5 flex flex-col gap-2.5">
         <span class="text-[13px] text-muted">Notes (optional)</span>
         <textarea
-          class="complete__area w-full p-[14px_16px] bg-raised rounded-md shadow-[inset_0_0_0_1.5px_var(--hairline)] text-[14px] text-(--ink) border-none outline-none resize-none font-body placeholder:text-placeholder"
+          class="complete__area w-full p-[14px_16px] bg-raised rounded-md shadow-[inset_0_0_0_1.5px_var(--hairline)] text-[16px] text-(--ink) border-none outline-none resize-none font-body placeholder:text-placeholder"
           rows="3"
           placeholder="How did this session feel? Leave a note for yourself…"
           :value="session.note"

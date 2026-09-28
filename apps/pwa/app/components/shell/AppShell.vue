@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref, onMounted } from 'vue'
 // The outer app surface.
 //
 // This deliberately does NOT look like a phone: no bezel, no notch, no faux
@@ -10,11 +11,21 @@
 // Clipped, because the iOS back swipe (`plugins/swipe-back.client.ts`) slides
 // the surface off to the right, and without a clip that briefly makes the page
 // wider than the screen.
+const appShellRef = ref<HTMLElement | null>(null)
+onMounted(() => {
+  const updateHeight = () => {
+    const vh = window.visualViewport?.height ?? window.innerHeight
+    appShellRef.value?.style.setProperty('height', `${vh}px`)
+  }
+  window.addEventListener('resize', updateHeight)
+  window.addEventListener('orientationchange', updateHeight)
+  updateHeight()
+})
 </script>
 
 <template>
-  <div class="app-shell [height:100dvh] [width:100%] [display:flex] [justify-content:center] [overflow:clip] [background:var(--paper)] lg:[background:var(--app-backdrop)]">
-    <div class="app-shell__surface [position:relative] [width:100%] [height:100%] [display:flex] [flex-direction:column] [overflow:hidden] [background:var(--paper)] lg:[max-width:var(--app-max-width)]">
+  <div ref="appShellRef" class="app-shell w-full flex justify-center overflow-clip [background:var(--paper)] lg:[background:var(--app-backdrop)]">
+    <div class="app-shell__surface relative w-full h-full flex flex-col overflow-hidden [background:var(--paper)] lg:max-w-(--app-max-width)">
       <slot />
     </div>
   </div>

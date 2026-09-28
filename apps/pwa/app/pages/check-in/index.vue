@@ -131,7 +131,7 @@ const submit = async () => {
 
       <div class="checkin__field flex flex-col">
         <label class="checkin__label text-[13px] text-soft pb-2" for="pain">Pain or discomfort</label>
-        <textarea id="pain" v-model="pain" class="checkin__area w-full py-3.5 px-3.75 bg-surface border border-hairline rounded-(--space-16) font-body text-[13.5px] leading-[1.45] text-ink outline-none resize-none placeholder:text-placeholder focus:border-primary" placeholder="none" rows="2" />
+        <textarea id="pain" v-model="pain" class="checkin__area w-full py-3.5 px-3.75 bg-surface border border-hairline rounded-(--space-16) font-body text-[16px] leading-[1.45] text-ink outline-none resize-none placeholder:text-placeholder focus:border-primary" placeholder="none" rows="2" />
       </div>
 
       <div class="checkin__field flex flex-col">

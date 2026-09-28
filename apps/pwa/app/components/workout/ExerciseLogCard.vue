@@ -213,7 +213,7 @@ const PREV = 'pl-2.5'
   are reserved for things you press.
 */
 const INPUT =
-  'h-8 w-full rounded-field border-none bg-sunken px-2 text-right text-[13.5px] font-bold text-ink tabular-nums shadow-[inset_0_0_0_1px_var(--hairline)] outline-none focus:shadow-[inset_0_0_0_1.5px_var(--primary)]'
+  'h-8 w-full rounded-field border-none bg-sunken px-2 text-right text-[16px] font-bold text-ink tabular-nums shadow-[inset_0_0_0_1px_var(--hairline)] outline-none focus:shadow-[inset_0_0_0_1.5px_var(--primary)]'
 // Chrome/Safari spinners eat the available width in a 58px cell.
 const NO_SPINNER =
   'appearance-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none'
