@@ -53,9 +53,9 @@ export interface Price {
  */
 export const readPrice = (config: { price: unknown; priceCurrency: unknown }): Price => {
   const major = Number(String(config.price).replace(/,/g, ''))
-  if (!Number.isFinite(major) || major <= 0) {
+  if (!Number.isFinite(major) || major < 0) {
     throw new Error(
-      `NUXT_PUBLIC_PRICE must be a positive number in major units (e.g. 30000), got "${config.price}".`,
+      `NUXT_PUBLIC_PRICE must be a non-negative number in major units (e.g. 30000), got "${config.price}".`,
     )
   }
   const currency = String(config.priceCurrency || '').toUpperCase()

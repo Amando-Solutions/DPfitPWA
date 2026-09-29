@@ -90,13 +90,23 @@ export default defineEventHandler(async (event) => {
   const price = readPrice(config.public)
   const amount = describeAmount(sale, price.minor, price.currency)
 
-  // Never a reason to refuse a seat, always a reason to write it down. Selar
-  // prices convert into the buyer's own currency, so a mismatch here is
-  // usually a Londoner paying in pounds rather than anything wrong — but an
-  // underpayment in the home currency means the Selar product and the price on
-  // the page have drifted apart, and that is worth finding out about.
+  // If the amount paid doesn't match the expected price, record as unmatched
+  // and require manual intervention. This prevents automatic access code issuance
+  // for incorrect payments while still recording the sale for review.
   if (amount.matches === false) {
-    console.warn(`[webhook] ${sale.email} ${amount.note} — issuing anyway, but check the price.`)
+    await db.collection('unmatchedSales').add({
+      ...sale,
+      expectedAmountMinor: price.minor,
+      expectedCurrency: price.currency,
+      amountNote: amount.note,
+      resolved: false,
+      receivedAt: new Date(),
+    })
+    console.warn(
+      `[webhook] ${sale.email} ${amount.note} — not issuing access code due to price mismatch. ` +
+        'Recorded in unmatchedSales for manual review.',
+    )
+    return { ok: true, outcome: 'price_mismatch' }
   }
 
   const reference = await findRegistrationForSale(db, sale)
