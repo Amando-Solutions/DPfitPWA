@@ -16,8 +16,8 @@ const challenge = useChallenge()
  * `pages/registration/complete.vue`.
  *
  * Nothing about the access code passes through this component. It is not
- * minted until Selar reports the sale, it is delivered by email, and the
- * browser is never told what it is.
+ * minted until Selar reports the sale, it is delivered by email when the
+ * pre-order closes, and the browser is never told what it is.
  */
 
 interface RegistrationDetails {
@@ -170,6 +170,20 @@ const done = ref(false)
  * start a second checkout.
  */
 const submitting = ref(false)
+
+/**
+ * The button's words. Seats are only sold during the pre-order, so outside it
+ * the button says which side of the window this is, rather than a bare
+ * "unavailable" that reads like a fault.
+ */
+const actionLabel = computed(() => {
+  if (submitting.value) return 'Taking you to payment…'
+  if (challenge.value?.registrationOpen && price.value) return `Continue to payment · ${price.value.label}`
+  const preorder = challenge.value?.preorder
+  if (preorder?.state === 'upcoming') return `Pre-orders open ${preorder.startsLabel}`
+  if (preorder?.state === 'closed') return 'Pre-orders are closed'
+  return 'Registration unavailable'
+})
 
 /**
  * A failure that belongs to the form rather than to any one field — the server
@@ -378,11 +392,21 @@ async function onSubmit() {
                button that springs back to life opens a second checkout. -->
           <div class="mt-7 flex flex-wrap items-center gap-3.5 lg:mt-7">
             <CtaButton type="submit" variant="ink" :disabled="submitting || done || !challenge?.registrationOpen">
-              {{ submitting ? 'Taking you to payment…' : challenge?.registrationOpen && price ? `Continue to payment · ${price.label}` : 'Registration unavailable' }}
+              {{ actionLabel }}
             </CtaButton>
             <p class="font-body text-[13.5px] text-ink-mute">
-              Secure checkout with Selar. Your access code is emailed once
-              payment clears.
+              <template v-if="challenge?.preorder?.state === 'closed'">
+                Pre-orders closed {{ challenge.preorder.endsLabel }}.
+              </template>
+              <template v-else-if="challenge?.preorder">
+                Secure checkout with Selar. Pre-orders close
+                {{ challenge.preorder.endsLabel }}, and your access code is
+                emailed then.
+              </template>
+              <template v-else>
+                Secure checkout with Selar. Your access code is emailed once
+                payment clears.
+              </template>
             </p>
           </div>
 

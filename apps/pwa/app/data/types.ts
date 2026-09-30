@@ -224,8 +224,30 @@ export interface RegistrationDoc {
   /** From the sale notification: 'card', 'bank_transfer', … when it says. */
   paymentChannel: string | null
   paidAt: Timestamp | null
-  /** Whether the access-code email went out. False is worth being able to find. */
-  emailed: boolean
+  /**
+   * Whether the access-code email went out. False is worth being able to find:
+   * `paymentStatus == 'paid'` and `emailed == false` is the queue of seats
+   * somebody has to send by hand. `null` while a pre-order holds the code,
+   * because a held code is not owed yet.
+   */
+  emailed: boolean | null
+  /**
+   * A pre-order sale whose code is minted and not yet sent. Set at payment,
+   * cleared by the release once the code is emailed (or once it turns out the
+   * code was revoked or redeemed in the meantime). Absent on sales made
+   * outside a pre-order.
+   */
+  codeHeld?: boolean
+  /** Whether the "slot reserved" email went, for a held sale. */
+  reservationEmailed?: boolean
+  /** When the held code was emailed. */
+  releasedAt?: Timestamp
+  /** Release attempts that reached the email. The third failure hands it to a person. */
+  releaseAttempts?: number
+  /** Held by a release run while it sends. Expires on its own if the run dies. */
+  releaseLeaseUntil?: Timestamp
+  /** Why a held code was settled without being sent. */
+  releaseNote?: string
   createdAt: Timestamp
   updatedAt: Timestamp
 }
@@ -278,7 +300,25 @@ export interface CohortDoc extends Audited {
     amountMinor: number
     currency: string
     codeTtlDays: number
+    /**
+     * The pre-order: the only window the landing site sells seats in. A sale
+     * inside it gets its code minted and held, and a "slot reserved" email;
+     * the held codes are emailed when it ends. Both ends or neither — a cohort
+     * with no window anywhere is not on sale. The end must be on or before
+     * `startDate`, and the time between the two is the login window: members
+     * can sign in, set up, chat and take their first photo, and log nothing.
+     *
+     * Either end can be moved at any time. Nothing is scheduled against them;
+     * every read takes them as they stand.
+     */
+    preorderStartsAt?: Timestamp
+    preorderEndsAt?: Timestamp
   }
+  /**
+   * When training opens. The member app logs nothing before this date, on the
+   * cohort's own calendar, whatever the program's days are dated — so moving
+   * the start means moving those dates with it.
+   */
   startDate: Timestamp
   /**
    * Stored rather than derived from `startDate + durationWeeks`, because

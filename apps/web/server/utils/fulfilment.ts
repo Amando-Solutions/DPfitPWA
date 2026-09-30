@@ -19,23 +19,36 @@
 // second reads a code already present and stops. The alternative — checking
 // `paymentStatus` — has a window between the status write and the code write
 // where a second caller mints a second seat.
+//
+// A sale made during the cohort's pre-order is fulfilled the same way, up to
+// the email: the code is minted and recorded, marked `codeHeld`, and the buyer
+// is told their slot is reserved. `release.ts` sends the code itself when the
+// pre-order closes.
 // =============================================================================
-import { codeLifetime } from './cohort'
+import { codeLifetime, cohortOffer, dayLabel, momentLabel, type CohortFallbacks } from './cohort'
 import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore'
 import { reachableOrigin } from '../emails/access-code'
 import { issueAccessCode, type Registration } from './access-code'
-import { sendAccessCodeEmail, type BrevoConfig } from './email'
+import { sendAccessCodeEmail, sendSlotReservedEmail, type BrevoConfig } from './email'
 import type { ConfirmedSale, SaleEvent } from './selar'
 
 export interface FulfilResult {
-  /** What happened, for the log and for the confirmation screen. */
-  outcome: 'issued' | 'already-issued' | 'unknown-reference'
+  /**
+   * What happened, for the log and for the confirmation screen. `reserved` is
+   * a pre-order sale: the code exists and is held until the pre-order closes,
+   * and `emailed` says whether the reservation email went.
+   */
+  outcome: 'issued' | 'reserved' | 'already-issued' | 'unknown-reference'
   emailed: boolean
 }
+
+const DAY_MS = 86_400_000
 
 export interface FulfilOptions {
   /** Legacy registrations without a saved lifetime use Firestore, then this env value. */
   codeTtlDaysFallback?: unknown
+  /** The pre-order window for a cohort that has none of its own in Firestore. */
+  preorderFallback?: Pick<CohortFallbacks, 'preorderStartsAt' | 'preorderEndsAt'>
   brevo: BrevoConfig
   /**
    * The fallback member-app origin: this deployment's own `appUrl`.
@@ -229,23 +242,34 @@ export const fulfilRegistration = async (
   if (!claim.cohortId || claim.cohortId.includes('/')) {
     throw new Error('Registration has no valid cohort ID; manual review is required.')
   }
-  let ttlDays = claim.codeTtlDays
-  if (ttlDays === undefined) {
-    const cohort = await db.doc(`cohorts/${claim.cohortId}`).get()
-    ttlDays = codeLifetime(cohort.get('registration.codeTtlDays'), options.codeTtlDaysFallback)
-  }
+  // Read as it stands now, not as it was at registration: the admin can move
+  // the pre-order, and whether this sale is held depends on where it ends today.
+  const offer = await cohortOffer(db, claim.cohortId, options.preorderFallback)
+  const ttlDays = claim.codeTtlDays ?? codeLifetime(offer.codeTtlDays, options.codeTtlDaysFallback)
   if (!Number.isInteger(ttlDays) || ttlDays < 1 || ttlDays > 365) {
     throw new Error('Registration has no valid access-code lifetime.')
   }
+
+  // Held while the pre-order is open. A sale paid inside the window whose
+  // notification lands after it closed is past holding, and gets its code now.
+  const now = Date.now()
+  const holdUntil = offer.preorder && now < offer.preorder.endsAt.getTime() ? offer.preorder.endsAt : null
 
   // --- Minting -------------------------------------------------------------
   // Outside the transaction because it is a call to `createAccessCode`,
   // and a network round trip does not belong inside a lock. The write below is
   // what closes the door: `code` is set with a precondition that it is still
   // unset, so two callers racing here cannot both record a seat.
+  //
+  // A held code's lifetime is meant to count from its release, so it is minted
+  // to last until the pre-order ends and `ttlDays` after that. That is a best
+  // guess, since the end can move; the release asks for the code again, and
+  // the function extends it to `ttlDays` from then.
   const { code, cohortId } = await issueAccessCode(claim.registration, {
     cohortId: claim.cohortId,
-    ttlDays,
+    ttlDays: holdUntil
+      ? Math.min(365, ttlDays + Math.ceil((holdUntil.getTime() - now) / DAY_MS))
+      : ttlDays,
   })
 
   const won = await db.runTransaction(async (tx) => {
@@ -267,6 +291,11 @@ export const fulfilRegistration = async (
       // understands, so it is the first thing any support conversation needs.
       saleReference: sale.saleReference,
       paidAt: parsePaidAt(sale.paidAt),
+      // What `release.ts` looks for. Cleared once the code has been sent.
+      codeHeld: holdUntil !== null,
+      // Null, not false, while held: `emailed == false` is the queue of seats
+      // somebody has to send by hand, and a held code is not owed yet.
+      ...(holdUntil ? { emailed: null } : {}),
       updatedAt: FieldValue.serverTimestamp(),
     })
     return true
@@ -295,6 +324,25 @@ export const fulfilRegistration = async (
   // `http://localhost:3000`, and sending a real buyer to their own machine is
   // worse than sending them to the wrong environment.
   const appUrl = reachableOrigin(claim.appUrl) ? claim.appUrl : options.appUrl
+
+  if (holdUntil) {
+    const reservationEmailed = await sendSlotReservedEmail(options.brevo, {
+      to: claim.registration.email,
+      fullName: claim.registration.fullName,
+      appUrl,
+      codesOn: momentLabel(holdUntil, offer.timezone),
+      startsOn: dayLabel(offer.startDate, offer.timezone),
+    })
+    // Not `emailed`: that is about the code, which has not been sent.
+    await ref.update({ reservationEmailed, updatedAt: FieldValue.serverTimestamp() })
+    if (!reservationEmailed) {
+      console.error(
+        `[fulfil] ${sale.reference} is PAID and reserved, but the reservation email did not ` +
+          'send. The code is held and still goes out when the pre-order closes.',
+      )
+    }
+    return { outcome: 'reserved', emailed: reservationEmailed }
+  }
 
   const emailed = await sendAccessCodeEmail(options.brevo, {
     to: claim.registration.email,

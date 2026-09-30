@@ -89,87 +89,103 @@ const submit = async () => {
       class="checkin__header"
     />
 
-    <span class="checkin__stamp inline-block my-3.5 mx-0 py-2 px-3.25 border border-dashed border-hairline-strong rounded-pill bg-surface text-[12px] text-soft">
-      Stamped automatically · week {{ store.clock.value.week }}
-    </span>
-
-    <!-- `inert` while saving, so the whole card stops taking input rather than
-         only the button dimming. It also closes the one way the picker sheet
-         could be opened mid-write: the sheet is teleported out of this form, so
-         freezing its trigger is what keeps it shut. -->
-    <form
-      class="checkin__card flex flex-col gap-3 p-4.5 bg-raised border border-hairline rounded-card filter-(--drop-md) transition-opacity duration-150 lg:p-6 lg:gap-4"
-      :class="saving && 'opacity-60'"
-      :inert="saving"
-      :aria-busy="saving || undefined"
-      @submit.prevent="submit"
+    <!-- Before the cohort starts there is no week to report on. Said in the
+         same banner Train uses, so the missing form reads as a rule rather
+         than as a screen that failed to load. -->
+    <div
+      v-if="store.beforeStart.value"
+      class="checkin__waiting flex items-center gap-3 mt-5 py-3.5 px-4.5 rounded-card bg-primary-softer border border-primary-ring"
     >
-      <div class="checkin__row grid grid-cols-[1fr_1fr] gap-3">
-        <NumberStepper v-model="workoutsDone" label="Workouts done" :max="14" />
-        <NumberStepper v-model="nutritionPct" label="Nutrition (%)" :max="100" :step="5" />
-      </div>
+      <span class="w-8.5 h-8.5 rounded-pill bg-primary-fill text-on-primary grid place-items-center shrink-0"><AppIcon name="lock" :size="16" /></span>
+      <span class="flex flex-col gap-0.5 min-w-0">
+        <strong class="font-display font-black text-[14.5px] text-ink">Check-ins open with training</strong>
+        <small class="text-[12.5px] text-muted">Your first one is due in week 1, from {{ store.trainingOpensLabel.value }}.</small>
+      </span>
+    </div>
 
-      <ScaleField
-        v-model="energy"
-        label="Energy this week"
-        low-label="Running on empty"
-        high-label="Full tank"
-      />
+    <template v-else>
+      <span class="checkin__stamp inline-block my-3.5 mx-0 py-2 px-3.25 border border-dashed border-hairline-strong rounded-pill bg-surface text-[12px] text-soft">
+        Stamped automatically · week {{ store.clock.value.week }}
+      </span>
 
-      <div class="checkin__field flex flex-col">
-        <span class="checkin__label text-[13px] text-soft pb-2">How did training feel?</span>
-        <button
-          type="button"
-          class="checkin__select w-full h-12.5 py-0 px-3.75 flex items-center justify-between gap-2.5 bg-surface border border-hairline rounded-(--space-16) font-body text-[15px] text-ink text-left [&.checkin__select--empty]:text-placeholder"
-          :class="{ 'checkin__select--empty': !trainingFeel }"
-          @click="showFeel = true"
-        >
-          <span>{{ feelLabel }}</span>
-          <AppIcon name="chevronDown" :size="18" />
-        </button>
-      </div>
+      <!-- `inert` while saving, so the whole card stops taking input rather than
+           only the button dimming. It also closes the one way the picker sheet
+           could be opened mid-write: the sheet is teleported out of this form, so
+           freezing its trigger is what keeps it shut. -->
+      <form
+        class="checkin__card flex flex-col gap-3 p-4.5 bg-raised border border-hairline rounded-card filter-(--drop-md) transition-opacity duration-150 lg:p-6 lg:gap-4"
+        :class="saving && 'opacity-60'"
+        :inert="saving"
+        :aria-busy="saving || undefined"
+        @submit.prevent="submit"
+      >
+        <div class="checkin__row grid grid-cols-[1fr_1fr] gap-3">
+          <NumberStepper v-model="workoutsDone" label="Workouts done" :max="14" />
+          <NumberStepper v-model="nutritionPct" label="Nutrition (%)" :max="100" :step="5" />
+        </div>
 
-      <div class="checkin__field flex flex-col">
-        <label class="checkin__label text-[13px] text-soft pb-2" for="pain">Pain or discomfort</label>
-        <textarea id="pain" v-model="pain" class="checkin__area w-full py-3.5 px-3.75 bg-surface border border-hairline rounded-(--space-16) font-body text-[16px] leading-[1.45] text-ink outline-none resize-none placeholder:text-placeholder focus:border-primary" placeholder="none" rows="2" />
-      </div>
-
-      <div class="checkin__field flex flex-col">
-        <label class="checkin__label text-[13px] text-soft pb-2" for="note">Anything else for Coach (optional)</label>
-        <textarea
-          id="note"
-          v-model="note"
-          class="checkin__area w-full py-3.5 px-3.75 bg-surface border border-hairline rounded-(--space-16) font-body text-[13.5px] leading-[1.45] text-ink outline-none resize-none placeholder:text-placeholder focus:border-primary"
-          placeholder="Say something"
-          rows="2"
+        <ScaleField
+          v-model="energy"
+          label="Energy this week"
+          low-label="Running on empty"
+          high-label="Full tank"
         />
-      </div>
 
-      <!-- `type="submit"`, and no `@click`: this is inside a form whose
-           `@submit.prevent` already calls `submit`, and a button carrying both
-           ran it twice on every click. -->
-      <AppButton type="submit" :disabled="!canSubmit || saving">
-        {{ saving ? 'Submitting…' : 'Submit check-in' }}
-      </AppButton>
-      <p class="checkin__hint m-0 text-center text-[12px] text-muted">
-        {{
-          canSubmit
-            ? 'You can’t change a check-in once it’s sent.'
-            : 'Rate your energy and how training felt to submit.'
-        }}
+        <div class="checkin__field flex flex-col">
+          <span class="checkin__label text-[13px] text-soft pb-2">How did training feel?</span>
+          <button
+            type="button"
+            class="checkin__select w-full h-12.5 py-0 px-3.75 flex items-center justify-between gap-2.5 bg-surface border border-hairline rounded-(--space-16) font-body text-[15px] text-ink text-left [&.checkin__select--empty]:text-placeholder"
+            :class="{ 'checkin__select--empty': !trainingFeel }"
+            @click="showFeel = true"
+          >
+            <span>{{ feelLabel }}</span>
+            <AppIcon name="chevronDown" :size="18" />
+          </button>
+        </div>
+
+        <div class="checkin__field flex flex-col">
+          <label class="checkin__label text-[13px] text-soft pb-2" for="pain">Pain or discomfort</label>
+          <textarea id="pain" v-model="pain" class="checkin__area w-full py-3.5 px-3.75 bg-surface border border-hairline rounded-(--space-16) font-body text-[16px] leading-[1.45] text-ink outline-none resize-none placeholder:text-placeholder focus:border-primary" placeholder="none" rows="2" />
+        </div>
+
+        <div class="checkin__field flex flex-col">
+          <label class="checkin__label text-[13px] text-soft pb-2" for="note">Anything else for Coach (optional)</label>
+          <textarea
+            id="note"
+            v-model="note"
+            class="checkin__area w-full py-3.5 px-3.75 bg-surface border border-hairline rounded-(--space-16) font-body text-[13.5px] leading-[1.45] text-ink outline-none resize-none placeholder:text-placeholder focus:border-primary"
+            placeholder="Say something"
+            rows="2"
+          />
+        </div>
+
+        <!-- `type="submit"`, and no `@click`: this is inside a form whose
+             `@submit.prevent` already calls `submit`, and a button carrying both
+             ran it twice on every click. -->
+        <AppButton type="submit" :disabled="!canSubmit || saving">
+          {{ saving ? 'Submitting…' : 'Submit check-in' }}
+        </AppButton>
+        <p class="checkin__hint m-0 text-center text-[12px] text-muted">
+          {{
+            canSubmit
+              ? 'You can’t change a check-in once it’s sent.'
+              : 'Rate your energy and how training felt to submit.'
+          }}
+        </p>
+      </form>
+
+      <!-- Outside the card on purpose: `inert` takes the form out of the
+           accessibility tree, so a message printed inside it would not be
+           announced on the one occasion it matters. -->
+      <p
+        v-if="error"
+        role="alert"
+        class="checkin__error mt-3 mb-0 mx-0 text-center text-[13px] font-bold text-primary"
+      >
+        {{ error }}
       </p>
-    </form>
-
-    <!-- Outside the card on purpose: `inert` takes the form out of the
-         accessibility tree, so a message printed inside it would not be
-         announced on the one occasion it matters. -->
-    <p
-      v-if="error"
-      role="alert"
-      class="checkin__error mt-3 mb-0 mx-0 text-center text-[13px] font-bold text-primary"
-    >
-      {{ error }}
-    </p>
+    </template>
 
     <BottomSheet v-model="showFeel" title="How did training feel?">
       <div class="checkin__options flex flex-col gap-2.5">

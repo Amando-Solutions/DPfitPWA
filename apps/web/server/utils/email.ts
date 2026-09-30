@@ -1,5 +1,6 @@
 // =============================================================================
-// Sending the access code, through Brevo's transactional API.
+// Sending the access code, and the pre-order reservation before it, through
+// Brevo's transactional API.
 //
 // SCOPE, because this repository has a standing decision that looks like it
 // contradicts this file. The magic-link sign-in email stays on Firebase's own
@@ -14,6 +15,7 @@
 // =============================================================================
 
 import * as template from '../emails/access-code'
+import * as reserved from '../emails/slot-reserved'
 
 /** What the email has to say. Everything else about it is configuration. */
 export interface AccessCodeEmail {
@@ -36,6 +38,18 @@ export interface BrevoConfig {
    * which is the better-looking of the two and the default.
    */
   templateId: string
+}
+
+/** This deployment's Brevo settings, for every route that sends. */
+export const brevoConfig = (): BrevoConfig => {
+  const config = useRuntimeConfig()
+  return {
+    apiKey: config.brevoApiKey,
+    senderEmail: config.brevoSenderEmail,
+    senderName: config.brevoSenderName,
+    replyTo: config.brevoReplyTo,
+    templateId: config.brevoTemplateId,
+  }
 }
 
 /** Brevo wants `{{ params.FIRST_NAME }}`; these are the names it gets. */
@@ -76,23 +90,32 @@ const address = (value: string): { email: string; name?: string } | null => {
 export const canSendEmail = (config: BrevoConfig) =>
   Boolean(config.apiKey && config.senderEmail)
 
+/** What one message carries, however it was authored. */
+interface Message {
+  to: string
+  fullName: string
+  /** Checked so an unreachable origin is named in the log, not guessed at. */
+  appUrl: string
+  subject: string
+  html: string
+  text: string
+  /** A Brevo template to send instead of `html` and `text`, with its params. */
+  template?: { id: number; params: Record<string, string> }
+}
+
 /**
- * Send it, and say whether it went.
+ * Send one message, and say whether it went.
  *
- * Never throws. The caller has already issued a code and written it to the
- * database by the time this runs, and an email provider having a bad afternoon
- * must not turn a registration that succeeded into a 500 that tells somebody
- * to try again — they would register twice and get the same code back, which
- * is fine, but they would also have been told something false.
+ * Never throws. The caller has already recorded a seat by the time this runs,
+ * and an email provider having a bad afternoon must not turn a sale that
+ * succeeded into a 500 — the seat is safe either way, and `false` is written
+ * down where somebody can find it.
  */
-export const sendAccessCodeEmail = async (
-  config: BrevoConfig,
-  email: AccessCodeEmail,
-): Promise<boolean> => {
+const deliver = async (config: BrevoConfig, message: Message): Promise<boolean> => {
   if (!canSendEmail(config)) {
     console.warn(
-      '[email] Brevo is not configured, so the access code was not emailed. The page ' +
-        'still shows it. Set NUXT_BREVO_API_KEY and NUXT_BREVO_SENDER_EMAIL.',
+      '[email] Brevo is not configured, so nothing was emailed. Set NUXT_BREVO_API_KEY ' +
+        'and NUXT_BREVO_SENDER_EMAIL.',
     )
     return false
   }
@@ -110,14 +133,14 @@ export const sendAccessCodeEmail = async (
     return false
   }
 
-  // Not fatal, and deliberately not: the code itself is the payload and it
-  // reads fine without artwork or a working button. But an origin an inbox
-  // cannot reach costs the reader both, and the cause is one unset variable on
-  // the host — which is worth naming here rather than leaving somebody to
-  // wonder why the logo is missing from an email they cannot re-send.
-  if (!template.reachableOrigin(email.appUrl)) {
+  // Not fatal, and deliberately not: the message reads fine without artwork
+  // or a working button. But an origin an inbox cannot reach costs the reader
+  // both, and the cause is one unset variable on the host — which is worth
+  // naming here rather than leaving somebody to wonder why the logo is missing
+  // from an email they cannot re-send.
+  if (!template.reachableOrigin(message.appUrl)) {
     console.warn(
-      `[email] NUXT_PUBLIC_APP_URL is "${email.appUrl}", which no mail client can ` +
+      `[email] NUXT_PUBLIC_APP_URL is "${message.appUrl}", which no mail client can ` +
         'reach: the brand lockups are being omitted and the "Open the app" button ' +
         'points nowhere. Set it to the member app\'s public origin.',
     )
@@ -128,25 +151,25 @@ export const sendAccessCodeEmail = async (
     // An explicit NUXT_BREVO_SENDER_NAME wins; otherwise a name written into
     // the address itself is used, and a bare address sends without one.
     sender: { email: sender.email, name: config.senderName || sender.name || undefined },
-    to: [{ email: email.to, name: email.fullName }],
-    params: params(email),
+    to: [{ email: message.to, name: message.fullName }],
   }
   const replyTo = address(config.replyTo)
   if (replyTo) body.replyTo = replyTo
 
-  if (config.templateId) {
-    body.templateId = Number(config.templateId)
+  if (message.template) {
+    body.templateId = message.template.id
+    body.params = message.template.params
   } else {
-    body.subject = template.subject
-    body.htmlContent = template.html({ ...email, email: email.to })
+    body.subject = message.subject
+    body.htmlContent = message.html
     // Sent alongside the HTML, not instead of it. A message with no text part
     // reads as bulk mail to a spam filter, and some people prefer text.
-    body.textContent = template.text({ ...email, email: email.to })
+    body.textContent = message.text
   }
 
   try {
-    // Ten seconds. A registration is waiting on this response, and a provider
-    // that has not answered by then is not going to answer usefully.
+    // Ten seconds. A sale notification is waiting on this response, and a
+    // provider that has not answered by then is not going to answer usefully.
     const response = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
@@ -172,3 +195,38 @@ export const sendAccessCodeEmail = async (
     return false
   }
 }
+
+/** The access code: sent at payment, or when the pre-order it was held for closes. */
+export const sendAccessCodeEmail = (config: BrevoConfig, email: AccessCodeEmail) =>
+  deliver(config, {
+    to: email.to,
+    fullName: email.fullName,
+    appUrl: email.appUrl,
+    subject: template.subject,
+    html: template.html({ ...email, email: email.to }),
+    text: template.text({ ...email, email: email.to }),
+    // The Brevo template is written for the access code, so only this email
+    // may use it; the reservation always sends the designed markup.
+    template: config.templateId ? { id: Number(config.templateId), params: params(email) } : undefined,
+  })
+
+export interface SlotReservedEmail {
+  to: string
+  fullName: string
+  appUrl: string
+  /** When the pre-order closes and the code goes out, already formatted. */
+  codesOn: string
+  /** When training opens, already formatted. */
+  startsOn: string
+}
+
+/** A pre-order payment's confirmation: the seat is held, the code comes later. */
+export const sendSlotReservedEmail = (config: BrevoConfig, email: SlotReservedEmail) =>
+  deliver(config, {
+    to: email.to,
+    fullName: email.fullName,
+    appUrl: email.appUrl,
+    subject: reserved.subject,
+    html: reserved.html({ ...email, email: email.to }),
+    text: reserved.text({ ...email, email: email.to }),
+  })

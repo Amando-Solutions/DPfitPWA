@@ -24,6 +24,7 @@ import {
 
 import {
   dateKey,
+  dateKeyIn,
   relativeLabel,
   restoreClock,
   startOfNextDay,
@@ -752,6 +753,40 @@ const buildStore = () => {
   /** The week today falls in, with its days. `null` until a schedule has loaded. */
   const currentWeek = computed(() => weekAt(state.value.weeks, clock.value.today))
 
+  /**
+   * The day training opens: `cohorts/{id}.startDate`, on the cohort's calendar.
+   *
+   * A pre-order's codes go out some days before this, and in between members
+   * sign in, set up their profile, chat and take their first photo, but log
+   * nothing. The admin moves the start by editing that one field, and the
+   * cohort is watched, so an open app follows it without a reload.
+   *
+   * `null` with no cohort to read, which leaves each day's own date as the only
+   * gate, as it was before this existed.
+   */
+  const trainingOpensOn = computed<string | null>(() => {
+    const cohort = state.value.cohort
+    const start = cohort?.startDate
+    if (!cohort || typeof start?.toDate !== 'function') return null
+    return dateKeyIn(start.toDate(), cohort.timezone)
+  })
+
+  /** Signed in before the cohort has started: nothing logs yet. */
+  const beforeStart = computed(
+    () => trainingOpensOn.value !== null && clock.value.today < trainingOpensOn.value,
+  )
+
+  /** "Monday 12 Oct", for the screens that say when training opens. */
+  const trainingOpensLabel = computed(() => {
+    if (!trainingOpensOn.value) return ''
+    const [y, m, d] = trainingOpensOn.value.split('-').map(Number)
+    return new Date(y ?? 0, (m ?? 1) - 1, d ?? 1).toLocaleDateString(undefined, {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'short',
+    })
+  })
+
   const targets = computed(() =>
     nutritionTargetsFor(profile.value ?? ({} as MemberProfile)),
   )
@@ -822,9 +857,11 @@ const buildStore = () => {
         .map((s) => s.dayId),
     )
     const today = clock.value.today
+    // Nothing opens before the cohort does, whatever the days are dated.
+    const nightsToStart = beforeStart.value ? daysBetween(today, trainingOpensOn.value!) : 0
 
     return planDaysOf(week).map((day) => {
-      const opensInNights = daysBetween(today, day.date)
+      const opensInNights = Math.max(daysBetween(today, day.date), nightsToStart)
 
       if (loggedIds.has(day.id)) {
         return { ...day, status: 'completed' as const, canStart: false, opensInNights }
@@ -1218,7 +1255,8 @@ const buildStore = () => {
     () => state.value.checkIns.find((c) => c.weekNumber === clock.value.week) ?? null,
   )
 
-  const checkInDue = computed(() => currentCheckIn.value === null)
+  /** Not before the cohort starts: check-ins open with training. */
+  const checkInDue = computed(() => currentCheckIn.value === null && !beforeStart.value)
 
   /**
    * No progress photo on file yet, so there is no "before" to measure against.
@@ -1689,6 +1727,7 @@ const buildStore = () => {
 
   // --- Actions: check-ins & photos ----------------------------------------
   const saveCheckIn = async (input: CheckInInput) => {
+    if (beforeStart.value) throw new Error(`Check-ins open with training, on ${trainingOpensLabel.value}.`)
     try {
       const record = await data.saveCheckIn(input)
       state.value.checkIns = [record, ...state.value.checkIns]
@@ -1709,7 +1748,17 @@ const buildStore = () => {
     }
   }
 
+  /**
+   * Whether a photo can be added now. Before the cohort starts, only the first:
+   * it is the "before" the block is measured from, and taking it during the
+   * wait is one thing fewer on the first training day.
+   */
+  const canAddPhoto = computed(() => !beforeStart.value || state.value.photos.length === 0)
+
   const addPhoto = async (input: { pose: PhotoPose; image: ProcessedImage }) => {
+    if (!canAddPhoto.value) {
+      throw new Error(`More progress photos open with training, on ${trainingOpensLabel.value}.`)
+    }
     // The upload and the document are one call: a photo in the bucket with no
     // document pointing at it is invisible, and a document pointing at nothing
     // renders as a broken tile.
@@ -1879,6 +1928,9 @@ const buildStore = () => {
     announcements,
     weeks: computed(() => state.value.weeks),
     currentWeek,
+    trainingOpensOn,
+    trainingOpensLabel,
+    beforeStart,
     planDays,
     rewardValues,
     badgeDefs,
@@ -1915,6 +1967,7 @@ const buildStore = () => {
     unreadNotifications,
     currentCheckIn,
     checkInDue,
+    canAddPhoto,
     firstPhotoDue,
     finalPhotoDue,
     finalPhotoBadge,

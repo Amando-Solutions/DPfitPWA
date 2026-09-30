@@ -33,9 +33,11 @@ const links = computed(() => [
     to: '/check-in',
     icon: 'calendar',
     label: 'Weekly check-in',
-    meta: store.checkInDue.value
-      ? `Week ${store.clock.value.week} is open`
-      : `Week ${store.clock.value.week} submitted`,
+    meta: store.beforeStart.value
+      ? `Opens ${store.trainingOpensLabel.value}`
+      : store.checkInDue.value
+        ? `Week ${store.clock.value.week} is open`
+        : `Week ${store.clock.value.week} submitted`,
   },
   {
     to: '/guides',

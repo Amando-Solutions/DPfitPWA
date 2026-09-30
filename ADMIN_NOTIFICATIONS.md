@@ -278,7 +278,10 @@ To resolve one:
 
 **Paid registrations whose email failed.** These are `registrations/{reference}`
 documents with `paymentStatus == 'paid'` and `emailed == false`. The code in
-`code` exists and is valid, but the email carrying it didn't send. List them
+`code` exists and is valid, but the email carrying it didn't send. A pre-order
+sale holds its code until the pre-order ends, and has `emailed: null` and
+`codeHeld: true` meanwhile, so it stays out of this list until the release has
+tried to send it three times and given up. List them
 and let the admin resend or copy the code. Client writes to `registrations` are
 refused, so setting `emailed` after a resend also goes through the Admin SDK.
 

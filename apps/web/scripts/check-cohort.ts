@@ -20,6 +20,8 @@ try {
     price: process.env.NUXT_PUBLIC_PRICE,
     currency: process.env.NUXT_PUBLIC_PRICE_CURRENCY,
     codeTtlDays: process.env.NUXT_REGISTRATION_CODE_TTL_DAYS,
+    preorderStartsAt: process.env.NUXT_REGISTRATION_PREORDER_STARTS_AT,
+    preorderEndsAt: process.env.NUXT_REGISTRATION_PREORDER_ENDS_AT,
   })
   console.log(JSON.stringify({ databaseId, challenge: active?.challenge ?? null }, null, 2))
 } finally {

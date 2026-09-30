@@ -16,9 +16,11 @@
  * Not prerendered: it exists only for the moment after a payment. See the
  * `routeRules` entry in `nuxt.config.ts`.
  */
-type Phase = 'checking' | 'done' | 'waiting' | 'unknown'
+type Phase = 'checking' | 'done' | 'reserved' | 'waiting' | 'unknown'
 const phase = ref<Phase>('checking')
 const emailed = ref(true)
+/** When a pre-order's codes go out, in the cohort's zone. */
+const codesOn = ref<string | null>(null)
 
 /**
  * How long to wait before saying so.
@@ -71,13 +73,15 @@ onMounted(async () => {
     try {
       const result = await $fetch<{
         ok: true
-        state: 'paid' | 'pending' | 'unknown'
+        state: 'paid' | 'reserved' | 'pending' | 'unknown'
         emailed: boolean
+        codesOn?: string | null
       }>('/api/payment/status')
 
-      if (result.state === 'paid') {
+      if (result.state === 'paid' || result.state === 'reserved') {
         emailed.value = result.emailed
-        phase.value = 'done'
+        codesOn.value = result.codesOn ?? null
+        phase.value = result.state === 'paid' ? 'done' : 'reserved'
         startCountdown()
         return
       }
@@ -131,6 +135,17 @@ useHead({ title: 'Registration · DP Fitness' })
           </p>
         </template>
 
+        <!-- A pre-order sale. The code exists but is held until the window
+             closes, so the inbox has a confirmation in it, not a code. -->
+        <template v-else-if="phase === 'reserved'">
+          <h1 class="title-section text-ink">Your slot is reserved.</h1>
+          <p class="mt-4 font-body text-[17px] leading-[1.7] text-soft">
+            <template v-if="emailed">We've emailed you a confirmation. </template>
+            Your access code follows by email when pre-orders close<template v-if="codesOn">
+              on {{ codesOn }}</template>.
+          </p>
+        </template>
+
         <!-- Deliberately not "payment failed". The wait running out means the
              sale notification has not reached us, which is not the same as no
              payment — and this page is read by people who have just been
@@ -160,7 +175,7 @@ useHead({ title: 'Registration · DP Fitness' })
       <div class="mt-9">
         <CtaButton href="/" variant="ink">Back to the site</CtaButton>
         <p
-          v-if="phase === 'done'"
+          v-if="phase === 'done' || phase === 'reserved'"
           class="mt-3.5 font-data text-[11px] tracking-[0.12em] text-ink-mute uppercase"
         >
           Returning in {{ secondsLeft }}s

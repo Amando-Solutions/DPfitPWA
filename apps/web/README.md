@@ -102,6 +102,17 @@ price and code lifetime; the webhook uses those saved values even after a cohort
 switch. A same-currency underpayment is recorded for manual review, without issuing
 a code. Cross-currency payments retain the existing Selar conversion handling.
 
+**Sales happen in a pre-order.** The form only sells between the cohort's
+`registration.preorderStartsAt` and `preorderEndsAt`. A sale in that window is
+fulfilled up to the email: the code is minted and saved with `codeHeld: true`,
+and the buyer gets `server/emails/slot-reserved.ts` instead of the code. When the
+window closes, `POST /api/preorder/release` (called hourly by
+`releasePreorderCodes` in `apps/functions`, bearer `NUXT_PREORDER_RELEASE_SECRET`)
+sends each held code. It reads the window fresh every run, so moving the end
+moves the release. A held code that was revoked or redeemed in the meantime is
+not sent, and one whose email fails three times joins the `emailed == false`
+queue. Closing the Selar product when the pre-order ends is done by hand.
+
 **The confirmation page waits rather than knows.** Selar redirects to a fixed
 URL with nothing appended, so the page identifies the buyer from the `dpf_ref`
 cookie and polls `/api/payment/status` for up to a minute. It never says a

@@ -1,15 +1,19 @@
 import { describe, expect, test } from 'bun:test'
 import { Timestamp, type Firestore } from 'firebase-admin/firestore'
-import { activeCohort, loadChallenge, registrationWithFallback, codeLifetime } from '../server/utils/cohort'
+import { activeCohort, loadChallenge, registrationWithFallback, codeLifetime, preorderWindow, preorderState } from '../server/utils/cohort'
 import { formatPrice, readRegistration } from '../app/data/challenge'
 import { parseSaleEvent, describeAmount } from '../server/utils/selar'
 
 const offer = { amountMinor: 3000050, currency: 'NGN', codeTtlDays: 60 }
+const at = (iso: string) => Timestamp.fromDate(new Date(iso))
+const window = { preorderStartsAt: at('2026-09-10T23:00:00Z'), preorderEndsAt: at('2026-09-24T23:00:00Z') }
+/** Inside the pre-order above. */
+const DURING = new Date('2026-09-20T12:00:00Z').getTime()
 const cohort = {
   name: 'Core Experience', status: 'active', durationWeeks: 1,
-  startDate: Timestamp.fromDate(new Date('2026-09-29T23:00:00Z')),
-  endDate: Timestamp.fromDate(new Date('2026-10-06T23:00:00Z')),
-  timezone: 'Africa/Lagos', programId: 'core', programVersion: 2, registration: offer,
+  startDate: at('2026-09-29T23:00:00Z'),
+  endDate: at('2026-10-06T23:00:00Z'),
+  timezone: 'Africa/Lagos', programId: 'core', programVersion: 2, registration: { ...offer, ...window },
 }
 
 function database(rows = [cohort], program = { name: 'Core program', version: 2, status: 'published' }) {
@@ -40,7 +44,7 @@ function database(rows = [cohort], program = { name: 'Core program', version: 2,
 describe('Firestore cohort selection and public offer', () => {
   test('selects by active status without a configured ID', async () => {
     const { db, queries } = database()
-    const result = await loadChallenge(db)
+    const result = await loadChallenge(db, {}, DURING)
     expect(queries).toContainEqual(['status', '==', 'active'])
     expect(result?.challenge).toMatchObject({ name: 'Core Experience', durationWeeks: 1, startsOn: '2026-09-30', endsOn: '2026-10-07', registrationOpen: true })
     expect(result?.challenge.weeks).toEqual([{ number: 1, title: 'Core', subtitle: 'Build strength' }])
@@ -63,7 +67,7 @@ describe('Firestore cohort selection and public offer', () => {
   })
   test('unpublished or mismatched program cannot be sold', async () => {
     for (const program of [{ name: 'Core', version: 2, status: 'draft' }, { name: 'Core', version: 3, status: 'published' }]) {
-      const result = await loadChallenge(database([cohort], program).db)
+      const result = await loadChallenge(database([cohort], program).db, {}, DURING)
       expect(result?.challenge.registrationOpen).toBe(false)
       expect(result?.challenge.program).toBeNull()
       expect(result?.challenge.guides).toEqual([])
@@ -133,6 +137,62 @@ describe('Firestore-first environment fallbacks', () => {
     const db = { collection: () => query, doc: () => { fallbackRead = true } } as unknown as Firestore
     await expect(activeCohort(db, 'legacy')).rejects.toThrow('offline')
     expect(fallbackRead).toBe(false)
+  })
+})
+
+describe('The pre-order window', () => {
+  const start = new Date('2026-09-29T23:00:00Z')
+  const env = { preorderStartsAt: '2026-09-01T00:00:00+01:00', preorderEndsAt: '2026-09-20T00:00:00+01:00' }
+
+  test('seats are sold only while the pre-order is open', async () => {
+    const states = []
+    for (const now of ['2026-09-05T00:00:00Z', '2026-09-20T12:00:00Z', '2026-09-25T00:00:00Z']) {
+      const result = await loadChallenge(database().db, {}, new Date(now).getTime())
+      states.push([result?.challenge.preorder?.state, result?.challenge.registrationOpen])
+    }
+    expect(states).toEqual([['upcoming', false], ['open', true], ['closed', false]])
+  })
+  test('the window is labelled in the cohort zone, with the zone named', async () => {
+    const result = await loadChallenge(database().db, {}, DURING)
+    expect(result?.challenge.preorder).toMatchObject({ startsAt: '2026-09-10T23:00:00.000Z', endsAt: '2026-09-24T23:00:00.000Z' })
+    // "Sep" or "Sept", depending on the runtime's ICU.
+    expect(result?.challenge.preorder?.startsLabel).toMatch(/^11 Sept? 2026 at 00:00 GMT\+1$/)
+    expect(result?.challenge.preorder?.endsLabel).toMatch(/^25 Sept? 2026 at 00:00 GMT\+1$/)
+  })
+  test('a cohort with no window anywhere is displayed but not sold', async () => {
+    const result = await loadChallenge(database([{ ...cohort, registration: offer }]).db, {}, DURING)
+    expect(result?.challenge.name).toBe('Core Experience')
+    expect(result?.challenge.preorder).toBeNull()
+    expect(result?.challenge.registrationOpen).toBe(false)
+  })
+  test('a broken window is displayed but not sold', async () => {
+    const reversed = { ...offer, preorderStartsAt: window.preorderEndsAt, preorderEndsAt: window.preorderStartsAt }
+    const result = await loadChallenge(database([{ ...cohort, registration: reversed }]).db, {}, DURING)
+    expect(result?.challenge.preorder).toBeNull()
+    expect(result?.challenge.registrationOpen).toBe(false)
+  })
+  test('Firestore wins, and the environment fills each missing end', () => {
+    expect(preorderWindow(window, start, env)).toEqual({
+      startsAt: new Date('2026-09-10T23:00:00Z'), endsAt: new Date('2026-09-24T23:00:00Z'),
+    })
+    expect(preorderWindow({ preorderStartsAt: window.preorderStartsAt }, start, env)).toEqual({
+      startsAt: new Date('2026-09-10T23:00:00Z'), endsAt: new Date('2026-09-19T23:00:00Z'),
+    })
+    expect(preorderWindow(undefined, start, env)?.startsAt).toEqual(new Date('2026-08-31T23:00:00Z'))
+    expect(preorderWindow(undefined, start)).toBeNull()
+  })
+  test('half-set, reversed, late or mistyped windows throw instead of guessing', () => {
+    expect(() => preorderWindow({ preorderStartsAt: window.preorderStartsAt }, start)).toThrow('both')
+    expect(() => preorderWindow({ preorderStartsAt: window.preorderEndsAt, preorderEndsAt: window.preorderStartsAt }, start)).toThrow('after it starts')
+    expect(() => preorderWindow({ ...window, preorderEndsAt: at('2026-09-30T00:00:00Z') }, start)).toThrow('by the time the cohort starts')
+    expect(() => preorderWindow({ ...window, preorderEndsAt: '2026-09-20' }, start, env)).toThrow('must be a timestamp')
+    expect(() => preorderWindow(undefined, start, { ...env, preorderEndsAt: 'soon' })).toThrow('not an ISO 8601 date')
+  })
+  test('the end is exclusive: the pre-order is closed at its closing instant', () => {
+    const w = { startsAt: new Date('2026-09-01T00:00:00Z'), endsAt: new Date('2026-09-20T00:00:00Z') }
+    expect(preorderState(w, w.endsAt.getTime() - 1)).toBe('open')
+    expect(preorderState(w, w.endsAt.getTime())).toBe('closed')
+    expect(preorderState(w, w.startsAt.getTime())).toBe('open')
   })
 })
 

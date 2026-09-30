@@ -23,7 +23,7 @@
 // write. So every field is written, including the ones whose value is `null`.
 // =============================================================================
 import { randomBytes } from 'node:crypto'
-import { Timestamp, type Firestore } from 'firebase-admin/firestore'
+import { Timestamp, type Firestore, type QueryDocumentSnapshot } from 'firebase-admin/firestore'
 import { logger } from 'firebase-functions'
 import { HttpsError } from 'firebase-functions/https'
 import { DATABASES, database, type DatabaseId } from './databases.js'
@@ -246,10 +246,50 @@ const existingCode = async (db: Firestore, email: string, cohortId: string) => {
 }
 
 /**
+ * A reused code, made to last at least `expiryDays` from now. Never shortened.
+ *
+ * The caller asked for a code good for that long, and handing back one that
+ * dies sooner answers a different question. It is also what makes a code held
+ * through a pre-order right: minted at payment, and asked for again by the
+ * landing site when the pre-order closes, it lives `expiryDays` from the day
+ * it is sent, however far the close was moved in between.
+ *
+ * Conditional on the document being as it was read, so a claim or revocation
+ * landing in between is not written over. That refuses the call, and the
+ * caller's retry finds the code as it now is.
+ */
+const extendToCover = async (
+  live: QueryDocumentSnapshot,
+  expiryDays: number,
+  actor: Actor,
+): Promise<Timestamp> => {
+  const current = live.get('expiresAt') as Timestamp
+  const now = Timestamp.now()
+  const wanted = Timestamp.fromMillis(now.toMillis() + expiryDays * 86_400_000)
+  if (current.toMillis() >= wanted.toMillis()) return current
+
+  try {
+    await live.ref.update(
+      { expiresAt: wanted, updatedAt: now, updatedByUid: actor.uid, updatedByEmail: actor.email },
+      { lastUpdateTime: live.updateTime },
+    )
+  } catch (cause) {
+    // FAILED_PRECONDITION: somebody else wrote the code after it was read.
+    if ((cause as { code?: number })?.code === 9) {
+      throw new HttpsError('aborted', 'The code changed while it was being extended. Try again.')
+    }
+    throw cause
+  }
+  logger.info('Extended an access code', { cohortId: live.get('cohortId'), actor: actor.uid })
+  return wanted
+}
+
+/**
  * One code for one person, or the live one they already hold.
  *
  * A replacement for a code that is still live means revoking that one first;
- * otherwise this hands the same code back, marked `reused`.
+ * otherwise this hands the same code back, marked `reused`, and extended if
+ * it would expire sooner than `expiryDays` from now.
  *
  * `create`, not `set`: it fails if the id is taken, which is what makes the
  * retry correct rather than a silent overwrite of somebody else's unredeemed
@@ -275,7 +315,7 @@ export const mintAccessCode = async (
   })
 
   const live = await existingCode(db, input.email, cohort.id)
-  if (live) return result(live.id, true, (live.data() as { expiresAt: Timestamp }).expiresAt)
+  if (live) return result(live.id, true, await extendToCover(live, input.expiryDays, actor))
 
   const now = Timestamp.now()
   const expiresAt = Timestamp.fromMillis(now.toMillis() + input.expiryDays * 86_400_000)

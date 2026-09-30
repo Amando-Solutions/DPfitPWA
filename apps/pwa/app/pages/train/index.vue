@@ -91,6 +91,7 @@ const nextUpNote = computed(() => {
 })
 
 const title = computed(() => {
+  if (store.beforeStart.value) return `Training opens ${store.trainingOpensLabel.value}`
   if (!store.trainingLocked.value) {
     if (!owed.value.length) return 'Today’s session'
     if (scheduledToday.value?.canStart) return `Today, plus ${owedCount.value} to catch up`
@@ -104,6 +105,9 @@ const title = computed(() => {
 })
 
 const subtitle = computed(() => {
+  if (store.beforeStart.value) {
+    return 'Every session is here to read ahead. Nothing logs until training opens.'
+  }
   if (store.trainingLocked.value) {
     return 'Days open as the week reaches them. Nothing is waiting on you today.'
   }
@@ -124,6 +128,9 @@ const subtitle = computed(() => {
  * one. Each branch names the reason and, where there is one, the date it lifts.
  */
 const lockedNote = computed(() => {
+  if (store.beforeStart.value) {
+    return 'Until then, set up your profile, say hello in the group chat and take your first progress photo.'
+  }
   if (store.weekComplete.value) return 'Every session this week is logged. Well played.'
   if (store.sessionToday.value) {
     return `Nothing left behind you. ${nextUpNote.value}`
@@ -133,11 +140,13 @@ const lockedNote = computed(() => {
 })
 
 const lockedIcon = computed(() => {
+  if (store.beforeStart.value) return 'lock'
   if (store.sessionToday.value || store.weekComplete.value) return 'check'
   return restDay.value ? 'moon' : 'lock'
 })
 
 const lockedHeading = computed(() => {
+  if (store.beforeStart.value) return 'The cohort has not started'
   if (store.sessionToday.value) return `${store.sessionToday.value.label} is in the log`
   if (store.weekComplete.value) return 'That is the week done'
   return restDay.value ? 'Rest day' : 'Nothing to log today'
