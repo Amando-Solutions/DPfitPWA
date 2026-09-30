@@ -174,13 +174,15 @@ const submitting = ref(false)
 /**
  * The button's words. Seats are only sold during the pre-order, so outside it
  * the button says which side of the window this is, rather than a bare
- * "unavailable" that reads like a fault.
+ * "unavailable" that reads like a fault. Dates go in the note beside it, so the
+ * pill stays a short line rather than a paragraph.
  */
 const actionLabel = computed(() => {
   if (submitting.value) return 'Taking you to payment…'
-  if (challenge.value?.registrationOpen && price.value) return `Continue to payment · ${price.value.label}`
+  // No-break before the dot: on a phone the price wraps alone, not "· ₦…".
+  if (challenge.value?.registrationOpen && price.value) return `Continue to payment · ${price.value.label}`
   const preorder = challenge.value?.preorder
-  if (preorder?.state === 'upcoming') return `Pre-orders open ${preorder.startsLabel}`
+  if (preorder?.state === 'upcoming') return 'Pre-orders open soon'
   if (preorder?.state === 'closed') return 'Pre-orders are closed'
   return 'Registration unavailable'
 })
@@ -391,17 +393,20 @@ async function onSubmit() {
                The browser is mid-navigation to Selar at that point, and a
                button that springs back to life opens a second checkout. -->
           <div class="mt-7 flex flex-wrap items-center gap-3.5 lg:mt-7">
-            <CtaButton type="submit" variant="ink" :disabled="submitting || done || !challenge?.registrationOpen">
+            <CtaButton type="submit" variant="ink" fluid :disabled="submitting || done || !challenge?.registrationOpen">
               {{ actionLabel }}
             </CtaButton>
             <p class="font-body text-[13.5px] text-ink-mute">
               <template v-if="challenge?.preorder?.state === 'closed'">
                 Pre-orders closed {{ challenge.preorder.endsLabel }}.
               </template>
+              <template v-else-if="challenge?.preorder?.state === 'upcoming'">
+                Pre-orders open {{ challenge.preorder.startsLabel }} and close
+                {{ challenge.preorder.endsLabel }}.
+              </template>
               <template v-else-if="challenge?.preorder">
                 Secure checkout with Selar. Pre-orders close
-                {{ challenge.preorder.endsLabel }}, and your access code is
-                emailed then.
+                {{ challenge.preorder.endsLabel }}.
               </template>
               <template v-else>
                 Secure checkout with Selar.

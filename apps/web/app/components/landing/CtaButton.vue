@@ -19,6 +19,12 @@ const props = withDefaults(
     /** Sized down for the header bar, where the pill sits in a 72px row. */
     compact?: boolean
     /**
+     * Full width below `sm`, with a label that may wrap. For a pill inside a
+     * card, where a long label -- a price, a date -- would otherwise push it
+     * out past the edge of a phone screen.
+     */
+    fluid?: boolean
+    /**
      * Ignored on the `<a>` form: `disabled` is not a thing an anchor has, and
      * the browser silently ignores it there rather than making the link inert.
      * Only the `<button>` form -- the one that submits the registration -- has
@@ -26,7 +32,7 @@ const props = withDefaults(
      */
     disabled?: boolean
   }>(),
-  { variant: 'primary', type: 'button', compact: false, disabled: false },
+  { variant: 'primary', type: 'button', compact: false, fluid: false, disabled: false },
 )
 
 const VARIANTS = {
@@ -37,10 +43,13 @@ const VARIANTS = {
 } as const
 
 const classes = computed(() => [
-  'inline-flex items-center justify-center rounded-pill font-body font-semibold whitespace-nowrap',
+  'inline-flex items-center justify-center rounded-pill font-body font-semibold',
+  props.fluid ? 'w-full text-center text-balance sm:w-auto sm:whitespace-nowrap' : 'whitespace-nowrap',
   'transition duration-150 ease-out',
   'focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--primary-fill)]',
-  props.compact ? 'px-[22px] py-[11px] text-[13.5px]' : 'px-[34px] py-[17px] text-[15.5px]',
+  props.compact ? 'px-[22px] py-[11px] text-[13.5px]'
+    : props.fluid ? 'px-6 py-[17px] text-[15.5px] sm:px-[34px]'
+    : 'px-[34px] py-[17px] text-[15.5px]',
   VARIANTS[props.variant],
   // Dimmed rather than restyled, so a button waiting on the network is
   // recognisably the same button and the row does not reflow around it.
