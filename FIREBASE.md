@@ -33,6 +33,66 @@ one. Read them before changing anything in `app/lib/datasource/firestore.ts`.
 | `members/{uid}/lifecycleEvents/{id}` | Append-only status history. |
 | `signIns/{uid}` | The account's latest sign-in, which is the one device it is signed in on. See **One device at a time**. |
 
+## Active cohort and registration
+
+The website selects exactly one `cohorts` document with `status: "active"`.
+If none exists, `NUXT_REGISTRATION_COHORT_ID` is used to read a real,
+non-archived cohort document (draft cohorts can be sold before launch). An active
+Firestore cohort always wins. Missing fallback documents close registration;
+multiple active cohorts remain an error. Read failures do not trigger fallback. The member PWA uses `members/{uid}.cohortId` from
+Firestore, preserving paid membership rather than moving someone to another cohort.
+Its initial read and live listener both hide missing/inactive cohort metadata.
+
+The cohort must contain `name`, `startDate` and `endDate` (Firestore timestamps),
+`durationWeeks`, `timezone` (IANA), `programId`, and `programVersion`. Its program
+must exist, be published and match that version to open registration. The website
+reads the program name, week outline and guide metadata from the same documents
+the PWA uses; private guide bodies and workout prescriptions are not public.
+
+Set this map on the active cohort using the actual offer (values below are examples):
+
+```js
+registration: {
+  amountMinor: 3000000, // ₦30,000 in kobo
+  currency: 'NGN',
+  codeTtlDays: 30, // integer, 1–365
+}
+```
+
+Each missing/null/empty offer field falls back independently to the environment:
+
+| Firestore value | Temporary environment fallback |
+| --- | --- |
+| Active cohort document | `NUXT_REGISTRATION_COHORT_ID` (only when none is active) |
+| `registration.amountMinor` | `NUXT_PUBLIC_PRICE` (major units, converted using the resolved currency) |
+| `registration.currency` | `NUXT_PUBLIC_PRICE_CURRENCY` |
+| `registration.codeTtlDays` | `NUXT_REGISTRATION_CODE_TTL_DAYS` |
+
+There are no hardcoded cohort or offer defaults. Existing, non-empty Firestore
+values win; invalid authored values do not get hidden behind fallbacks. If neither
+source provides a valid offer, details remain visible but checkout is disabled. Selar controls the actual
+charge; keep the product's dashboard price aligned with this Firestore offer.
+`NUXT_SELAR_PRODUCT_URL` remains the checkout destination. Firebase connection
+settings, credentials and integration secrets also belong in
+environment variables; they identify/authenticate the database, not its content.
+
+Run `bun run --filter dp-fitness-web check:cohort` for a read-only check of the
+resolved cohort and offer using the configured database and fallbacks.
+
+The page is rendered per request and refreshes open tabs every minute. Checkout
+re-reads Firestore and rejects an old cohort/price with HTTP 409. It snapshots
+`cohortId`, `cohortName`, `amountMinor`, `currency` and `codeTtlDays`
+onto the registration. Webhooks validate the saved price and issue
+against that saved cohort, never the active cohort at payment time. Archived
+purchases still target the original cohort, but issuance is refused by the existing
+Cloud Function until an operator resolves them. Older registrations without a code
+lifetime read it from their own cohort's registration map, then the environment
+fallback; without either they require manual repair. They are never assigned to a new cohort automatically.
+
+The runtime PWA always uses Firestore. The old mock and HTTP implementations remain
+as isolated development fixtures; neither is selected by environment variables or
+used as a fallback. An incomplete Firebase configuration is an error.
+
 ## Three decisions worth knowing about
 
 **Nothing a member sees is compiled into the app.** The plan, the guide library,
@@ -42,8 +102,8 @@ cohort, on every load. It used to be `import`ed out of `app/data/program.ts`,
 which meant every cohort on every deploy was shown the same six weeks of the
 same four sessions and the same live-call link, whatever the coach had actually
 set up, and re-tuning any of it was a release. That file is now two things and
-neither is content the app serves: what *mock mode* answers with
-(`lib/datasource/local.ts` is the only module allowed to import it), and the
+neither is content the app serves: isolated local development fixtures
+(`lib/datasource/local.ts` is the only app module allowed to import it), and the
 input to the seed script.
 
 The cost is that the documents have to exist. A program with no `weeks` renders

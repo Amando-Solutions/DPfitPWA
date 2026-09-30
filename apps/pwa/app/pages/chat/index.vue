@@ -160,7 +160,7 @@ onBeforeUnmount(() => {
  * last resort covers a header that would otherwise be blank.
  */
 const title = computed(
-  () => store.member.value?.cohortName || store.cohort.value?.name || 'Cohort chat',
+  () => store.cohort.value?.name || 'Cohort chat',
 )
 
 /**

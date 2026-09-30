@@ -1,7 +1,12 @@
 <script setup lang="ts">
-import { PRICE_INCLUDES, REGISTER_ANCHOR } from '~/data/landing'
+import { REGISTER_ANCHOR } from '~/data/landing'
 
 const price = usePrice()
+const challenge = useChallenge()
+const includes = computed(() => [
+  ...(challenge.value?.program ? [challenge.value.program.name] : []),
+  ...(challenge.value?.guides.map((guide) => `${guide.title} · Week ${guide.unlockWeek}`) ?? []),
+])
 </script>
 
 <template>
@@ -13,9 +18,9 @@ const price = usePrice()
       <div class="grid gap-12 lg:grid-cols-2 lg:gap-[70px]">
         <div>
           <p class="eyebrow-section text-[var(--primary-fill)]">
-            Six weeks, group challenge
+            {{ challenge ? `${challenge.durationWeeks}-week group challenge` : 'Group challenge' }}
           </p>
-          <p class="title-price mt-5 text-ink">{{ price.label }}</p>
+          <p class="title-price mt-5 text-ink">{{ price?.label ?? 'Registration unavailable' }}</p>
           <p
             class="mt-3.5 font-data text-[11.5px] tracking-[0.12em] text-ink-mute uppercase"
           >
@@ -34,7 +39,7 @@ const price = usePrice()
         -->
         <ul class="border-t border-[var(--rule)]">
           <li
-            v-for="line in PRICE_INCLUDES"
+            v-for="line in includes"
             :key="line"
             class="border-b border-[var(--rule)] py-4 font-body text-[15.5px] text-ink last:border-b-0"
           >

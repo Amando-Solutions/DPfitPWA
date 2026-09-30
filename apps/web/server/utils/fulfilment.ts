@@ -20,6 +20,7 @@
 // `paymentStatus` — has a window between the status write and the code write
 // where a second caller mints a second seat.
 // =============================================================================
+import { codeLifetime } from './cohort'
 import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore'
 import { reachableOrigin } from '../emails/access-code'
 import { issueAccessCode, type Registration } from './access-code'
@@ -33,8 +34,8 @@ export interface FulfilResult {
 }
 
 export interface FulfilOptions {
-  cohortId: string
-  ttlDays: number
+  /** Legacy registrations without a saved lifetime use Firestore, then this env value. */
+  codeTtlDaysFallback?: unknown
   brevo: BrevoConfig
   /**
    * The fallback member-app origin: this deployment's own `appUrl`.
@@ -69,9 +70,10 @@ export const findRegistrationForSale = async (
   db: Firestore,
   sale: SaleEvent,
 ): Promise<string | null> => {
-  if (sale.reference) {
+  if (sale.reference && !sale.reference.includes('/')) {
     const direct = await db.doc(`registrations/${sale.reference}`).get()
-    if (direct.exists) return direct.id
+    if (direct.exists && direct.get('email') === sale.email) return direct.id
+    return null
   }
 
   const snap = await db
@@ -90,7 +92,11 @@ export const findRegistrationForSale = async (
   // for. If every one of them already holds a code, the newest is returned
   // anyway so the caller reports `already-issued` rather than losing the sale.
   const docs = [...snap.docs].sort((a, b) => at(b) - at(a))
-  return (docs.find((doc) => !doc.data().code) ?? docs[0]!).id
+  const pending = docs.filter((doc) => !doc.data().code)
+  // Email alone cannot distinguish purchases for different cohorts/offers.
+  const offers = new Set(pending.map((doc) => JSON.stringify([doc.get('cohortId'), doc.get('amountMinor'), doc.get('currency')])))
+  if (offers.size > 1 || snap.size === 25) return null
+  return (pending[0] ?? docs[0]!).id
 }
 
 /**
@@ -121,6 +127,8 @@ export const fulfilRegistration = async (
       timezone?: string
       emailed?: boolean
       appUrl?: string
+      cohortId?: string
+      codeTtlDays?: number
     }
 
     // Somebody already fulfilled this. Return what they issued so the caller
@@ -146,6 +154,8 @@ export const fulfilRegistration = async (
       // is what `issueAccessCode` sends to be written onto the code, and where
       // the buyer's browser was is no business of the code.
       appUrl: data.appUrl ?? '',
+      cohortId: data.cohortId,
+      codeTtlDays: data.codeTtlDays,
     }
   })
 
@@ -156,14 +166,28 @@ export const fulfilRegistration = async (
     return { outcome: 'already-issued', emailed: claim.emailed }
   }
 
+  // Fulfil the cohort purchased, even if another cohort is now active. Never
+  // guess for old/malformed registrations that have lost their cohort ID.
+  if (!claim.cohortId || claim.cohortId.includes('/')) {
+    throw new Error('Registration has no valid cohort ID; manual review is required.')
+  }
+  let ttlDays = claim.codeTtlDays
+  if (ttlDays === undefined) {
+    const cohort = await db.doc(`cohorts/${claim.cohortId}`).get()
+    ttlDays = codeLifetime(cohort.get('registration.codeTtlDays'), options.codeTtlDaysFallback)
+  }
+  if (!Number.isInteger(ttlDays) || ttlDays < 1 || ttlDays > 365) {
+    throw new Error('Registration has no valid access-code lifetime.')
+  }
+
   // --- Minting -------------------------------------------------------------
   // Outside the transaction because it is a call to `createAccessCode`,
   // and a network round trip does not belong inside a lock. The write below is
   // what closes the door: `code` is set with a precondition that it is still
   // unset, so two callers racing here cannot both record a seat.
   const { code, cohortId } = await issueAccessCode(claim.registration, {
-    cohortId: options.cohortId,
-    ttlDays: options.ttlDays,
+    cohortId: claim.cohortId,
+    ttlDays,
   })
 
   const won = await db.runTransaction(async (tx) => {

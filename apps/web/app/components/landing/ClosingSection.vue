@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { REGISTER_ANCHOR } from '~/data/landing'
+const challenge = useChallenge()
 </script>
 
 <template>
@@ -33,7 +34,7 @@ import { REGISTER_ANCHOR } from '~/data/landing'
             Lose the fat. Keep the muscle. Do both at once.
           </h2>
           <p class="mt-4 font-body text-[16px] leading-[1.65] text-white/66">
-            Starts today. Six weeks, one cohort, one price.
+            {{ challenge ? `${challenge.name} · ${challenge.durationWeeks} ${challenge.durationWeeks === 1 ? 'week' : 'weeks'} · starts ${challenge.startsLabel}.` : 'Registration details will be available when a cohort opens.' }}
           </p>
         </div>
         <CtaButton :href="REGISTER_ANCHOR" class="shrink-0 self-start lg:self-end">

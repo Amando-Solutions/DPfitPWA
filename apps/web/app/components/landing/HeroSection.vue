@@ -1,56 +1,12 @@
 <script setup lang="ts">
-import { heroStats, REGISTER_ANCHOR, type ChallengeStart } from '~/data/landing'
-
-const stats = heroStats(usePrice().label)
-
-/**
- * When the challenge starts, read rather than written.
- *
- * The badge carried `starts 12 August` as authored copy, which made the start
- * of a cohort a thing only a deploy could move. It belongs to the coach, and it
- * is already on the cohort document — `GET /api/challenge` reads it there, in
- * the cohort's own timezone, and hands back the day already formatted.
- *
- * Fetched twice, for two different readers. This page is prerendered, so the
- * build bakes whatever the date was then and a crawler gets a finished
- * sentence; but nobody redeploys the site to move a cohort, so it is asked for
- * again on mount and the badge corrects itself for anyone actually looking at
- * it.
- */
-const { data: challenge } = await useFetch<ChallengeStart>('/api/challenge', {
-  default: (): ChallengeStart => ({ startsOn: null, startsLabel: null }),
-})
-
-/**
- * The second read, written out rather than done with `refresh()`.
- *
- * `useAsyncData` treats the payload it hydrated from as a cache hit and answers
- * a refresh out of it without going to the network, which is right for data
- * that was fetched this page load and wrong for data baked into a build weeks
- * ago — the one case this exists for. A plain `$fetch` has no such opinion.
- *
- * Failures are swallowed on purpose: the baked date is the best answer left,
- * and blanking a badge because a fetch timed out helps nobody.
- */
-onMounted(async () => {
-  try {
-    challenge.value = await $fetch<ChallengeStart>('/api/challenge')
-  } catch {
-    // Keep whatever the build saw.
-  }
-})
-
-/**
- * The whole clause, or nothing at all.
- *
- * No fallback date. A date on this badge is a promise about when somebody's
- * six weeks begin, and a hard-coded one that outlived its cohort is worse than
- * an unfinished sentence — so when there is no date to show, the badge simply
- * reads "6-week challenge".
- */
-const startsClause = computed(() =>
-  challenge.value?.startsLabel ? ` · starts ${challenge.value.startsLabel}` : '',
-)
+import { REGISTER_ANCHOR } from '~/data/landing'
+const challenge = useChallenge()
+const price = usePrice()
+const stats = computed(() => [
+  { value: price.value?.label ?? 'Unavailable', caption: 'One-time payment' },
+  { value: challenge.value ? `${challenge.value.durationWeeks} ${challenge.value.durationWeeks === 1 ? 'week' : 'weeks'}` : '—', caption: 'Program duration' },
+  { value: challenge.value?.startsLabel ?? 'To be announced', caption: 'Cohort starts' },
+])
 </script>
 
 <template>
@@ -100,7 +56,7 @@ const startsClause = computed(() =>
             <span
               class="font-data text-[10.5px] tracking-[0.17em] text-white/78 uppercase"
             >
-              6-week challenge{{ startsClause }}
+              {{ challenge?.name ?? 'Challenge details unavailable' }}
             </span>
           </p>
 
@@ -120,7 +76,7 @@ const startsClause = computed(() =>
           <p
             class="mt-6.5 max-w-131.25 font-body text-[18.5px] leading-[1.65] text-white/70"
           >
-            A science-backed 6-week body recomposition challenge. Structured
+            {{ challenge?.program?.name ?? 'A coached body recomposition challenge' }}. Structured
             training, clear nutrition guidance and real weekly accountability.
             Built for women done choosing between shrinking and building.
           </p>

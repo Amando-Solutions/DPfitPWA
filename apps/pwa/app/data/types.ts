@@ -199,6 +199,9 @@ export interface RegistrationDoc {
    */
   timezone: string
   cohortId: string
+  cohortName?: string
+  /** Resolved at checkout, so later configuration changes do not alter the purchase. */
+  codeTtlDays?: number
   source: RegistrationSource
   paymentStatus: RegistrationPaymentStatus
   /** Which checkout took the money. `undefined` on documents from before Selar. */
@@ -270,6 +273,12 @@ export interface LiveCall {
 export interface CohortDoc extends Audited {
   name: string
   status: 'draft' | 'active' | 'archived'
+  /** Public website offer. Missing fields may use configured environment fallbacks. */
+  registration?: {
+    amountMinor: number
+    currency: string
+    codeTtlDays: number
+  }
   startDate: Timestamp
   /**
    * Stored rather than derived from `startDate + durationWeeks`, because

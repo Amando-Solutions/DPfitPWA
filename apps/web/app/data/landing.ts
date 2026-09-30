@@ -1,79 +1,14 @@
 /**
- * Every word on the landing page, in one place.
+ * General marketing copy. Cohort and program details come from Firestore.
  *
  * The same split the member app makes between `data/` and `components/`: the
- * components own layout and behaviour, this file owns the copy. A price change
- * or a new FAQ entry is then an edit here rather than a hunt through templates,
- * and the three places the price appears cannot drift apart.
+ * components own layout and behaviour. This file contains only general copy;
+ * prices, dates, duration, guides and program weeks come from `/api/challenge`.
  *
  * The strings are transcribed from the Figma composition
  * (`DP Fitness · Landing Page`, node 448:2) and should be changed with the
  * design, not around it.
  */
-
-/**
- * The one-time price, as the page advertises it and a sale is checked against.
- *
- * Configured, not authored: `NUXT_PUBLIC_PRICE` in major units (naira — `30000`
- * is ₦30,000) and `NUXT_PUBLIC_PRICE_CURRENCY`, read through `runtimeConfig`.
- * Everything here works in minor units (kobo), because that is how money is
- * counted anywhere it is counted exactly, and the display string is derived
- * from the same number: two numbers that must agree is a page that can
- * advertise one price while charging another.
- *
- * BUT READ THIS BEFORE CHANGING IT. Under Paystack this number *was* the
- * price — `register.post.ts` handed it over and that is what was charged.
- * Selar does not work that way. The product is created in Selar's dashboard
- * and carries its own price, so this no longer instructs anything; it is what
- * the page promises, and what a sale is checked against in `describeAmount`.
- * Changing it changes the promise and not the charge. The two are kept equal
- * by hand, and a sale that comes in under this amount in this currency is
- * logged as a mismatch — which is the only warning there is that the dashboard
- * and the page have drifted apart.
- *
- * The currency is ISO 4217, and only the one the price is *quoted* in. Selar
- * converts prices into the buyer's own currency at checkout, so a real sale
- * can and often does arrive in something else; `describeAmount` reports that
- * as unchecked rather than as a failure.
- */
-export interface Price {
-  /** Smallest unit of `currency` — kobo for NGN. */
-  minor: number
-  currency: string
-  /** Formatted for display, e.g. `₦30,000`. */
-  label: string
-}
-
-/**
- * The price out of `runtimeConfig.public`, or a thrown error.
- *
- * Throws rather than falling back, because a price that does not parse would
- * otherwise print as `₦NaN` on a prerendered page, or check every sale against
- * nothing. `nuxt.config.ts` calls this once so a bad value fails the build.
- */
-export const readPrice = (config: { price: unknown; priceCurrency: unknown }): Price => {
-  const major = Number(String(config.price).replace(/,/g, ''))
-  if (!Number.isFinite(major) || major < 0) {
-    throw new Error(
-      `NUXT_PUBLIC_PRICE must be a non-negative number in major units (e.g. 30000), got "${config.price}".`,
-    )
-  }
-  const currency = String(config.priceCurrency || '').toUpperCase()
-  if (!/^[A-Z]{3}$/.test(currency)) {
-    throw new Error(
-      `NUXT_PUBLIC_PRICE_CURRENCY must be an ISO 4217 code (e.g. NGN), got "${config.priceCurrency}".`,
-    )
-  }
-  return {
-    minor: Math.round(major * 100),
-    currency,
-    label: new Intl.NumberFormat('en-NG', {
-      style: 'currency',
-      currency,
-      maximumFractionDigits: 0,
-    }).format(major),
-  }
-}
 
 /** Where every "Join the Challenge" call-to-action points. */
 export const REGISTER_ANCHOR = '#register'
@@ -85,35 +20,9 @@ export interface NavLink {
 
 export const NAV_LINKS: NavLink[] = [
   { label: 'The Package', href: '#package' },
-  { label: 'The 6 weeks', href: '#weeks' },
+  { label: 'The program', href: '#weeks' },
   { label: 'Price', href: '#price' },
   { label: 'FAQ', href: '#faq' },
-]
-
-/**
- * When the challenge starts, as `GET /api/challenge` answers it.
- *
- * Declared here rather than beside the route because both ends need it and
- * this file is the one place the page and its server already share — the same
- * reason `readPrice` is read from here by `register.post.ts`. Both fields are
- * nullable together: the badge has a date or it has none.
- */
-export interface ChallengeStart {
-  /** The start day in the cohort's own zone, `YYYY-MM-DD`. */
-  startsOn: string | null
-  /** The same day as the badge prints it, e.g. `26 Aug`. */
-  startsLabel: string | null
-}
-
-export interface HeroStat {
-  value: string
-  caption: string
-}
-
-export const heroStats = (price: string): HeroStat[] => [
-  { value: price, caption: 'One-time · 6 weeks' },
-  { value: '6 wks', caption: 'Structured phases' },
-  { value: '2×', caption: 'Live calls / week' },
 ]
 
 /**
@@ -148,91 +57,12 @@ export interface PackageItem {
   staged?: boolean
 }
 
-export const PACKAGE_ITEMS: PackageItem[] = [
-  {
-    title: 'Main Training Program',
-    description:
-      'Your core 6-week lifting structure, the anchor everything else builds on.',
-    release: 'Day 1',
-  },
-  {
-    title: 'Warm-Up Guide',
-    description:
-      'Same sequence every session, so your body is primed and the guesswork is gone.',
-    release: 'Day 1',
-  },
-  {
-    title: 'Core Workout Guide',
-    description: 'Dedicated core work woven through the plan, never an afterthought.',
-    release: 'Day 1',
-  },
-  {
-    title: 'Cardio Guide',
-    description:
-      'Options by equipment and preference, built to support recomp instead of sabotaging it.',
-    release: 'Day 1',
-  },
-  {
-    title: 'Dynamic Stretch Guide',
-    description:
-      'Mobility work from week one, so you keep moving well as intensity climbs.',
-    release: 'Day 1',
-  },
-  {
-    title: 'Progressive Overload Guide',
-    description:
-      "The exact rules for adding weight and reps, released once you've got two weeks of real numbers to build from.",
-    release: 'Week 3',
-    staged: true,
-  },
-  {
-    title: 'Nutrition Guide',
-    description:
-      'How to eat for recomp: protein and portion guidance, sensible calorie ranges, and everyday food swaps you can build any meal around. General principles you apply to your own food, not a rigid meal plan.',
-    release: 'Day 1',
-  },
-]
-
-export interface Phase {
-  weeks: string
-  title: string
-  description: string
-  /** The middle phase is the turn of the challenge, so it is drawn in purple. */
-  featured?: boolean
-}
-
-export const PHASES: Phase[] = [
-  {
-    weeks: 'Week 1–2',
-    title: 'Foundation',
-    description:
-      'Baseline lifts, form, and habits lock in. Nutrition, warm-up, core and cardio rhythm at moderate volume.',
-  },
-  {
-    weeks: 'Week 3–4',
-    title: 'Overload',
-    description:
-      'Progressive Overload Guide unlocks. Weight and reps climb based on your own Week 1–2 numbers. This is where change becomes visible.',
-    featured: true,
-  },
-  {
-    weeks: 'Week 5–6',
-    title: 'Push & Peak',
-    description:
-      'Highest intensity of the challenge, then a finishing week, so you end feeling strong instead of wrecked.',
-  },
-]
-
 export interface WeeklyItem {
   title: string
   description: string
 }
 
 export const WEEKLY_ITEMS: WeeklyItem[] = [
-  {
-    title: 'Two live group calls',
-    description: 'Same session, two time slots. Pick whichever fits your time zone.',
-  },
   {
     title: 'Private group chat',
     description: 'Direct access to the community and to me, all in one place.',
@@ -261,7 +91,7 @@ export const NOT_FOR_YOU: string[] = [
   'You want daily personal check-ins from me',
   "You're looking for a crash diet or extreme fast results",
   'You have an injury that needs individual clearance first',
-  "You can't commit any time over the next 6 weeks",
+  "You can't commit any time throughout the program",
 ]
 
 export interface GalleryImage {
@@ -290,16 +120,6 @@ export const GALLERY: GalleryImage[] = [
     width: 900,
     height: 600,
   },
-]
-
-export const PRICE_INCLUDES: string[] = [
-  'Full 6-week training program',
-  'Warm-up, core, cardio & stretch guides',
-  'Progressive overload guide (Week 3)',
-  'Nutrition guide with protein and portion guidance',
-  'Exercise video library',
-  '2× weekly live group calls',
-  'Private group chat + weekly check-ins',
 ]
 
 export interface FaqEntry {
@@ -334,7 +154,7 @@ export const FAQS: FaqEntry[] = [
   {
     question: 'Is this 1-on-1 coaching?',
     answer:
-      'No — this is a 6-week group challenge. You get the live calls, the private group chat and a weekly check-in that I read. What it is not is daily personal programming built around one person.',
+      'No — this is a group challenge. You get the live calls, the private group chat and a weekly check-in that I read. What it is not is daily personal programming built around one person.',
   },
   {
     question: "What if I have allergies or don't eat certain foods?",
@@ -365,7 +185,7 @@ export const LEGAL_DISCLAIMER =
  * from a shared link needs one sentence telling them what this is.
  */
 export const FOOTER_BLURB =
-  'The 6-week group challenge for people who are done choosing between losing fat and building muscle. Coached programming, live calls, and a check-in every week.'
+  'The group challenge for people who are done choosing between losing fat and building muscle. Coached programming, live calls, and a check-in every week.'
 
 /**
  * Turn the configured Instagram handle into the row the footer draws.

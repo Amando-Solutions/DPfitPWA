@@ -1,3 +1,4 @@
+import { defaultPreferences } from '~/data/preferences'
 import { Timestamp } from 'firebase/firestore'
 
 import { EDIT_WINDOW_MS, addressedUidsOf } from '~/lib/chat'
@@ -113,14 +114,6 @@ export const emptyProfile = (): MemberProfile => ({
   // looks real is worse than a blank field.
   whatsapp: '',
   avatarUrl: '',
-})
-
-export const defaultPreferences = (): MemberPreferences => ({
-  units: 'kg',
-  heightUnits: 'cm',
-  workoutReminders: true,
-  coachMessages: true,
-  weeklyCheckInReminder: true,
 })
 
 const emptyStats = (): MemberStats => ({

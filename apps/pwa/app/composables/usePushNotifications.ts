@@ -39,9 +39,8 @@ export const usePushNotifications = () => {
   const config = useRuntimeConfig().public
   const firebase = (config.firebase ?? {}) as Partial<FirebaseWebConfig>
   // Push goes through FCM, so it needs the Firestore data source behind it.
-  // Mock mode and the REST implementation have nothing to send from.
   const vapidKey =
-    config.useMockData === false && isFirebaseConfigured(firebase)
+    isFirebaseConfigured(firebase)
       ? String(firebase.vapidKey ?? '').trim()
       : ''
 

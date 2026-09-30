@@ -26,10 +26,7 @@ export default defineNuxtPlugin({
   setup() {
     const config = useRuntimeConfig().public.firebase as FirebaseWebConfig
 
-    // Mock mode ships with no credentials, and that is a valid way to run the
-    // app, so an absent project is not an error here. `createDataSource` is
-    // where the mismatch between "no config" and "asked for live data" is
-    // reported.
+    // The data-source factory reports incomplete Firebase configuration.
     if (!isFirebaseConfigured(config)) return
 
     initFirebase(config)

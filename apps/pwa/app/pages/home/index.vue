@@ -63,6 +63,14 @@ const greeting = computed(() => {
   return 'Evening'
 })
 
+const cohortSummary = computed(() => {
+  const cohort = store.cohort.value
+  if (!cohort || unread.value) return ''
+  const duration = Number.isInteger(cohort.durationWeeks) && cohort.durationWeeks > 0
+    ? `${cohort.durationWeeks} ${cohort.durationWeeks === 1 ? 'week' : 'weeks'}` : ''
+  return [cohort.name, duration].filter(Boolean).join(' · ')
+})
+
 const nextSessionLabel = computed(() =>
   store.nextSessionAt.value.toLocaleDateString(undefined, {
     weekday: 'long',
@@ -140,11 +148,6 @@ const STAT_VALUE =
          a dozen elements each declaring themselves busy. -->
     <p v-if="loading" role="status" class="sr-only">Loading your training.</p>
 
-    <!--
-      No subtitle. It read "Day 1 of 42 · today is waiting on you", which the
-      hero card directly below already says, in larger type, with the session
-      attached to it.
-    -->
     <!-- The greeting is off the member document, so it is right from the first
          frame. The week is off the schedule, which is still arriving: an
          eyebrow reading "Week 1" and correcting itself to "Week 5" is the one
@@ -152,6 +155,7 @@ const STAT_VALUE =
     <ScreenIntro
       :eyebrow="unread ? '' : store.clock.value.label"
       :title="`${greeting}, ${store.displayName.value}`"
+      :subtitle="cohortSummary"
       class="home__intro order-0 lg:[grid-area:intro]"
     >
       <template v-if="loading" #eyebrow>

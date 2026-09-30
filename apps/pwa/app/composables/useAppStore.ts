@@ -2,7 +2,7 @@ import { Timestamp } from 'firebase/firestore'
 
 import { DataSourceError, useDataSourceClient } from '~/lib/datasource'
 import type { ActiveSessionInput, CheckInInput, DeviceClaim } from '~/lib/datasource'
-import { defaultPreferences } from '~/lib/datasource/local'
+import { defaultPreferences } from '~/data/preferences'
 import {
   challengeClock,
   daysBetween,
@@ -265,6 +265,7 @@ const buildStore = () => {
    * one, so the slower answer cannot overwrite the truer one.
    */
   let generation = 0
+  let cohortRevision = 0
 
   /**
    * Whether the app's own content is still on its way in.
@@ -457,6 +458,7 @@ const buildStore = () => {
    */
   const loadContent = async (): Promise<void> => {
     const gen = generation
+    const cohortAtStart = cohortRevision
     const authUser = state.value.authUser
     const member = state.value.member
     if (!member) return
@@ -521,7 +523,7 @@ const buildStore = () => {
         data.getProgram(),
         data.listProgramWeeks(),
         optional(data.listGuides(), [], 'the guide library'),
-        optional(data.getCohort(), null, 'the cohort'),
+        optional<Cohort | null | undefined>(data.getCohort(), undefined, 'the cohort'),
       ])
 
       if (gen !== generation) return
@@ -535,14 +537,11 @@ const buildStore = () => {
         program,
         weeks,
         guides,
-        // Whatever the listener has already delivered, if this read came back
-        // with nothing. The cohort watcher keys off the member id, which
-        // `identify` now sets a beat before this read is even sent, so for the
-        // first time the listener can be ahead of the load — and `optional`
-        // reports a cohort it could not read as `null`, which would take the
-        // live one down with it. A cohort that genuinely does not exist is
-        // `null` on both sides, so this can only preserve.
-        cohort: cohort ?? state.value.cohort,
+        // A missing/inactive cohort is authoritative. Preserve only on read failure,
+        // and only when the previous snapshot belongs to this membership.
+        cohort: cohortRevision !== cohortAtStart ? state.value.cohort :
+          cohort !== undefined ? cohort :
+          state.value.cohort?.id === member.cohortId ? state.value.cohort : null,
         sessions,
         activeSession,
         checkIns,
@@ -1127,15 +1126,19 @@ const buildStore = () => {
   }
 
   watch(
-    () => state.value.member?.id ?? null,
+    () => state.value.member ? `${state.value.member.id}:${state.value.member.cohortId}` : null,
     async (memberId) => {
       unwatchCohort()
+      state.value.cohort = null
       const current = ++cohortWatch
       if (!memberId) return
       try {
         const stop = await data.watchCohort(
           (next) => {
-            if (current === cohortWatch) state.value.cohort = next
+            if (current === cohortWatch) {
+              cohortRevision++
+              state.value.cohort = next
+            }
           },
           // The last cohort delivered stays. A stopped listener means changes
           // arrive on the next load again, not that the board should vanish.

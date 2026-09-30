@@ -1,13 +1,10 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
-import { readPrice } from './app/data/landing'
 
 /**
  * The site's own origin, for the share card and the canonical URL.
  *
- * Read here at build time rather than through `runtimeConfig`, because this
- * page is prerendered: the HTML a crawler is served is written during the
- * build, so that is when the value has to exist. It is only ever used to make
- * an absolute URL out of a path.
+ * Deployment metadata, read at build time to make absolute share-card URLs.
+ * Cohort and offer content is fetched separately at request time.
  *
  * Unset, the tags fall back to site-relative paths. Most scrapers resolve
  * those against the page they found them on and the card still renders, but
@@ -17,19 +14,6 @@ import { readPrice } from './app/data/landing'
 const siteUrl = (process.env.NUXT_PUBLIC_SITE_URL || '').replace(/\/+$/, '')
 const absolute = (path: string) => `${siteUrl}${path}`
 
-/**
- * The advertised price, in major units — `30000` is ₦30,000.
- *
- * Read at BUILD time for the same reason as the site URL: the price is printed
- * into prerendered HTML. The server routes read it again at runtime through
- * `runtimeConfig`, so both have to be set from the same environment or the page
- * and the webhook's check disagree. `readPrice` runs once here so a value that
- * does not parse fails the build instead of printing `₦NaN`.
- */
-const price = process.env.NUXT_PUBLIC_PRICE || '30000'
-const priceCurrency = process.env.NUXT_PUBLIC_PRICE_CURRENCY || 'NGN'
-readPrice({ price, priceCurrency })
-
 export default defineNuxtConfig({
   // Same design system as the member app in `apps/pwa`: tokens, type ramp,
   // control recipes, the Tailwind build and the five webfonts.
@@ -38,25 +22,11 @@ export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
   devtools: { enabled: true },
 
-  /**
-   * The opposite call from the PWA, for the opposite reason.
-   *
-   * Every word on this site is known at build time and its whole job is to be
-   * found and read by someone who has never heard of DP Fitness, so it is
-   * rendered to static HTML: a crawler gets the copy without running any
-   * JavaScript, and the first paint is the finished page rather than a shell.
-   * `crawlLinks` follows the in-page anchors, so adding a route to `pages/` is
-   * enough to get it prerendered.
-   */
-  nitro: {
-    prerender: {
-      routes: ['/'],
-      crawlLinks: true,
-    },
-  },
+  // Render cohort content at request time so deployments never bake in a stale cohort.
+  nitro: { prerender: { crawlLinks: false } },
 
   /**
-   * The confirmation page is the one route that must not be prerendered.
+   * The confirmation page is client-only.
    *
    * It exists only for the moment after a payment, and polls for its answer
    * on the client, so there is nothing to render at build time; `ssr: false`
@@ -64,6 +34,7 @@ export default defineNuxtConfig({
    * otherwise try to render a payment confirmation with no payment behind it.
    */
   routeRules: {
+    '/': { prerender: false, headers: { 'Cache-Control': 'no-store' } },
     '/registration/complete': {
       ssr: false,
       prerender: false,
@@ -74,11 +45,8 @@ export default defineNuxtConfig({
     },
   },
   modules: ['@vercel/analytics'],
-  // NOTE: `server/api/register.post.ts` needs a server runtime. Prerendering
-  // `/` is fine — it renders the page to HTML at build time and the route is
-  // still served at request time — but `nuxt generate` is not: it produces a
-  // pure static output with no handler behind `/api/register`, and the
-  // registration form would 404 on submit.
+  // A server runtime is required for current Firestore content and checkout.
+  // `nuxt generate` cannot provide these API handlers.
 
   // Auto-import components by filename, matching the PWA's convention, so
   // `components/landing/HeroSection.vue` is `<HeroSection/>`.
@@ -111,14 +79,11 @@ export default defineNuxtConfig({
     // version of this warning.
     firebaseDatabaseId: process.env.NUXT_FIREBASE_DATABASE_ID || '',
 
-    // The cohort a self-serve registration joins. It has to name a real
-    // cohort: the member-create rule re-reads the code document and refuses to
-    // write a member into a cohort the code does not name.
-    registrationCohortId: process.env.NUXT_REGISTRATION_COHORT_ID || 'cohort-01',
+    // Temporary fallback only, while the admin console gains these fields.
+    // Empty means unavailable; there are no hardcoded cohort/offer defaults.
+    registrationCohortId: process.env.NUXT_REGISTRATION_COHORT_ID || '',
+    registrationCodeTtlDays: process.env.NUXT_REGISTRATION_CODE_TTL_DAYS || '',
 
-    // How long an issued code stays redeemable. The claim rule refuses a past
-    // `expiresAt`, so this is the window somebody has to actually sign up.
-    registrationCodeTtlDays: process.env.NUXT_REGISTRATION_CODE_TTL_DAYS || '30',
 
     /**
      * Selar. A product link and a secret, and neither is optional.
@@ -184,19 +149,15 @@ export default defineNuxtConfig({
        * or the full profile URL, whichever got pasted in. Empty drops the
        * row.
        *
-       * Read at BUILD time like `NUXT_PUBLIC_SITE_URL` above it, because this
-       * page is prerendered: the HTML is written during the build, so that is
-       * when the handle has to exist. Changing it means a redeploy, not a
-       * restart.
+       * Deployment metadata, separate from Firestore cohort content.
        */
       instagramHandle: process.env.NUXT_PUBLIC_INSTAGRAM_HANDLE || '',
 
-      /**
-       * What the page advertises and what the webhook checks a sale against.
-       * Not what Selar charges — see `readPrice` in `app/data/landing.ts`.
-       */
-      price,
-      priceCurrency,
+      // Used by the server only when Firestore has no corresponding offer field.
+      price: process.env.NUXT_PUBLIC_PRICE || '',
+      priceCurrency: process.env.NUXT_PUBLIC_PRICE_CURRENCY || '',
+
+
     },
   },
 
@@ -218,7 +179,7 @@ export default defineNuxtConfig({
         {
           name: 'description',
           content:
-            'A 6-week body recomposition challenge for people who are done choosing between losing fat and building muscle. Coached programming, weekly check-ins, and proof you can measure.',
+            'A coached body recomposition challenge for people who are done choosing between losing fat and building muscle. Coached programming, weekly check-ins, and proof you can measure.',
         },
         { property: 'og:type', content: 'website' },
         {
@@ -228,7 +189,7 @@ export default defineNuxtConfig({
         {
           property: 'og:description',
           content:
-            'A 6-week body recomposition challenge. Coached programming, weekly check-ins, and proof you can measure.',
+            'A coached body recomposition challenge. Coached programming, weekly check-ins, and proof you can measure.',
         },
         /**
          * The share card. `summary_large_image` was already being declared

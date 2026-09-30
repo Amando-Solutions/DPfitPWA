@@ -92,14 +92,15 @@ who edits their email on Selar's checkout form produces a sale that matches
 nothing; rather than lose it, the webhook writes it to `unmatchedSales`, which
 is a short queue of people who have paid and are owed a code by hand.
 
-**The price is advertised here and charged there.** `NUXT_PUBLIC_PRICE` is in
-naira (`30000`) and the `₦30,000` on the page is derived from it,
-but Selar's dashboard is what actually charges. The two are kept equal by hand.
-A sale that comes in under the advertised amount *in the same currency* is
-logged as a mismatch and issued anyway — and it is issued anyway because Selar
-converts prices into the buyer's own currency, so a member paying from London
-legitimately pays in pounds, and a strict check would refuse every
-international sale.
+**The offer comes from Firestore first.** The active cohort's `registration` map holds
+`amountMinor`, `currency` and `codeTtlDays`. The checkout URL remains in
+`NUXT_SELAR_PRODUCT_URL`. Missing fields fall back independently to
+`NUXT_PUBLIC_PRICE`, `NUXT_PUBLIC_PRICE_CURRENCY` and
+`NUXT_REGISTRATION_CODE_TTL_DAYS`. No hardcoded business values are used. Selar's dashboard
+still controls the charge, so keep it aligned. Registration snapshots the cohort,
+price and code lifetime; the webhook uses those saved values even after a cohort
+switch. A same-currency underpayment is recorded for manual review, without issuing
+a code. Cross-currency payments retain the existing Selar conversion handling.
 
 **The confirmation page waits rather than knows.** Selar redirects to a fixed
 URL with nothing appended, so the page identifies the buyer from the `dpf_ref`
@@ -112,27 +113,19 @@ returned by any route. The confirmation page says the slot is reserved and to
 check the inbox, then takes itself back to the site after eight seconds — with a
 real link alongside, so it is never a dead end.
 
-**`nuxt generate` will not work.** Prerendering `/` is fine, but a fully static
+**`nuxt generate` will not work.** The page needs current Firestore data. A fully static
 export has no handler behind `/api/*`, and registration would 404 on submit.
 
 ## Decisions worth knowing
 
-**Prerendered, not client-rendered.** The opposite of the PWA's call, for the
-opposite reason: every word here is known at build time and the page's whole job
-is to be found and read by someone who has never heard of DP Fitness. `nitro.prerender`
-crawls in-page links, so adding a route to `pages/` is enough to get it rendered
-to static HTML.
-
-**One live value on a prerendered page.** The hero badge's start date is read
-from `cohorts/{NUXT_REGISTRATION_COHORT_ID}.startDate` by `GET /api/challenge` —
-the same document the member app counts the six weeks from, so what the coach
-sets is what the page says and there is no second copy to keep in step. The
-build bakes whatever the date was then, which is what a crawler is served, and
-`HeroSection` asks again on mount so moving a cohort does not need a deploy. The
-route formats the day in the cohort's own `timezone`, because a browser
-elsewhere formatting the raw instant lands a day either side of it. With no
-service account, no cohort, or no `startDate`, it answers with nulls and the
-badge reads "6-week challenge" — a missing clause rather than a stale promise.
+**Rendered from Firestore on each request.** `/api/challenge` queries for exactly
+one `status: active` cohort, falling back to `NUXT_REGISTRATION_COHORT_ID` only
+when none exists, and exposes only public metadata: name, dates in its
+own timezone, duration, linked published program, week outline, guide descriptions
+and price. Workout prescriptions, guide bodies and member details remain private.
+The page also refreshes every minute and when a tab becomes visible. No active
+cohort or fallback document, ambiguous active cohorts or a failed read clear
+availability. Offer fields missing from both Firestore and the environment disable checkout. See [Firestore setup](../../FIREBASE.md#active-cohort-and-registration).
 
 **Pinned to the light palette.** `data-theme="light"` is set on `<html>` in
 `nuxt.config.ts`. This is one authored composition — a warm paper page with two

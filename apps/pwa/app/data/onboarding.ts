@@ -15,7 +15,7 @@ export const onboardingSlides: [OnboardingSlide, ...OnboardingSlide[]] = [
   {
     id: 'slide-1',
     eyebrow: 'The Challenge',
-    title: 'Six weeks. A new body of evidence.',
+    title: 'Your training. A new body of evidence.',
     illustration: '/onboarding_tour/vector1.svg',
     cta: 'Next',
   },

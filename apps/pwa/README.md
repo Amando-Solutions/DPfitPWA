@@ -1,6 +1,6 @@
 # DP Fitness · Recomp Challenge, member PWA
 
-Member-facing Nuxt PWA for the DP Fitness 6-week recomp challenge.
+Member-facing Nuxt PWA for DP Fitness cohorts.
 Design source: [Figma, DP Fitness](https://www.figma.com/design/B931SXWG53I3zKWa2MS9pY/DP-Fitness?node-id=301-2).
 
 The palette, type ramp and control recipes come from `@dpfit/theme` in
@@ -17,11 +17,11 @@ dependencies are installed once at the root and the scripts are run through it.
 
 ```bash
 bun install              # from the repo root
-cp apps/pwa/.env.example apps/pwa/.env   # optional; the defaults already work
+cp apps/pwa/.env.example apps/pwa/.env   # configure Firebase before starting
 bun run dev:pwa          # http://localhost:3000
 ```
 
-Demo access code: **DP-RECOMP-01**
+Access codes must be issued in Firestore for a real cohort.
 
 Other scripts: `bun run build:pwa`, and from inside `apps/pwa`,
 `bun run preview` and `bun run generate`.
@@ -32,13 +32,13 @@ Other scripts: `bun run build:pwa`, and from inside `apps/pwa`,
 ## How the app is put together
 
 ```
-data/program.ts        authored program content (plan, guides, badges, ranks, inbox)
+Firestore              cohort, program, guides, badges, ranks and member data
         ↓
 lib/datasource/        the ONE contract every screen reads and writes through
   types.ts               DataSource interface: async, maps 1:1 onto REST routes
-  local.ts               localStorage implementation (default)
-  http.ts                HTTP implementation, ready for the backend
-  index.ts               picks one from env
+  firestore.ts           runtime Firestore implementation
+  local.ts / http.ts      isolated development implementations
+  index.ts               constructs FirestoreDataSource
         ↓
 lib/domain/            pure logic: challenge clock, nutrition maths, reward rules
         ↓
@@ -51,26 +51,21 @@ Two rules keep this honest:
 
 1. **No component touches storage or `$fetch`.** Everything goes through
    `useAppStore()`, which goes through `DataSource`.
-2. **Program content and member data are separate.** `data/program.ts` is what
-   the coach authors; everything the member creates lives behind the data source.
+2. **Program content and member data are separate.** Both come from Firestore;
+   `data/program.ts` contains fixtures and seed input, never runtime content.
 
-### Swapping localStorage for an API
+### Firestore is the runtime data source
 
-Implement the backend against the routes named in
-[`lib/datasource/types.ts`](lib/datasource/types.ts): `POST /session`, `GET /me`,
-`GET|POST /me/sessions`, `/me/check-ins`, `/me/photos`, `/notifications`,
-`/threads/:id/messages`, `/threads/:id/messages/:id/reactions`, `/me/badges`,
-`/cohort/leaderboard`, `/me/settings`, then set:
+The PWA always uses Firebase Auth and Firestore. Configure the Firebase connection
+values in `.env.example`. Missing configuration is an error; it never falls back
+to mock content or an HTTP service. `LocalDataSource` and `HttpDataSource` are
+isolated development implementations, not selectable runtime modes.
 
-```bash
-NUXT_PUBLIC_USE_MOCK_DATA=false
-NUXT_PUBLIC_API_BASE=https://api.example.com
-```
+Cohort identity comes from the member document. Active cohort metadata is loaded
+and watched from that document's `cohortId`; the live name takes precedence over
+old access-code/member copies. See [Firestore setup](../../FIREBASE.md).
 
-`HttpDataSource` is already written against that contract. No page, component or
-composable changes.
-
-### What is persisted
+### Historical local fixture storage (not used at runtime)
 
 | Key | Contents |
 | --- | --- |
@@ -145,17 +140,15 @@ streak alive or reaches the leaderboard if it cleared **80% of its prescribed
 sets**. Anything below that still saves in full and still reaches the coach, it
 just earns nothing. The rules live in
 [`lib/domain/rewards.ts`](lib/domain/rewards.ts); the numbers they read
-(`rewardValues`, `badgeTargets`, `ranks`) are program content in
-[`data/program.ts`](data/program.ts). The two elite badge thresholds are a share
+(`rewardValues`, `badgeTargets`, `ranks`) are program content in Firestore. The two elite badge thresholds are a share
 of `challenge.sessionsPerWeek × totalWeeks`, so a 3-day/week cohort is no easier
 than a 4-day one without a spec change.
 
 The leaderboard ranks the cohort on qualifying sessions logged — not RP, weight
 or results — ties broken alphabetically. It is the one reward that cannot be
 answered from the member's own record, so it comes from
-`DataSource.listLeaderboard()` and refreshes on load. In mock mode
-`LocalDataSource` pads the member's real row with a stand-in cohort; the HTTP
-source returns real counts only.
+`DataSource.listLeaderboard()` and refreshes on load from the Firestore cohort
+leaderboard projection. Runtime screens never use the stand-in fixture cohort.
 
 ## Layout model
 
@@ -181,8 +174,6 @@ All configuration is public (bundled into the client), so never put secrets in a
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `NUXT_PUBLIC_USE_MOCK_DATA` | `true` | `true` keeps everything on-device via localStorage. `false` reads from `NUXT_PUBLIC_API_BASE`. |
-| `NUXT_PUBLIC_API_BASE` | *(empty)* | Backend origin, used only when mock data is off. |
 | `NUXT_PUBLIC_APP_ENV` | `development` | Free-form label for the running environment. |
 | `NUXT_PUBLIC_FIREBASE_VAPID_KEY` | *(empty)* | Public Web Push key. Empty hides the push switch on Profile. See [FIREBASE.md → Push notifications](../../FIREBASE.md#push-notifications). |
 

@@ -1,3 +1,4 @@
+import { defaultPreferences } from '~/data/preferences'
 import {
   GoogleAuthProvider,
   createUserWithEmailAndPassword,
@@ -301,6 +302,7 @@ const withId = <T>(snap: QueryDocumentSnapshot<DocumentData>): T =>
 const cohortFrom = (snap: DocumentSnapshot<DocumentData>, liveCalls: LiveCall[]): Cohort | null => {
   if (!snap.exists()) return null
   const data = snap.data() as Partial<CohortDoc>
+  if (data.status !== 'active') return null
   return {
     ...(data as CohortDoc),
     id: snap.id,
@@ -513,14 +515,6 @@ const initialProfile = (user: User, whatsapp = ''): MemberProfile => ({
   displayName: user.displayName ?? '',
   avatarUrl: user.photoURL ?? '',
   whatsapp,
-})
-
-const defaultPreferences = (): MemberPreferences => ({
-  units: 'kg',
-  heightUnits: 'cm',
-  workoutReminders: true,
-  coachMessages: true,
-  weeklyCheckInReminder: true,
 })
 
 const emptyStats = (): MemberStats => ({
@@ -1256,11 +1250,21 @@ export class FirestoreDataSource implements DataSource {
   /** The cohort document, defaulted. See `cohortFrom`. */
   async getCohort(): Promise<Cohort | null> {
     const member = await this.requireMember()
-    const [cohort, calls] = await Promise.all([
-      getDoc(doc(firebaseDb(), 'cohorts', member.cohortId)),
-      getDocs(liveCallsQuery(member.cohortId)),
-    ])
-    return cohortFrom(cohort, liveCallsFrom(calls.docs))
+    const cohortDoc = await getDoc(doc(firebaseDb(), 'cohorts', member.cohortId))
+
+    // If cohort doesn't exist, return null
+    if (!cohortDoc.exists()) return null
+
+    const cohortData = cohortDoc.data()
+    if (!cohortData) return null
+
+    // Only return cohort if it's active (not draft or archived)
+    if (cohortData.status !== 'active') return null
+
+    // Fetch live calls for this active cohort
+    const calls = await getDocs(liveCallsQuery(member.cohortId))
+
+    return cohortFrom(cohortDoc, liveCallsFrom(calls.docs))
   }
 
   /**
@@ -1278,7 +1282,10 @@ export class FirestoreDataSource implements DataSource {
     let cohortSnap: DocumentSnapshot<DocumentData> | null = null
     let calls: LiveCall[] | null = null
     const deliver = () => {
-      if (!stopped && cohortSnap && calls) onCohort(cohortFrom(cohortSnap, calls))
+      if (stopped || !cohortSnap) return
+      // Removal/archive must clear the UI even before live calls answer.
+      if (!cohortSnap.exists() || cohortSnap.data()?.status !== 'active') onCohort(null)
+      else if (calls) onCohort(cohortFrom(cohortSnap, calls))
     }
     const fail = (error: unknown) => {
       if (!stopped) onError?.(error)

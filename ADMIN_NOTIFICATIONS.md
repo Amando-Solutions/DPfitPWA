@@ -291,15 +291,17 @@ started checkout and didn't pay, which is common and not an error.
 
 ### Which cohort paid sales go into
 
-This isn't a console setting. The landing site issues every paid seat into
-the cohort named by `NUXT_REGISTRATION_COHORT_ID` (default `cohort-01`), with
-a redemption window of `NUXT_REGISTRATION_CODE_TTL_DAYS` (default 30). Both are
-environment variables on `apps/web`. Opening sales for a new cohort means
-changing the variable and redeploying the landing site.
+The website queries Firestore for exactly one cohort whose `status` is `active`.
+It reads that cohort's `registration` map (`amountMinor`, `currency`,
+`codeTtlDays`) and linked published program. Missing fields use the corresponding
+environment fallback; Firestore values always win. If no cohort is active,
+`NUXT_REGISTRATION_COHORT_ID` may name an existing non-archived cohort. Archive the previous cohort before activating the next;
+multiple active cohorts are treated as ambiguous, not selected arbitrarily.
 
-The cohort must exist and have a program first. Otherwise every sale fails to
-get a code: the webhook answers 500, and the task has to be replayed from
-Zapier once the cohort is fixed.
+Registrations snapshot the selected cohort and offer. Webhooks fulfil that saved
+cohort and check its saved price, so changing the active cohort does not move
+pending purchases. Environment values are temporary fallbacks, with no hardcoded defaults.
+See [Firestore setup](FIREBASE.md#active-cohort-and-registration).
 
 ---
 
@@ -470,9 +472,10 @@ apps without a reload.
 | Field | Type | Read by | Notes |
 |---|---|---|---|
 | `name` | string | Member app (chat), `createAccessCode` | For example `Cohort 01`. Copied onto codes as `cohortName`. |
-| `status` | `'draft'` \| `'active'` \| `'archived'` | `createAccessCode` | Codes can't be issued for an `archived` cohort. The member app doesn't read it. |
+| `status` | `'draft'` \| `'active'` \| `'archived'` | Website and member app | Website selects the active cohort; member app hides inactive cohort metadata. Codes cannot be issued for archived cohorts. |
 | `startDate`, `endDate` | Timestamp | Scripts | The member app's calendar comes from the program's weeks, not these. The seed and migration scripts place week 1 on `startDate`. |
-| `durationWeeks` | number | | |
+| `durationWeeks` | number | Website | Displayed directly from Firestore. |
+| `registration` | map | Website | `amountMinor`, `currency`, `codeTtlDays`; see Firestore setup. |
 | `timezone` | string | Scripts, and you | An IANA zone such as `Africa/Lagos`. Build live-call times in it. |
 | `coach` | map | Member app, watched | `{ uid, name, title, avatarUrl }`. See below. |
 | `programId`, `programName`, `programVersion` | string, string, number, or `null` each | `createAccessCode`; member app as a fallback | Must be set before codes can be issued. |

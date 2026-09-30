@@ -274,9 +274,9 @@ export interface DataSource {
   /**
    * The member's cohort: the coach, the live call, whether the board is on.
    *
-   * `null` when the document is missing rather than a throw, because every one
+   * `null` when the document is missing or inactive rather than a throw, because every one
    * of those has a defined "not set" rendering — no call card, no board, the
-   * member's own `cohortName` in the chat header — and a cohort that has not
+   * generic cohort chat title — and a cohort that has not
    * been written yet should not take the app down.
    */
   getCohort(): Promise<Cohort | null>

@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import { PACKAGE_ITEMS } from '~/data/landing'
+const challenge = useChallenge()
+const items = computed(() => [
+  ...(challenge.value?.program ? [{ title: challenge.value.program.name, description: 'Your training program.', release: 'Week 1', staged: false }] : []),
+  ...(challenge.value?.guides.map((guide) => ({ title: guide.title, description: guide.description, release: `Week ${guide.unlockWeek}`, staged: guide.unlockWeek > 1 })) ?? []),
+])
 </script>
 
 <template>
@@ -14,8 +18,7 @@ import { PACKAGE_ITEMS } from '~/data/landing'
           Everything you need, nothing you have to figure out.
         </h2>
         <p class="mt-4 font-body text-[17px] leading-[1.7] text-soft">
-          One program. Every guide built in. Delivered in two waves so you're
-          never overwhelmed on day one.
+          The training program and guides included in this cohort.
         </p>
       </div>
 
@@ -27,9 +30,10 @@ import { PACKAGE_ITEMS } from '~/data/landing'
         than under the description, so a scanning reader still sees "name, when"
         as one unit.
       -->
+      <p v-if="!items.length" class="mt-8 text-soft">Package details are not available yet.</p>
       <ol class="mt-14 border-t border-[var(--rule)] lg:mt-[60px]">
         <li
-          v-for="(item, i) in PACKAGE_ITEMS"
+          v-for="(item, i) in items"
           :key="item.title"
           class="grid gap-x-6 gap-y-3 border-b border-[var(--rule)] py-7 last:border-b-0 lg:grid-cols-[377px_1fr_auto] lg:items-start lg:gap-x-10"
         >

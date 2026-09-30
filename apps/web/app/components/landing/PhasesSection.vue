@@ -1,17 +1,23 @@
 <script setup lang="ts">
-import { PHASES, WEEKLY_ITEMS } from '~/data/landing'
+import { WEEKLY_ITEMS } from '~/data/landing'
+const challenge = useChallenge()
+const phases = computed(() => challenge.value?.weeks.map((week) => ({
+  weeks: `Week ${week.number}`, title: week.title || `Week ${week.number}`,
+  description: week.subtitle, featured: false,
+})) ?? [])
 </script>
 
 <template>
   <section id="weeks" class="bg-[var(--text)] py-20 lg:py-[120px]">
     <PageContainer>
       <div class="max-w-[620px]">
-        <p class="eyebrow-section text-[var(--secondary)]">How the 6 weeks unfold</p>
+        <p class="eyebrow-section text-[var(--secondary)]">How the program unfolds</p>
         <h2 class="title-section mt-[18px] text-white">
           A real progression, not the same workout on repeat.
         </h2>
       </div>
 
+      <p v-if="!phases.length" class="mt-8 text-white/70">The program outline is not available yet.</p>
       <ol class="mt-14 grid gap-6 md:grid-cols-3 lg:mt-[68px] lg:gap-[42px]">
         <!--
           The middle card is the turn of the challenge — it is the week the
@@ -19,8 +25,8 @@ import { PHASES, WEEKLY_ITEMS } from '~/data/landing'
           neighbours stay as tinted glass.
         -->
         <li
-          v-for="phase in PHASES"
-          :key="phase.title"
+          v-for="phase in phases"
+          :key="phase.weeks"
           class="rounded-[20px] border p-8 lg:p-[37px]"
           :class="
             phase.featured

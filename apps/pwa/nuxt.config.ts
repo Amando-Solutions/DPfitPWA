@@ -158,14 +158,9 @@ export default defineNuxtConfig({
 
   // Env-driven configuration. Values are overridden at runtime by the matching
   // NUXT_PUBLIC_* variables (see .env.example). Nuxt parses them against the
-  // types declared here, so `useMockData` stays a real boolean.
+  // Firebase connection details identify the database; content lives in Firestore.
   runtimeConfig: {
     public: {
-      // NUXT_PUBLIC_USE_MOCK_DATA: serve every screen from `data/*.ts`.
-      useMockData: process.env.NUXT_PUBLIC_USE_MOCK_DATA !== 'false',
-      // NUXT_PUBLIC_API_BASE: backend origin used when mock data is off and
-      // the REST implementation is selected. See `lib/datasource/index.ts`.
-      apiBase: process.env.NUXT_PUBLIC_API_BASE || '',
       // NUXT_PUBLIC_APP_ENV: free-form label for the running environment.
       appEnv: process.env.NUXT_PUBLIC_APP_ENV || 'development',
       // NUXT_PUBLIC_SUPPORT_EMAIL: the address behind "contact support" on the

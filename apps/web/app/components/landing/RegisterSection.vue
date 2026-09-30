@@ -2,6 +2,7 @@
 import { detectTimezone, isTimezone } from '~/data/timezones'
 
 const price = usePrice()
+const challenge = useChallenge()
 
 /**
  * The whole of registration on this site: the details the coach needs before
@@ -223,7 +224,7 @@ async function onSubmit() {
   // Re-entrancy guard. Enter and a click both land here, and a second request
   // while the first is open would issue against an address that is about to
   // have a code.
-  if (submitting.value || done.value) return
+  if (submitting.value || done.value || !challenge.value?.registrationOpen || !price.value) return
 
   attempted.value = true
   failure.value = ''
@@ -240,7 +241,8 @@ async function onSubmit() {
   try {
     const result = await $fetch<{ ok: true; checkoutUrl: string }>('/api/register', {
       method: 'POST',
-      body: { ...form },
+      body: { ...form, cohortId: challenge.value.id,
+        amountMinor: price.value.minor, currency: price.value.currency },
     })
 
     emit('submit', { ...form })
@@ -375,8 +377,8 @@ async function onSubmit() {
                The browser is mid-navigation to Selar at that point, and a
                button that springs back to life opens a second checkout. -->
           <div class="mt-7 flex flex-wrap items-center gap-3.5 lg:mt-7">
-            <CtaButton type="submit" variant="ink" :disabled="submitting || done">
-              {{ submitting ? 'Taking you to payment…' : `Continue to payment · ${price.label}` }}
+            <CtaButton type="submit" variant="ink" :disabled="submitting || done || !challenge?.registrationOpen">
+              {{ submitting ? 'Taking you to payment…' : challenge?.registrationOpen && price ? `Continue to payment · ${price.label}` : 'Registration unavailable' }}
             </CtaButton>
             <p class="font-body text-[13.5px] text-ink-mute">
               Secure checkout with Selar. Your access code is emailed once
