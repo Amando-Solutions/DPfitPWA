@@ -56,8 +56,22 @@ registration: {
   amountMinor: 3000000, // ₦30,000 in kobo
   currency: 'NGN',
   codeTtlDays: 30, // integer, 1–365
+  preorderStartsAt: Timestamp, // seats are sold only between these two
+  preorderEndsAt: Timestamp,   // on or before `startDate`
 }
 ```
+
+**The pre-order.** The landing site sells seats only between `preorderStartsAt`
+and `preorderEndsAt`. A sale inside the window has its code minted and held
+(`registrations/{ref}.codeHeld`), and the buyer gets a "slot reserved" email.
+When the window ends, the hourly `releasePreorderCodes` function calls the
+landing site's `POST /api/preorder/release`, which asks `createAccessCode` for
+each held code again (extending its expiry to `codeTtlDays` from then) and
+emails it. From then until the cohort's `startDate` is the login window: members
+can sign in, set up their profile, chat and take their first photo, and the
+member app logs no sessions or check-ins. Every date can be moved at any time;
+nothing is scheduled against them, and each read takes them as they stand.
+Moving `startDate` means moving the program's dated weeks and days with it.
 
 Each missing/null/empty offer field falls back independently to the environment:
 
@@ -67,6 +81,8 @@ Each missing/null/empty offer field falls back independently to the environment:
 | `registration.amountMinor` | `NUXT_PUBLIC_PRICE` (major units, converted using the resolved currency) |
 | `registration.currency` | `NUXT_PUBLIC_PRICE_CURRENCY` |
 | `registration.codeTtlDays` | `NUXT_REGISTRATION_CODE_TTL_DAYS` |
+| `registration.preorderStartsAt` | `NUXT_REGISTRATION_PREORDER_STARTS_AT` (ISO 8601) |
+| `registration.preorderEndsAt` | `NUXT_REGISTRATION_PREORDER_ENDS_AT` (ISO 8601) |
 
 There are no hardcoded cohort or offer defaults. Existing, non-empty Firestore
 values win; invalid authored values do not get hidden behind fallbacks. If neither
@@ -593,6 +609,16 @@ bun run deploy:functions
 `REGISTRATION_SERVICE_ACCOUNT` is the `client_email` of the key in
 `NUXT_FIREBASE_SERVICE_ACCOUNT`. Left unset, deploy asks for it. Cloud Functions
 needs the Blaze plan.
+
+`releasePreorderCodes` also needs `PREORDER_RELEASE_URLS` in the same `.env`
+and a secret, set once before the first deploy that includes it:
+
+```bash
+firebase functions:secrets:set PREORDER_RELEASE_SECRET   # same value as NUXT_PREORDER_RELEASE_SECRET
+```
+
+It runs in `europe-west1`, because Cloud Scheduler has no `africa-south1`
+location; it only makes an HTTPS call, so the region costs nothing.
 
 **Order matters:** the function first, then `apps/web`, then the rules. The
 landing site's old build writes codes itself, so the rules cannot go before it

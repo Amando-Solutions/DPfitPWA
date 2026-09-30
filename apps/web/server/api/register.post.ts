@@ -3,7 +3,8 @@
 //
 // This route issues nothing. It records the attempt and hands back a Selar
 // checkout URL; the access code is minted by `fulfilRegistration`, and only
-// when Selar's sale notification arrives. That ordering is the point — an
+// when Selar's sale notification arrives. It only answers during the cohort's
+// pre-order window (`registrationOpen`); after that, sales are closed. That ordering is the point — an
 // earlier version issued a live, redeemable code the moment the form was
 // submitted, which meant anyone who filled it in and walked away held a seat.
 //
@@ -153,7 +154,16 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 503, statusMessage: 'Registration is temporarily unavailable.' })
   }
   if (!active?.challenge.registrationOpen || !active.registration || !active.challenge.price) {
-    throw createError({ statusCode: 503, statusMessage: 'Registration is not open for a cohort yet.' })
+    // Outside the pre-order is the common refusal now, and the one worth
+    // saying plainly: a tab left open past the close has a live-looking form.
+    const preorder = active?.challenge.preorder
+    throw createError({
+      statusCode: 503,
+      statusMessage:
+        preorder?.state === 'closed' ? 'Pre-orders for this cohort have closed.'
+          : preorder?.state === 'upcoming' ? `Pre-orders open ${preorder.startsLabel}.`
+            : 'Registration is not open for a cohort yet.',
+    })
   }
   const { challenge, registration: offer } = active
   const price = challenge.price!

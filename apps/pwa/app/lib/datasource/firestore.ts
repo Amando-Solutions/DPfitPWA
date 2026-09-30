@@ -314,6 +314,19 @@ const cohortFrom = (snap: DocumentSnapshot<DocumentData>, liveCalls: LiveCall[])
 }
 
 /**
+ * A member reads a thread from the moment they joined, and nothing before it.
+ *
+ * Cohort members join over days — the login window between a pre-order
+ * closing and training opening — and what the early arrivals said before
+ * somebody was there is not theirs to scroll back through. On the query rather
+ * than filtered after, so the 200-message window is 200 messages they can see.
+ * One range on the field the thread already orders by, so the automatic
+ * single-field index serves it. Nothing without a join date is filtered.
+ */
+const sinceJoined = (member: Member) =>
+  member.joinedAt ? [where('sentAt', '>=', member.joinedAt)] : []
+
+/**
  * The cohort's scheduled calls, complete ones only. A handful of documents per
  * cohort, so no date filter: one equality query needs no composite index.
  */
@@ -1875,8 +1888,8 @@ export class FirestoreDataSource implements DataSource {
    * takes the 200 at the far end and still hands them back oldest first,
    * which is the order the screen draws in.
    */
-  private threadQuery(ref: CollectionReference<DocumentData>) {
-    return query(ref, orderBy('sentAt', 'asc'), limitToLast(200))
+  private threadQuery(ref: CollectionReference<DocumentData>, member: Member) {
+    return query(ref, ...sinceJoined(member), orderBy('sentAt', 'asc'), limitToLast(200))
   }
 
   /**
@@ -1914,7 +1927,7 @@ export class FirestoreDataSource implements DataSource {
   async listMessages(threadId: ThreadId): Promise<ChatMessageView[]> {
     const member = await this.requireMember()
     const ref = await this.messagesRef(threadId)
-    const snap = await getDocs(this.threadQuery(ref))
+    const snap = await getDocs(this.threadQuery(ref, member))
 
     await this.cacheMyReactions(snap.docs, member.id)
 
@@ -1978,7 +1991,7 @@ export class FirestoreDataSource implements DataSource {
     }
 
     const stop = onSnapshot(
-      this.threadQuery(ref),
+      this.threadQuery(ref, member),
       { includeMetadataChanges: true },
       async (snap) => {
         if (stopped) return
@@ -2057,12 +2070,15 @@ export class FirestoreDataSource implements DataSource {
     onMessage: (message: Message | null) => void,
     onError?: (error: unknown) => void,
   ): Promise<Unsubscribe> {
+    const member = await this.requireMember()
     const ref = await this.messagesRef(threadId)
 
     let stopped = false
 
+    // Filtered like the thread, or a message from before they joined would
+    // light a dot for something the thread will not show them.
     const stop = onSnapshot(
-      query(ref, orderBy('sentAt', 'desc'), limit(1)),
+      query(ref, ...sinceJoined(member), orderBy('sentAt', 'desc'), limit(1)),
       (snap) => {
         if (stopped) return
         const [newest] = snap.docs

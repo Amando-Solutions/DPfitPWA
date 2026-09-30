@@ -51,6 +51,24 @@ export const dateKey = (date: Date | Timestamp): string => {
 }
 
 /**
+ * The calendar day an instant falls on in `timeZone`, as `YYYY-MM-DD`.
+ *
+ * For a date the cohort owns, like its start: midnight in Lagos is still the
+ * evening before in New York, and the day it names is Lagos's. `en-CA` because
+ * it is the locale that formats as year-month-day. An unknown zone falls back
+ * to the device's own day rather than throwing.
+ */
+export const dateKeyIn = (date: Date, timeZone: string): string => {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      year: 'numeric', month: '2-digit', day: '2-digit', timeZone,
+    }).format(date)
+  } catch {
+    return dateKey(date)
+  }
+}
+
+/**
  * How long ago `at` was, in words.
  *
  * Rendered on every read against the trusted clock rather than stored, because

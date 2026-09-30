@@ -73,7 +73,8 @@ const onFile = async (event: Event) => {
     // Decode and downscale here; the store hands the result to the data
     // source, which is what decides where the bytes actually live.
     await store.addPhoto({ pose: pose.value, image: await processImage(file) })
-    unlockedTraining.value = wasFirstPhoto
+    // Not before the cohort starts: there is no workout to hand them to yet.
+    unlockedTraining.value = wasFirstPhoto && !store.beforeStart.value
     const badge = store.consumePendingBadge()
     if (badge) {
       celebrated.value = badge
@@ -141,13 +142,17 @@ const takenLabel = formatDate
         capture="environment"
         @change="onFile"
       />
-      <AppButton :disabled="busy" @click="add">
+      <!-- Before the cohort starts, only the first photo: the "before" is worth
+           taking while they wait, and the weekly ones start with training. -->
+      <AppButton :disabled="busy || !store.canAddPhoto.value" @click="add">
         {{
           pending === 'add'
             ? 'Adding…'
             : pending === 'delete'
               ? 'Deleting…'
-              : `Add ${pose} photo · Week ${store.clock.value.week}`
+              : store.canAddPhoto.value
+                ? `Add ${pose} photo · Week ${store.clock.value.week}`
+                : `More photos open ${store.trainingOpensLabel.value}`
         }}
       </AppButton>
       <p v-if="error" role="alert" class="progress__error -mt-1 mx-0 mb-0 text-[12px] leading-[1.45] text-muted text-center text-primary font-bold">{{ error }}</p>

@@ -8,8 +8,10 @@ const props = withDefaults(
     allDone?: boolean
     /** When the next session opens, e.g. "Tuesday 24 Feb". */
     nextLabel?: string
+    /** Set before the cohort starts: the day training opens, e.g. "Monday 12 Oct". */
+    opensOn?: string
   }>(),
-  { allDone: false, nextLabel: '' },
+  { allDone: false, nextLabel: '', opensOn: '' },
 )
 
 const setsPlanned = computed(() =>
@@ -19,16 +21,18 @@ const setsPlanned = computed(() =>
 /**
  * Why this card is not offering a workout, when it is not.
  *
- *   `null`    the plan has this day open; the card is the usual call to action.
- *   `logged`  it is done, and done today.
- *   `rest`    the plan schedules nothing today, so there is nothing to start.
+ *   `null`     the plan has this day open; the card is the usual call to action.
+ *   `logged`   it is done, and done today.
+ *   `rest`     the plan schedules nothing today, so there is nothing to start.
+ *   `waiting`  the cohort has not started. Signed in, and nothing logs yet.
  *
  * Read off the day rather than passed in as one `locked` flag, which is what
  * this used to take: a rest day and a finished day are both "not now" and they
  * are not the same sentence, and a card that told somebody mid-week "that's the
  * work done" on a scheduled rest day would be congratulating them for nothing.
  */
-const shut = computed<'logged' | 'rest' | null>(() => {
+const shut = computed<'logged' | 'rest' | 'waiting' | null>(() => {
+  if (props.opensOn) return 'waiting'
   if (props.day.canStart) return null
   // Completed *and* today's slot. On a rest day the card falls back to the next
   // session up, which may well be a day they finished on Monday — reading that
@@ -51,6 +55,7 @@ const catchUp = computed(() => props.day.canStart && props.day.status === 'misse
 // Sentence case, because these read as a line of copy rather than a set of
 // labels. The only uppercase mono left on Home is the week/phase eyebrow.
 const eyebrow = computed(() => {
+  if (shut.value === 'waiting') return 'Before the start'
   if (props.allDone) return 'Week complete'
   if (shut.value === 'logged') return 'Logged today'
   if (shut.value === 'rest') return 'Rest day'
@@ -59,6 +64,7 @@ const eyebrow = computed(() => {
 })
 
 const headline = computed(() => {
+  if (shut.value === 'waiting') return `Training opens ${props.opensOn}.`
   if (props.allDone) return 'Rest up. That’s the week done.'
   if (shut.value === 'logged') return 'Rest up. That’s the work done.'
   if (shut.value === 'rest') return 'Nothing scheduled today.'
@@ -69,6 +75,9 @@ const body = computed(() => {
   // `allDone` first, so the eyebrow and the sentence under it agree. A finished
   // week that happens to land on a rest day was reading "Week complete" over
   // "Nothing scheduled today", which is two different pieces of news.
+  if (shut.value === 'waiting') {
+    return 'Until then, set up your profile, say hello in the group chat and take your first progress photo.'
+  }
   if (props.allDone) {
     return 'Every session in the plan is logged. Next week picks up from here.'
   }
@@ -82,6 +91,8 @@ const body = computed(() => {
 })
 
 const cta = computed(() => {
+  // The day is there to read ahead, which is where the card still goes.
+  if (shut.value === 'waiting') return `Preview day ${props.day.dayNumber}`
   if (shut.value) return props.nextLabel ? `Next session ${props.nextLabel}` : 'Back soon'
   return catchUp.value ? `Catch up on day ${props.day.dayNumber}` : 'Start today’s workout'
 })

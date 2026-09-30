@@ -25,6 +25,7 @@
 // out of access logs and referrers, and Zapier's Webhooks action can set one.
 // The query parameter exists because Selar's own hook may not be able to.
 // =============================================================================
+import { brevoConfig } from '../../utils/email'
 import { firestore } from '../../utils/firebase'
 import { findRegistrationForSale, fulfilRegistration } from '../../utils/fulfilment'
 import { describeAmount, isFromSelar, parseSaleEvent } from '../../utils/selar'
@@ -120,13 +121,11 @@ export default defineEventHandler(async (event) => {
       {
         appUrl: config.public.appUrl,
         codeTtlDaysFallback: config.registrationCodeTtlDays,
-        brevo: {
-          apiKey: config.brevoApiKey,
-          senderEmail: config.brevoSenderEmail,
-          senderName: config.brevoSenderName,
-          replyTo: config.brevoReplyTo,
-          templateId: config.brevoTemplateId,
+        preorderFallback: {
+          preorderStartsAt: config.registrationPreorderStartsAt,
+          preorderEndsAt: config.registrationPreorderEndsAt,
         },
+        brevo: brevoConfig(),
       },
     )
     return { ok: true, outcome: result.outcome }

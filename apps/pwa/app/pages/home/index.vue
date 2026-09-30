@@ -310,6 +310,7 @@ const STAT_VALUE =
           :day="store.today.value"
           :all-done="store.weekComplete.value"
           :next-label="nextSessionLabel"
+          :opens-on="store.beforeStart.value ? store.trainingOpensLabel.value : ''"
         />
       </section>
 
@@ -481,9 +482,10 @@ const STAT_VALUE =
       <!-- Held back with the photo prompts, and for the same reason: an
            unread store has no check-in on file, which is indistinguishable
            from one that is due. The card would say "Check in now" to somebody
-           who checked in on Sunday. -->
+           who checked in on Sunday. Absent before the cohort starts too:
+           check-ins open with training, and there is no week to report on. -->
       <section
-        v-if="!unread && store.prefs.value.weeklyCheckInReminder"
+        v-if="!unread && store.prefs.value.weeklyCheckInReminder && !store.beforeStart.value"
         class="home__section home__section--checkin mt-3.25 lg:mt-0 order-4"
       >
         <div :class="CARD">

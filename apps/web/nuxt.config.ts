@@ -83,6 +83,19 @@ export default defineNuxtConfig({
     // Empty means unavailable; there are no hardcoded cohort/offer defaults.
     registrationCohortId: process.env.NUXT_REGISTRATION_COHORT_ID || '',
     registrationCodeTtlDays: process.env.NUXT_REGISTRATION_CODE_TTL_DAYS || '',
+    // The pre-order window, for a cohort whose `registration` map has neither
+    // end set. ISO 8601 with an offset, e.g. 2026-10-01T00:00:00+01:00.
+    registrationPreorderStartsAt: process.env.NUXT_REGISTRATION_PREORDER_STARTS_AT || '',
+    registrationPreorderEndsAt: process.env.NUXT_REGISTRATION_PREORDER_ENDS_AT || '',
+
+    /**
+     * What `POST /api/preorder/release` must be sent as a bearer token.
+     *
+     * The scheduled `releasePreorderCodes` function in `apps/functions` holds
+     * the same value as its `PREORDER_RELEASE_SECRET`. Unset, the route refuses
+     * everything, and codes held during a pre-order are never sent.
+     */
+    preorderReleaseSecret: process.env.NUXT_PREORDER_RELEASE_SECRET || '',
 
 
     /**

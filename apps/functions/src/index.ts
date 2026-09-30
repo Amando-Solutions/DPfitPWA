@@ -7,6 +7,11 @@
 //                    `callers.ts` is how it tells them apart, `access-codes.ts`
 //                    is what it writes.
 //
+// releasePreorderCodes
+//                    Hourly. Calls the landing site's release route, which
+//                    sends the access codes held during a cohort's pre-order
+//                    once it has closed. See `release.ts`.
+//
 // pushNotification, pushMessage (and their *Staging twins)
 //                    The member app's inbox, sent as a phone push to members
 //                    who turned it on. One pair per database, because a trigger
@@ -17,6 +22,7 @@ import { onCall } from 'firebase-functions/https'
 import { mintAccessCode, readInput, type CreateAccessCodeResult } from './access-codes.js'
 import { identifyCaller, REGION } from './callers.js'
 import { pushCohortMessage, pushCohortNotification } from './push.js'
+export { releasePreorderCodes } from './release.js'
 
 /**
  * Beside the data. Both Firestore databases are in `africa-south1`, and a
@@ -40,7 +46,8 @@ setGlobalOptions({ region: REGION, maxInstances: 10 })
  *
  * Resolves to a `CreateAccessCodeResult`. If that email already holds an
  * unused, unexpired code for the cohort, that code comes back with
- * `reused: true` instead of a second one.
+ * `reused: true` instead of a second one, its expiry pushed out to
+ * `expiryDays` from now if it would end sooner.
  *
  * Refuses with `unauthenticated`, `permission-denied`, `invalid-argument`,
  * `failed-precondition` (the cohort is missing, archived or has no program) or
