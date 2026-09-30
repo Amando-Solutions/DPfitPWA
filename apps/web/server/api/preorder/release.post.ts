@@ -1,7 +1,7 @@
 // =============================================================================
 // POST /api/preorder/release — send the access codes a pre-order held.
 //
-// Called every hour by `releasePreorderCodes` in `apps/functions`, and safe to
+// Called every 15 minutes by `releasePreorderCodes` in `apps/functions`, and safe to
 // call by hand: a run before a pre-order closes sends nothing, and a run after
 // sends only what is still held. See `server/utils/release.ts`.
 //

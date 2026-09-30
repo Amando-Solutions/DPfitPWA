@@ -58,7 +58,7 @@ export interface ReleaseResult {
   remaining: number
 }
 
-/** Long enough to cover one slow send, short enough that a crashed run is retried within the hour. */
+/** Long enough to cover one slow send, short enough that a crashed run is retried by the next one. */
 const LEASE_MS = 10 * 60_000
 /** Email attempts before the seat is handed to the manual `emailed == false` queue. */
 const MAX_EMAIL_ATTEMPTS = 3

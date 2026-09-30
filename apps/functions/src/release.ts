@@ -5,7 +5,7 @@
 // site sends it when the cohort's pre-order closes, from
 // `POST /api/preorder/release`. That route does the work — it has the email
 // sender and design and the environment fallbacks for the window, none of
-// which live here — so all this does is call it, every hour.
+// which live here — so all this does is call it, every 15 minutes.
 //
 // No date is scheduled anywhere. Each call reads every cohort's window as it
 // stands, so moving the end of a pre-order moves the release with it, and a
@@ -30,7 +30,7 @@ import { onSchedule } from 'firebase-functions/scheduler'
  */
 const releaseUrls = defineString('PREORDER_RELEASE_URLS', {
   default: '',
-  description: 'Landing-site release endpoints to call hourly (…/api/preorder/release), comma-separated.',
+  description: 'Landing-site release endpoints to call every 15 minutes (…/api/preorder/release), comma-separated.',
 })
 
 /** The same value as NUXT_PREORDER_RELEASE_SECRET on the landing deployments. */
@@ -39,17 +39,19 @@ const releaseSecret = defineSecret('PREORDER_RELEASE_SECRET')
 /**
  * A route answers with `remaining` above zero when its own time budget ran out
  * before every due code was sent. It is asked again straight away rather than
- * an hour later, up to this many times a run.
+ * at the next run, up to this many times a run.
  */
 const MAX_CALLS = 30
 
 export const releasePreorderCodes = onSchedule(
   {
-    schedule: 'every 60 minutes',
+    // A code goes out at most 15 minutes after its pre-order closes. A run
+    // times out at 9, so one always ends before the next begins.
+    schedule: 'every 15 minutes',
     region: 'europe-west1',
     secrets: [releaseSecret],
     timeoutSeconds: 540,
-    // The next hour is the retry; a scheduler retry on top would only overlap it.
+    // The next run is the retry; a scheduler retry on top would only overlap it.
     retryCount: 0,
   },
   async () => {

@@ -8,7 +8,7 @@
 //                    is what it writes.
 //
 // releasePreorderCodes
-//                    Hourly. Calls the landing site's release route, which
+//                    Every 15 minutes. Calls the landing site's release route, which
 //                    sends the access codes held during a cohort's pre-order
 //                    once it has closed. See `release.ts`.
 //
