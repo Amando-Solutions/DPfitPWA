@@ -404,8 +404,7 @@ async function onSubmit() {
                 emailed then.
               </template>
               <template v-else>
-                Secure checkout with Selar. Your access code is emailed once
-                payment clears.
+                Secure checkout with Selar.
               </template>
             </p>
           </div>
