@@ -34,7 +34,7 @@ const next = async () => {
       age: age.value,
       sex: sex.value as Sex,
     })
-    await router.push('/setup/body-metrics')
+    await router.push('/setup/region')
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Could not save that. Check your connection and try again.'
     busy.value = false
@@ -45,7 +45,7 @@ const next = async () => {
 <template>
   <SetupStepShell
     :step="1"
-    :total="3"
+    :total="4"
     eyebrow="About you"
     title="What should we call you?"
     subtitle="This name shows up in Cohort Chat and nowhere else."

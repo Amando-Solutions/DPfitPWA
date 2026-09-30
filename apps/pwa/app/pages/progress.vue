@@ -2,8 +2,10 @@
 // 23 · Progress Photos + 24 · Lightbox
 definePageMeta({ layout: 'app' })
 
+import type { Timestamp } from 'firebase/firestore'
+
 import { processImage } from '~/lib/image'
-import { formatDate } from '~/lib/time'
+import { formatActivityTime } from '~/lib/time'
 import type { BadgeDef, PhotoPose, ProgressPhoto } from '~/data/types'
 
 const store = useAppStore()
@@ -111,7 +113,8 @@ const remove = async () => {
   }
 }
 
-const takenLabel = formatDate
+/** In WAT, labelled, like every activity time: the week above it is the Cohort Clock's. */
+const takenLabel = (at: Timestamp) => formatActivityTime(at, store.cohortZone.value)
 </script>
 
 <template>

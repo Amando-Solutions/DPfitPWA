@@ -55,9 +55,15 @@ const retry = async () => {
 }
 
 const greeting = computed(() => {
-  // The store's clock, not the device's, so the greeting agrees with the date
-  // the rest of the app is working from.
-  const hour = store.now.value.getHours()
+  // The store's clock in the member's region, not the device's, so the greeting
+  // agrees with the day the rest of the app is working from.
+  const hour = Number(
+    new Intl.DateTimeFormat('en-GB', {
+      hour: 'numeric',
+      hourCycle: 'h23',
+      timeZone: store.memberZone.value,
+    }).format(store.now.value),
+  )
   if (hour < 12) return 'Morning'
   if (hour < 17) return 'Afternoon'
   return 'Evening'
@@ -71,11 +77,14 @@ const cohortSummary = computed(() => {
   return [cohort.name, duration].filter(Boolean).join(' · ')
 })
 
+// In the member's region: that is where the midnight it names falls. Formatted
+// in the device's zone, a Lagos midnight read in New York is the evening before.
 const nextSessionLabel = computed(() =>
   store.nextSessionAt.value.toLocaleDateString(undefined, {
     weekday: 'long',
     day: 'numeric',
     month: 'short',
+    timeZone: store.memberZone.value,
   }),
 )
 

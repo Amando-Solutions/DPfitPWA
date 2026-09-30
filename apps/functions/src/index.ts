@@ -12,6 +12,12 @@
 //                    sends the access codes held during a cohort's pre-order
 //                    once it has closed. See `release.ts`.
 //
+// setRegion, logSession, submitCheckIn, logPhoto
+//                    The member writes locked to a day or a week. The day is
+//                    the server's time in the member's stored region; the week
+//                    is the Cohort Clock, in the cohort's zone. The rules refuse
+//                    these writes from a browser. See `member-writes.ts`.
+//
 // pushNotification, pushMessage (and their *Staging twins)
 //                    The member app's inbox, sent as a phone push to members
 //                    who turned it on. One pair per database, because a trigger
@@ -21,6 +27,12 @@ import { setGlobalOptions } from 'firebase-functions'
 import { onCall } from 'firebase-functions/https'
 import { mintAccessCode, readInput, type CreateAccessCodeResult } from './access-codes.js'
 import { identifyCaller, REGION } from './callers.js'
+import {
+  logPhotoHandler,
+  logSessionHandler,
+  setRegionHandler,
+  submitCheckInHandler,
+} from './member-writes.js'
 import { pushCohortMessage, pushCohortNotification } from './push.js'
 export { releasePreorderCodes } from './release.js'
 
@@ -63,6 +75,15 @@ export const createAccessCode = onCall(async (request): Promise<CreateAccessCode
   const batchId = `${caller.batchPrefix}-${new Date().toISOString().slice(0, 7)}`
   return mintAccessCode(input, caller.actor, batchId)
 })
+
+// --- Member writes ----------------------------------------------------------
+// Called by the member app with its own ID token, from
+// `getFunctions(app, 'africa-south1')`. Each takes `database` like
+// `createAccessCode` does, so the staging site writes to the staging database.
+export const setRegion = onCall(setRegionHandler)
+export const logSession = onCall(logSessionHandler)
+export const submitCheckIn = onCall(submitCheckInHandler)
+export const logPhoto = onCall(logPhotoHandler)
 
 // --- Push -------------------------------------------------------------------
 // Staging gets its own pair so the whole path can be tried there first: a

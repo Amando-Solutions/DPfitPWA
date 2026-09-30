@@ -27,18 +27,21 @@ rules_version = '2';
 // WHAT THESE RULES CANNOT DO
 //
 // Rules validate shape, ownership and transitions. They cannot re-derive a
-// value from data they do not have. Specifically, nothing here can check that a
-// session's `setsDone` matches the sets the member actually logged, so
-// `qualifies` — and the reward points that follow from it — is asserted by the
-// client and merely shape-checked here. A determined member could inflate their
-// own totals.
+// value from data they do not have — and they have no time zones, so they
+// cannot say what day it is for a member in New York.
 //
-// The fix is to move the four writes that mint points (`saveSession`,
-// `saveCheckIn`, `awardBadge`, `redeemAccessCode`) behind Callable Functions
-// and deny those paths to clients outright. `FirestoreDataSource` is shaped so
-// each becomes a one-line `httpsCallable`. Until then the exposure is bounded
-// to a member cheating on their own leaderboard position, which is worth
-// knowing about and is not worth blocking launch over.
+// So the writes that are locked to a day or a week are not made here at all.
+// A session, a check-in and a progress photo are written by Callable Functions
+// (`logSession`, `submitCheckIn`, `logPhoto` in `apps/functions`), which read
+// the server's clock and the member's stored region, and the rules below deny
+// those paths to clients outright. The region itself (`members/{uid}.region`)
+// is written only by `setRegion`, which is what keeps a change forward-only.
+//
+// Still client-written: `awardBadge`, `redeemAccessCode`, and the member's own
+// `stats`, which nothing below locks. A determined member could inflate their
+// own totals that way. Moving those behind functions too closes it; until then
+// the exposure is bounded to a member cheating on their own leaderboard
+// position, which is worth knowing about and is not worth blocking launch over.
 // =============================================================================
 
 service cloud.firestore {
@@ -634,6 +637,8 @@ service cloud.firestore {
         // Points cannot be conjured at sign-up.
         && request.resource.data.stats.points == 0
         && request.resource.data.stats.sessionsQualified == 0
+        // Nor a region, whose floor only `setRegion` can stamp.
+        && !('region' in request.resource.data)
         // The cohort has to be the one the code actually belongs to.
         && request.resource.data.cohortId == get(
              /databases/$(database)/documents/accessCodes/$(request.resource.data.accessCode)
@@ -654,6 +659,10 @@ service cloud.firestore {
         && request.resource.data.joinedAt == resource.data.joinedAt
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.programId == resource.data.programId
+        // Where the member's days turn over. `setRegion` writes it, with the
+        // floor that stops a switch west reopening a day; a member who could
+        // write it could set the floor back and log a day twice.
+        && request.resource.data.get('region', null) == resource.data.get('region', null)
         // The one status move a member makes for themselves is finishing
         // setup, in `completeSetup`. Writing `onboarding` back would reopen the
         // two fields locked below; every other move is the console's.
@@ -677,22 +686,27 @@ service cloud.firestore {
       allow delete: if isCoach();
 
       // Everything below a member belongs to that member alone. One rule
-      // rather than eight: sessions, photos, badges, the active session,
-      // notification read state and lifecycle events all share the same
-      // answer, and listing them separately invites one to drift.
+      // rather than eight: badges, the active session, notification read state
+      // and lifecycle events all share the same answer, and listing them
+      // separately invites one to drift.
       //
-      // Check-ins are carved out by name rather than overridden below, because
-      // rules are additive: a narrower block cannot take away what this one
-      // grants, so this one has to not grant it.
+      // Sessions, check-ins and photos are carved out of the write by name
+      // rather than overridden below, because rules are additive: a narrower
+      // block cannot take away what this one grants, so this one has to not
+      // grant it. All three are filed on a day or a week, and the day is the
+      // server's: the functions in `apps/functions/src/member-writes.ts` write
+      // them on the Admin SDK. A member reads them, and nothing more — a logged
+      // session and a sent check-in stay as they are.
       match /{collection}/{docId} {
-        allow read, write: if isSelf(uid) && collection != 'checkIns';
+        allow read: if isSelf(uid);
+        allow write: if isSelf(uid)
+          && !(collection in ['checkIns', 'sessions', 'photos']);
       }
 
-      // A week's check-in is sent once and stays as sent. The week is the
-      // document id, so a second submission for the same week is an update,
-      // and there is no update — nor a delete to clear the way for one.
-      match /checkIns/{weekId} {
-        allow read, create: if isSelf(uid);
+      // A progress photo is the one of the three a member may take back: it
+      // is their image, and deleting it reopens nothing the day-lock guards.
+      match /photos/{photoId} {
+        allow delete: if isSelf(uid);
       }
     }
   }

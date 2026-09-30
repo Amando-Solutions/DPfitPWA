@@ -4,6 +4,7 @@ import { DataSourceError, useDataSourceClient } from '~/lib/datasource'
 import type { ActiveSessionInput, CheckInInput, DeviceClaim } from '~/lib/datasource'
 import { defaultPreferences } from '~/data/preferences'
 import {
+  addDays,
   challengeClock,
   daysBetween,
   isDateKey,
@@ -15,6 +16,13 @@ import { chatNotificationFor, chatNotificationId, reactionsNotificationFor } fro
 import { liveCallFrom, todaysLiveCall } from '~/lib/domain/liveCall'
 import { nutritionTargetsFor } from '~/lib/domain/nutrition'
 import {
+  choiceOf,
+  memberDay,
+  memberZone as zoneOfMember,
+  regionLabel,
+  type RegionChoice,
+} from '~/lib/domain/region'
+import {
   finalPhotoOf,
   finalSessionOf,
   rankLeaderboard,
@@ -23,14 +31,15 @@ import {
 } from '~/lib/domain/rewards'
 
 import {
-  dateKey,
+  COHORT_ZONE_FALLBACK,
+  canonicalZone,
   dateKeyIn,
   relativeLabel,
   restoreClock,
-  startOfNextDay,
   syncClock,
   trustedNow,
   trustedTimestamp,
+  zonedMidnight,
 } from '~/lib/time'
 import type { ProcessedImage } from '~/lib/image'
 import { releasePushDevice } from '~/lib/push'
@@ -701,6 +710,39 @@ const buildStore = () => {
   /** The coach, off the cohort document. `null` before the cohort has loaded. */
   const coach = computed(() => state.value.cohort?.coach ?? null)
 
+  // --- Zones ---------------------------------------------------------------
+  //
+  // Two, and never the device's. The cohort's zone runs the Cohort Clock —
+  // which week it is, for everybody at once — and is what activity dates are
+  // shown in. The member's stored region runs the day-lock — which training
+  // days are open to them — and is what a live call's time is shown in. Both
+  // read the trusted clock. The functions decide the same things again on the
+  // server's clock when anything is written, so these only draw the screens.
+
+  /** The cohort's zone: WAT, for every cohort so far. */
+  const cohortZone = computed(
+    () => canonicalZone(state.value.cohort?.timezone) ?? COHORT_ZONE_FALLBACK,
+  )
+
+  /** The zone the member's days turn over in: their region's, or the cohort's until they pick one. */
+  const memberZone = computed(() => zoneOfMember(state.value.member?.region, cohortZone.value))
+
+  /** The member's region as the picker holds it: the stored one, or West Africa. */
+  const region = computed<RegionChoice>(() => choiceOf(state.value.member?.region))
+
+  /** "US Eastern", "Europe · Paris". */
+  const regionName = computed(() => regionLabel(region.value))
+
+  /**
+   * The member's day, as a key: what opens a training day, what the finisher's
+   * once-a-day rule counts by, and what "before the cohort starts" is measured
+   * on. Their region's date, never earlier than the floor their last region
+   * change left — see `MemberRegion.floor`.
+   */
+  const todayKey = computed(() =>
+    memberDay(now.value, state.value.member?.region, cohortZone.value),
+  )
+
   /**
    * Today's scheduled call, or `null` when today has none.
    *
@@ -720,6 +762,7 @@ const buildStore = () => {
     todaysLiveCall(
       (state.value.cohort?.liveCalls ?? []).flatMap((call) => liveCallFrom(call) ?? []),
       now.value,
+      memberZone.value,
     ),
   )
 
@@ -747,11 +790,28 @@ const buildStore = () => {
     ...[...new Set(state.value.guides.map((g) => g.category).filter(Boolean))].sort(),
   ])
 
-  /** Where the challenge is today, off the dated weeks. The same for the whole cohort. */
-  const clock = computed(() => challengeClock(state.value.weeks, now.value))
+  /**
+   * The Cohort Clock: where the challenge is today, off the dated weeks, in the
+   * cohort's zone. The same for the whole cohort wherever they are, and the
+   * week every entry is filed under — "Week 3 · Overload", the check-in's week,
+   * the guides that have opened.
+   */
+  const clock = computed(() => challengeClock(state.value.weeks, now.value, cohortZone.value))
 
-  /** The week today falls in, with its days. `null` until a schedule has loaded. */
-  const currentWeek = computed(() => weekAt(state.value.weeks, clock.value.today))
+  /**
+   * The week the member's own day falls in, with its days: the plan Home and
+   * Train show. `null` until a schedule has loaded.
+   *
+   * Usually the Cohort Clock's week. Around a week's turn it can be one either
+   * side, for a few hours: at 8 PM Sunday in New York the cohort is in Monday's
+   * week and the member still has Sunday's session open, and in Nairobi the
+   * member's Monday opens two hours before Lagos reaches it. The plan follows
+   * the member so neither session is hidden from them.
+   */
+  const currentWeek = computed(() => weekAt(state.value.weeks, todayKey.value))
+
+  /** `currentWeek`'s number, or the Cohort Clock's before a schedule loads. */
+  const planWeekNumber = computed(() => currentWeek.value?.weekNumber ?? clock.value.week)
 
   /**
    * The day training opens: `cohorts/{id}.startDate`, on the cohort's calendar.
@@ -771,9 +831,9 @@ const buildStore = () => {
     return dateKeyIn(start.toDate(), cohort.timezone)
   })
 
-  /** Signed in before the cohort has started: nothing logs yet. */
+  /** Signed in before the cohort has started, on the member's calendar: nothing logs yet. */
   const beforeStart = computed(
-    () => trainingOpensOn.value !== null && clock.value.today < trainingOpensOn.value,
+    () => trainingOpensOn.value !== null && todayKey.value < trainingOpensOn.value,
   )
 
   /** "Monday 12 Oct", for the screens that say when training opens. */
@@ -803,10 +863,11 @@ const buildStore = () => {
    * the whole week going down in a single sitting is the calendar ceiling in
    * `days` below, not a cap on how many sessions a date may hold.
    */
-  const sessionsToday = computed(() => {
-    const key = dateKey(now.value)
-    return state.value.sessions.filter((s) => dateKey(s.completedAt) === key)
-  })
+  const sessionsToday = computed(() =>
+    state.value.sessions.filter(
+      (s) => (s.dayKey ?? dateKeyIn(s.completedAt, memberZone.value)) === todayKey.value,
+    ),
+  )
 
   /** The latest session logged today, if there is one. Read for copy, not gating. */
   const sessionToday = computed(() => sessionsToday.value[0] ?? null)
@@ -842,7 +903,7 @@ const buildStore = () => {
    * the list on Train and the dots on Home cannot drift apart.
    */
   const weekDays = (weekNumber: number): WorkoutDayView[] =>
-    weekNumber === clock.value.week
+    weekNumber === planWeekNumber.value
       ? days.value
       : resolveWeek(state.value.weeks.find((w) => w.weekNumber === weekNumber) ?? null)
 
@@ -856,7 +917,7 @@ const buildStore = () => {
         .filter((s) => planWeekOf(s) === week.weekNumber)
         .map((s) => s.dayId),
     )
-    const today = clock.value.today
+    const today = todayKey.value
     // Nothing opens before the cohort does, whatever the days are dated.
     const nightsToStart = beforeStart.value ? daysBetween(today, trainingOpensOn.value!) : 0
 
@@ -902,9 +963,9 @@ const buildStore = () => {
     const inWeek = days.value.find((d) => d.status === 'upcoming')
     if (inWeek) return inWeek
 
-    const today = clock.value.today
+    const today = todayKey.value
     for (const week of state.value.weeks) {
-      if (week.weekNumber <= clock.value.week) continue
+      if (week.weekNumber <= planWeekNumber.value) continue
       const day = planDaysOf(week).find((d) => d.date > today)
       if (day) {
         return {
@@ -919,7 +980,7 @@ const buildStore = () => {
   })
 
   /**
-   * Local midnight on the date the next session opens.
+   * Midnight in the member's region on the date the next session opens.
    *
    * Not simply tomorrow. Sessions are pinned to their dates, so after Monday's
    * day 1 the next one is whenever day 2 is dated; a member on a three-day plan
@@ -932,9 +993,18 @@ const buildStore = () => {
    */
   const nextSessionAt = computed(() => {
     const nights = Math.max(nextUp.value?.opensInNights ?? 1, 1)
-    const at = startOfNextDay(now.value)
-    at.setDate(at.getDate() + nights - 1)
-    return at
+    return zonedMidnight(addDays(todayKey.value, nights), memberZone.value)
+  })
+
+  /**
+   * When anything date-shaped next changes: the member's next midnight or the
+   * cohort's, whichever is sooner. The first opens a day; the second can move
+   * the Cohort Clock into a new week. What the clock plugin wakes for.
+   */
+  const nextDayAt = computed(() => {
+    const member = zonedMidnight(addDays(todayKey.value, 1), memberZone.value)
+    const cohort = zonedMidnight(addDays(clock.value.today, 1), cohortZone.value)
+    return member < cohort ? member : cohort
   })
 
   /**
@@ -1317,7 +1387,7 @@ const buildStore = () => {
    * of the same id. Omitted, or naming the current week, it changes nothing.
    */
   const getDay = (id: string, weekNumber?: number): WorkoutDayView | undefined => {
-    if (weekNumber !== undefined && weekNumber !== clock.value.week) {
+    if (weekNumber !== undefined && weekNumber !== planWeekNumber.value) {
       const picked = weekDays(weekNumber).find((d) => d.id === id)
       if (picked) return picked
     }
@@ -1338,7 +1408,7 @@ const buildStore = () => {
     const elsewhere = state.value.weeks.flatMap((w) => w.days).find((d) => d.id === id)
     if (!elsewhere) return undefined
     const opensInNights = isDateKey(elsewhere.date)
-      ? daysBetween(clock.value.today, elsewhere.date)
+      ? daysBetween(todayKey.value, elsewhere.date)
       : null
     return {
       ...elsewhere,
@@ -1356,7 +1426,7 @@ const buildStore = () => {
    */
   const activeSessionWeek = computed(() => {
     const active = state.value.activeSession
-    return active ? (active.planWeek ?? clock.value.week) : null
+    return active ? (active.planWeek ?? planWeekNumber.value) : null
   })
 
   /**
@@ -1365,7 +1435,7 @@ const buildStore = () => {
    * Both halves, because ids repeat across weeks: with week 3's `day-3` half
    * logged, opening week 1's `day-3` is a different session, not a resume.
    */
-  const isActiveDay = (dayId: string, weekNumber: number = clock.value.week) =>
+  const isActiveDay = (dayId: string, weekNumber: number = planWeekNumber.value) =>
     state.value.activeSession?.dayId === dayId && activeSessionWeek.value === weekNumber
 
   /**
@@ -1511,6 +1581,15 @@ const buildStore = () => {
 
   const completeSetup = async () => {
     state.value.member = await data.completeSetup()
+  }
+
+  /**
+   * Where the member's days turn over, from now on. Nothing already logged
+   * moves, and the day they are in cannot be re-entered: the server stamps the
+   * floor that makes that true. See `MemberRegion`.
+   */
+  const setRegion = async (choice: RegionChoice) => {
+    state.value.member = await data.setRegion(choice)
   }
 
   const signOut = async () => {
@@ -1674,7 +1753,7 @@ const buildStore = () => {
   const finishSession = async () => {
     const active = state.value.activeSession
     if (!active) return null
-    const planWeek = activeSessionWeek.value ?? clock.value.week
+    const planWeek = activeSessionWeek.value ?? planWeekNumber.value
     const day = getDay(active.dayId, planWeek)
 
     const setsTotal = active.exercises.reduce((n, e) => n + e.sets.length, 0)
@@ -1928,6 +2007,11 @@ const buildStore = () => {
     announcements,
     weeks: computed(() => state.value.weeks),
     currentWeek,
+    planWeekNumber,
+    cohortZone,
+    memberZone,
+    region,
+    regionName,
     trainingOpensOn,
     trainingOpensLabel,
     beforeStart,
@@ -1952,9 +2036,11 @@ const buildStore = () => {
     now,
     nowTs,
     clock,
+    todayKey,
     sessionToday,
     trainingLocked,
     nextSessionAt,
+    nextDayAt,
     targets,
     days,
     today,
@@ -1999,6 +2085,7 @@ const buildStore = () => {
     redeemAccessCode,
     saveProfile,
     completeSetup,
+    setRegion,
     signOut,
     startSession,
     persistActiveSession,

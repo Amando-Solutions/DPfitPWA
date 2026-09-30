@@ -3,7 +3,7 @@ import { Timestamp } from 'firebase/firestore'
 
 import { EDIT_WINDOW_MS, addressedUidsOf } from '~/lib/chat'
 import { storage } from '~/lib/storage'
-import { dateKey, trustedNow, trustedTimestamp } from '~/lib/time'
+import { COHORT_ZONE_FALLBACK, dateKeyIn, trustedNow, trustedTimestamp } from '~/lib/time'
 import {
   DataSourceError,
   type ActiveSessionInput,
@@ -34,7 +34,8 @@ import {
 import { coachSeed, cohortSeed } from '~/data/community'
 import { qualifyingSessions, sessionQualifies } from '~/lib/domain/rewards'
 import { prescribedSets } from '~/lib/domain/sets'
-import { resolvePlanWeek, weekOf } from '~/lib/domain/challenge'
+import { weekOf } from '~/lib/domain/challenge'
+import { memberDay, type RegionChoice } from '~/lib/domain/region'
 import type { ProcessedImage } from '~/lib/image'
 import type {
   ActiveSessionDoc,
@@ -384,6 +385,19 @@ export class LocalDataSource implements DataSource {
     return this.updateMember({ status: 'active' })
   }
 
+  /** The `setRegion` function's rule, on device: the day being left is the floor. */
+  async setRegion(choice: RegionChoice): Promise<Member> {
+    const member = await this.requireMember()
+    const now = trustedNow()
+    return this.updateMember({
+      region: {
+        ...choice,
+        since: Timestamp.fromDate(now),
+        floor: memberDay(now, member.region, COHORT_ZONE_FALLBACK),
+      },
+    })
+  }
+
   // =========================================================================
   // Authored content
   //
@@ -412,7 +426,7 @@ export class LocalDataSource implements DataSource {
    */
   private async weeks(): Promise<TrainingWeek[]> {
     const member = await this.getMember()
-    return trainingWeeks(dateKey(member?.joinedAt ?? trustedTimestamp()))
+    return trainingWeeks(dateKeyIn(member?.joinedAt ?? trustedTimestamp(), COHORT_ZONE_FALLBACK))
   }
 
   async listGuides(): Promise<Guide[]> {
@@ -489,12 +503,15 @@ export class LocalDataSource implements DataSource {
       program.qualifyingSetPercent,
     )
 
-    const weekNumber = weekOf(await this.weeks(), log.completedAt)
+    // No day-lock here: the `logSession` function is where that lives, and on
+    // device there is nothing to protect it from but the developer.
+    const completedAt = trustedTimestamp()
     const record: SessionLog = {
       ...log,
       id: uid('session'),
-      weekNumber,
-      planWeek: resolvePlanWeek(log.planWeek, weekNumber),
+      completedAt,
+      weekNumber: weekOf(await this.weeks(), completedAt, COHORT_ZONE_FALLBACK),
+      dayKey: memberDay(completedAt.toDate(), member.region, COHORT_ZONE_FALLBACK),
       qualifies,
       // A session below the threshold saves in full and still reaches the
       // coach. It just earns nothing.
@@ -508,12 +525,6 @@ export class LocalDataSource implements DataSource {
     storage.write(KEY.sessions, next)
     await this.recountStats({ sessions: next })
     return record
-  }
-
-  async deleteSession(id: string): Promise<void> {
-    const next = (await this.listSessions()).filter((s) => s.id !== id)
-    storage.write(KEY.sessions, next)
-    await this.recountStats({ sessions: next })
   }
 
   async getActiveSession(): Promise<ActiveSessionDoc | null> {
@@ -536,7 +547,7 @@ export class LocalDataSource implements DataSource {
     await this.requireMember()
     const all = await this.listCheckIns()
     const submittedAt = trustedTimestamp()
-    const weekNumber = weekOf(await this.weeks(), submittedAt)
+    const weekNumber = weekOf(await this.weeks(), submittedAt, COHORT_ZONE_FALLBACK)
     if (all.some((c) => c.weekNumber === weekNumber)) {
       throw new DataSourceError(
         `Your week ${weekNumber} check-in is already in.`,
@@ -573,7 +584,7 @@ export class LocalDataSource implements DataSource {
     const record: ProgressPhoto = {
       id: uid('photo'),
       pose: input.pose,
-      weekNumber: weekOf(await this.weeks(), takenAt),
+      weekNumber: weekOf(await this.weeks(), takenAt, COHORT_ZONE_FALLBACK),
       image: await this.uploadImage(input.image, 'progress'),
       takenAt,
     }

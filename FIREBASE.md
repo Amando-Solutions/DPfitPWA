@@ -22,11 +22,11 @@ one. Read them before changing anything in `app/lib/datasource/firestore.ts`.
 | `programs/{id}/weeks/{weekId}` | One week of the block: its number, title and dates. `week-1`, `week-2`, … — see **The schedule**. |
 | `programs/{id}/weeks/{weekId}/days/{dayId}` | One training day in that week, with the date it falls on. |
 | `programs/{id}/guides/{guideId}` | The guide library. |
-| `members/{uid}` | The member. Keyed by the Firebase Auth uid, so rules are `request.auth.uid == uid` with no lookup. |
-| `members/{uid}/sessions/{id}` | Workout logs. |
+| `members/{uid}` | The member. Keyed by the Firebase Auth uid, so rules are `request.auth.uid == uid` with no lookup. `region` is written only by `setRegion` — see **Days and regions**. |
+| `members/{uid}/sessions/{id}` | Workout logs. Written only by `logSession`. |
 | `members/{uid}/state/activeSession` | The workout in progress. A fixed id, because there is only ever one. |
-| `members/{uid}/checkIns/week-{n}` | One per week, enforced by the key. |
-| `members/{uid}/photos/{id}` | Progress photos. |
+| `members/{uid}/checkIns/week-{n}` | One per week, enforced by the key. Written only by `submitCheckIn`. |
+| `members/{uid}/photos/{id}` | Progress photos. Filed only by `logPhoto`; the member may delete one. |
 | `members/{uid}/badges/{badgeId}` | Awards, keyed so a double-award is a no-op. |
 | `members/{uid}/notificationState/{id}` | Read markers. Present means read. |
 | `members/{uid}/pushDevices/{id}` | One browser the inbox is pushed to: its FCM token and the sign-in that registered it. See **Push notifications**. |
@@ -152,15 +152,15 @@ shape-checked server-side.
 their own leaderboard position and badge unlocks; they cannot touch anyone
 else's data, read another member's profile, or claim a code that isn't theirs.
 
-Closing it means moving the four writes that mint points behind Callable
-Functions and denying those paths to clients outright:
+Sessions, check-ins and progress photos have already moved: they are filed on a
+day or a week, and a day read off the phone could be moved by the phone's owner.
+`logSession`, `submitCheckIn` and `logPhoto` write them now, and the rules deny
+those paths to clients — see [Days and regions](#days-and-regions). Closing the
+rest means the same for what is left:
 
 - `redeemAccessCode`
-- `saveSession`
-- `saveCheckIn`
 - `awardBadge`
-
-`FirestoreDataSource` is shaped so each becomes a one-line `httpsCallable`.
+- the member's own `stats`, which the member update rule does not lock
 
 ## Answered once, at setup
 
@@ -186,7 +186,89 @@ is optional:
 
 The leaderboard row is read with `getAfter`, because redemption writes it in the
 same transaction that creates the member document, and it may also keep the name
-it already holds: `deleteSession` merges only the count.
+it already holds: `logSession` merges only the count.
+
+**The one exception is the region.** `members/{uid}.region` is asked at setup
+(its own step, after About you) and stays editable from Profile, because members
+travel: somebody based in the US flying home to Lagos for a cohort has to be able
+to move their days before the trip. It is still locked against the client — the
+create and update rules refuse the field — because only `setRegion` may write it.
+See below.
+
+## Days and regions
+
+Two clocks, and neither is the phone's.
+
+| | Zone | Decides |
+| --- | --- | --- |
+| **The Cohort Clock** | `cohorts/{id}.timezone` (`Africa/Lagos`, WAT) | Which week it is, for everybody at once. The `weekNumber` on every session, check-in and photo; the week label; guide unlocks; the check-in's week. |
+| **The member's day** | `members/{uid}.region.timezone` (the cohort's zone until they pick one) | Which training days are open. A day opens at midnight *there*, stays open until it is logged, and is locked once logged. The finisher's once-a-day rule counts on it too, and so does "before the cohort starts". |
+
+The time is the server's in both: the functions use their own clock, and the app
+uses the network-corrected one in `lib/time.ts` to draw the same answers. No day
+is ever read with `getDate()` or the device's zone — a Cloud Function runs in
+UTC, and a phone's zone is its owner's to change. `dateKeyIn` always takes a zone
+by name.
+
+### The region
+
+```ts
+region: {
+  id: 'west-africa' | 'uk-ireland' | 'us-eastern' | 'us-central'
+    | 'us-pacific' | 'other-africa' | 'europe' | 'other'
+  timezone: string     // IANA, e.g. America/New_York — not the label, so DST just works
+  since: Timestamp     // when it took effect, the server's time
+  floor: string | null // YYYY-MM-DD: the member's day when they switched, under the old zone
+}
+```
+
+The list is in two places that must agree: `REGIONS` in
+`apps/functions/src/regions.ts` (what `setRegion` accepts) and in
+`apps/pwa/app/lib/domain/region.ts` (what the picker shows). The five specific
+options carry their zone. Other Africa, Europe and Other are too broad for one,
+so the member picks a zone from that area and that zone is stored.
+
+**A change is forward-only.** Nothing already logged is re-read: every session
+carries `dayKey`, the member's day it was logged on, fixed at write. And the day
+the member is in when they switch becomes the `floor`, below which their day
+never reads again. So at 1 AM Tuesday in Lagos, switching to New York (8 PM
+Monday) keeps them on Tuesday until New York reaches it — Monday cannot be
+reopened, and flipping back and forth only ever moves the day forward. Switching
+east applies at once. `apps/functions/tests/day-lock.test.ts` walks through these.
+
+### The functions
+
+All four are callables in `africa-south1`, called by the member app with its own
+ID token, and each takes `database` like `createAccessCode`. Each checks the same
+standing the rules' `signedIn()` does — the latest sign-in, the membership's
+email, a trusted sign-in — because a function bypasses the rules.
+
+| Function | Writes | Refuses |
+| --- | --- | --- |
+| `setRegion` | `members/{uid}.region`, with the floor | an id or zone not on the list |
+| `logSession` | `members/{uid}/sessions/{id}`, the stats and the leaderboard row | a day before the cohort starts, not yet open on the member's calendar, or already logged; a second finisher on one member day |
+| `submitCheckIn` | `members/{uid}/checkIns/week-{n}`, on the Cohort Clock's week | before the cohort starts; a second for the week |
+| `logPhoto` | `members/{uid}/photos/{id}`, dated and on the Cohort Clock's week | a second photo before the cohort starts |
+
+Session ids are stable — `w{planWeek}-{dayId}`, or `{dayKey}-{dayId}` for the
+finisher — so two finishes of the same day racing cannot both land. Sessions from
+before have random ids and are found by query.
+
+Around a week's turn the two clocks can disagree for a few hours, on purpose. At
+8 PM Sunday in New York the Cohort Clock is in Monday's week, so a session logged
+then is filed under the new week while it catches up a day of the old one. In
+Nairobi the member's Monday opens two hours before Lagos reaches it. The app's
+plan follows the member's day (`store.currentWeek`); the label and the filing
+follow the Cohort Clock (`store.clock`).
+
+### What is shown in which zone
+
+- **Live calls** are shown in the member's region, with the WAT slot beside it
+  when the two differ. The call itself never moves.
+- **Activity times** — a session in the exercise history, a progress photo, the
+  "Logged" time on finishing — are shown in WAT and labelled "WAT", never
+  converted. A converted date could name a day outside the week it is filed
+  under.
 
 ## Indexes
 
@@ -625,6 +707,14 @@ landing site's old build writes codes itself, so the rules cannot go before it
 is replaced — and they refuse the admin console's current direct write, so it
 stops issuing codes until it calls the function.
 
+The day-lock functions (`setRegion`, `logSession`, `submitCheckIn`, `logPhoto`)
+go the same way: **functions, then the member app, then the rules.** The new app
+build cannot log anything until the functions exist. The old build writes
+sessions, check-ins and photos itself, so once the rules land an installed app
+still on it cannot log until it picks up the new build — deploy the rules after
+installed apps have had a chance to update (the service worker takes it on the
+next launch).
+
 ## What a code contains
 
 The contract `createAccessCode` writes and `redeemAccessCode` and the claim rule
@@ -692,12 +782,13 @@ programs/recomp-six-week-v1/
 
 **The week the challenge is in is a date comparison.** Today falls in the
 latest week whose `startDate` has arrived — before week 1 starts that is week 1,
-after the last week ends it stays the last. A day is today's session on its
-`date`, open to catch up on until its week ends, and shut before its date. This
-is the cohort's calendar, not the member's: a member who joins in week 3 starts
-in week 3. `weekNumber` on every session, check-in and photo is resolved against
-the same weeks, so "this week" on screen and the week a log is filed under
-cannot disagree.
+after the last week ends it stays the last. That "today" is the cohort's, in the
+cohort's zone: a member who joins in week 3 starts in week 3, and a member in New
+York is in the same week as one in Lagos at the same instant. `weekNumber` on
+every session, check-in and photo is resolved against the same weeks by the
+function that writes it, so "this week" on screen and the week a log is filed
+under cannot disagree. A day opens on its `date` *on the member's own calendar*
+and stays open until logged — see [Days and regions](#days-and-regions).
 
 What an admin has to get right, because a rule cannot check any of it:
 
@@ -861,10 +952,12 @@ Each call is a one-off. Nothing repeats: a weekly call is one document per
 week. The app reads its member's cohort with
 `where('cohortId', '==', member.cohortId)` — one equality filter, so no
 composite index — alongside the cohort document, and Home shows the call on
-the member's current calendar day, if there is one (`todaysLiveCall` in
-`lib/domain/liveCall.ts`): upcoming with a disabled button, live with a join
-button, then ended for the rest of the day. A document missing `startsAt` or an
-http(s) `joinUrl` is no call (`liveCallFrom`).
+the member's current calendar day in their stored region, if there is one
+(`todaysLiveCall` in `lib/domain/liveCall.ts`): upcoming with a disabled button,
+live with a join button, then ended for the rest of the day. Its time is shown
+in the member's region as a courtesy — "2:00 – 3:00 PM your time · 7:00 PM WAT"
+— and the slot itself is the same instant for everybody. A document missing
+`startsAt` or an http(s) `joinUrl` is no call (`liveCallFrom`).
 
 Rules: operators write, with the shape checked; a member reads only calls whose
 `cohortId` is their own cohort. Nothing else is involved — no scheduled

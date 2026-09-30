@@ -48,8 +48,8 @@ const finish = async () => {
 
 <template>
   <SetupStepShell
-    :step="3"
-    :total="3"
+    :step="4"
+    :total="4"
     back="/setup/body-metrics"
     eyebrow="Your rhythm"
     title="What's your main focus this round?"

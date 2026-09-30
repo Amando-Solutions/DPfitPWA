@@ -664,6 +664,45 @@ export interface MemberStats {
   lastSessionAt: Timestamp | null
 }
 
+/** One of `REGIONS` in `lib/domain/region`. */
+export type RegionId =
+  | 'west-africa'
+  | 'uk-ireland'
+  | 'us-eastern'
+  | 'us-central'
+  | 'us-pacific'
+  | 'other-africa'
+  | 'europe'
+  | 'other'
+
+/**
+ * Where the member's days turn over: `members/{uid}.region`.
+ *
+ * The day-lock reads this, never the phone. A training day opens at midnight in
+ * `timezone`, on the server's clock, so a member in New York is not handed
+ * Monday's session at 7 PM on Sunday because it is already Monday in Lagos —
+ * and winding the phone's zone back does not hand them a day twice.
+ *
+ * Written only by the `setRegion` function; `firestore.rules` refuses it from a
+ * client. That is what keeps a change one-way: see `floor`.
+ */
+export interface MemberRegion {
+  id: RegionId
+  /**
+   * The IANA zone behind the option, e.g. `America/New_York`. Stored rather
+   * than the label so daylight saving moves the member's midnight on its own.
+   */
+  timezone: string
+  /** When this region took effect. The server's time. */
+  since: Timestamp
+  /**
+   * The member's day when they switched, read under the zone they left. Their
+   * day never reads earlier than this, so switching west cannot reopen a day
+   * that was already under way, and flipping back and forth only moves forward.
+   */
+  floor: DateKey | null
+}
+
 export type MemberStatus = 'onboarding' | 'active' | 'paused' | 'completed'
 
 export interface MemberDoc extends UpdatedBy {
@@ -699,6 +738,12 @@ export interface MemberDoc extends UpdatedBy {
   accessCode: string
   /** When the challenge clock starts for this member. */
   joinedAt: Timestamp
+  /**
+   * Absent until the member picks one at setup, and on every membership from
+   * before regions existed. Absent reads as the cohort's own zone — WAT — which
+   * is what everybody was on before.
+   */
+  region?: MemberRegion
   profile: MemberProfile
   prefs: MemberPreferences
   stats: MemberStats
@@ -799,6 +844,12 @@ export interface StoredImage {
   bytes: number
 }
 
+/**
+ * Written by the `logSession` function, never by the member app: the rules
+ * refuse a session from a client. The id is stable — `w{planWeek}-{dayId}`, or
+ * `{dayKey}-{dayId}` for the finisher — so a day cannot be logged twice even by
+ * two finishes racing. Sessions from before have random ids.
+ */
 export interface SessionLogDoc {
   /** The `days` document this session was logged against. Shared across weeks. */
   dayId: string
@@ -820,6 +871,15 @@ export interface SessionLogDoc {
    * own week. Read it through `planWeekOf`.
    */
   planWeek?: number
+  /**
+   * The member's calendar day it was logged on, in their region at the time.
+   *
+   * Fixed at write, which is what makes a region change forward-only: a day
+   * already spent is never re-read under a new zone. `weekNumber` is the Cohort
+   * Clock's week and can be the next one — at 8 PM Sunday in New York it is
+   * already Monday in Lagos. Absent on sessions written before regions.
+   */
+  dayKey?: DateKey
   completedAt: Timestamp
   durationSeconds: number
   volumeKg: number
@@ -877,8 +937,9 @@ export type ActiveSession = WithId<ActiveSessionDoc>
 // --- Check-ins ----------------------- `members/{uid}/checkIns/week-{n}` -----
 //
 // The document id is the week (`week-3`), so one check-in per week is enforced
-// by the key. Once sent it is final: the rules allow the create and nothing
-// after it.
+// by the key. The week is the Cohort Clock's, in the cohort's zone, decided by
+// the `submitCheckIn` function when it writes; the rules allow a member no write
+// here at all, so once sent it is final.
 
 export type TrainingFeel = 'too-easy' | 'just-right' | 'too-hard'
 
@@ -900,6 +961,10 @@ export interface CheckInDoc {
 export type CheckIn = WithId<CheckInDoc>
 
 // --- Progress photos ---------------------- `members/{uid}/photos/{photoId}` -
+//
+// Filed by the `logPhoto` function, which stamps `takenAt` and the Cohort
+// Clock's `weekNumber`. The member uploads the image and may delete a photo;
+// only the function creates one.
 
 export type PhotoPose = 'front' | 'side' | 'back'
 

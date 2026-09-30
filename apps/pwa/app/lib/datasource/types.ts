@@ -32,6 +32,7 @@ import type {
   TrainingWeek,
   TypingPeer,
 } from '~/data/types'
+import type { RegionChoice } from '~/lib/domain/region'
 import type { ProcessedImage } from '~/lib/image'
 
 /**
@@ -233,6 +234,16 @@ export interface DataSource {
   /** Ends onboarding: `status` becomes `active` and a lifecycle event is written. */
   completeSetup(): Promise<Member>
 
+  /**
+   * Where the member's days turn over, from now on: `members/{uid}.region`.
+   *
+   * Never written with the rest of the member document. The server stamps the
+   * floor that keeps the change forward-only — see `MemberRegion.floor` — so
+   * the Firestore implementation calls the `setRegion` function, and the rules
+   * refuse the field from a client. Resolves to the member as stored.
+   */
+  setRegion(choice: RegionChoice): Promise<Member>
+
   // =========================================================================
   // Authored content — the program and the cohort
   //
@@ -332,8 +343,17 @@ export interface DataSource {
 
   // --- Workout logging ------------------- `members/{uid}/sessions/{id}` ----
   listSessions(): Promise<SessionLog[]>
+  /**
+   * Log a finished workout, against the day-lock.
+   *
+   * Against Firestore this is the `logSession` function, which decides the day
+   * on the server's clock in the member's stored region and refuses a day that
+   * is not open or already logged, with the reason as the message. It reads
+   * only the member's own work off `log` — the day, its week, the sets, the
+   * note, the proof — and decides the rest itself. There is no delete: a
+   * logged day stays logged.
+   */
   saveSession(log: SessionInput): Promise<SessionLog>
-  deleteSession(id: string): Promise<void>
 
   // --- Active session -------------- `members/{uid}/state/activeSession` ----
   getActiveSession(): Promise<ActiveSessionDoc | null>
@@ -344,12 +364,14 @@ export interface DataSource {
   /**
    * One a week, and final once sent. A second submission for a week that
    * already has one is refused with `check-in-submitted` — it does not
-   * overwrite, and it does not pay out twice.
+   * overwrite, and it does not pay out twice. The week is the Cohort Clock's,
+   * decided by the `submitCheckIn` function on the server's clock.
    */
   saveCheckIn(input: CheckInInput): Promise<CheckIn>
 
   // --- Progress photos ------------------- `members/{uid}/photos/{id}` -----
   listPhotos(): Promise<ProgressPhoto[]>
+  /** Uploads, then files it through the `logPhoto` function, which dates it. */
   savePhoto(input: PhotoInput): Promise<ProgressPhoto>
   deletePhoto(id: string): Promise<void>
 
@@ -694,11 +716,15 @@ export type SessionInput = Omit<
   SessionLogDoc,
   | 'createdAt'
   | 'weekNumber'
+  | 'dayKey'
   | 'qualifies'
   | 'rewardPoints'
   | 'programId'
   | 'programVersion'
->
+> & {
+  /** Required here, unlike on old documents: the day-lock needs to know which week's day. */
+  planWeek: number
+}
 
 export type ActiveSessionInput = Omit<ActiveSessionDoc, 'updatedAt'>
 

@@ -105,6 +105,16 @@ device clock, which means `trustedNow()` stays a synchronous read and the app
 still works offline on the last known offset. `plugins/clock.client.ts` re-syncs
 on launch and on return to the foreground, and rolls the date over at midnight.
 
+Nor is the day read in the phone's time zone, which its owner can change just as
+easily. A day opens at midnight in the member's **region** — picked at setup,
+changeable from Profile, stored as an IANA zone on `members/{uid}.region` — and
+the week is the **Cohort Clock**'s, in the cohort's zone (WAT). What the app
+works out only draws the screens: sessions, check-ins and photos are written by
+Cloud Functions that decide the day again on the server's clock, and the rules
+refuse them from the browser. So logging needs a connection; a workout finished
+offline stays in progress until it can be sent. See
+[FIREBASE.md → Days and regions](../../FIREBASE.md#days-and-regions).
+
 `store.trainingLocked` is true only when nothing is open at all — every day the
 week has reached is logged, or the plan schedules none today. `startSession`
 refuses on a day still ahead, so a deep link into `/train/<id>` cannot walk
@@ -121,13 +131,14 @@ once-a-day rule of its own.
 | --- | --- |
 | Signed out | `/onboarding`, `/access-code` (make an account), `/sign-in` (use one) |
 | Signed in, no member | `/access-code`, which redeems for that session |
-| Member, setup unfinished | the four `/setup/*` steps |
+| Member, setup unfinished | the four `/setup/*` steps: about you, region, body metrics, activity & goal |
 | Member, setup done | the app; intro screens bounce to `/home` |
 
 `/` has no screen of its own: it redirects straight to whichever of those the
 member belongs on.
 
-Derived, never stored: the current week and day come from `joinedAt`; each
+Derived, never stored: the current week comes from the dated weeks on the
+Cohort Clock and the day from the member's region; each
 training day's status comes from what has been logged this week; fuel targets
 come from the profile (Mifflin-St Jeor → activity multiplier → goal multiplier);
 RP, rank, streak and badges come from the log.

@@ -3,6 +3,7 @@
 definePageMeta({ layout: 'app' })
 
 import { activityOptions } from '~/data/onboarding'
+import { isCompleteChoice, type RegionChoice } from '~/lib/domain/region'
 import {
   formatHeight,
   formatWeight,
@@ -38,6 +39,9 @@ const router = useRouter()
       this template: a field hidden here is still a field anyone with devtools
       can write, so the rules refuse the change once setup is finished.
     · weight and the WhatsApp number ask before they save. See `ask`.
+    · the region is the one setup answer that stays editable, because members
+      travel. It is changed in a sheet of its own and sent to the server, which
+      is what makes the change forward-only. See `regionOpen`.
 
   Sign out moved to the More menu. It was the single destructive control at the
   bottom of a form people open to change their weight.
@@ -237,6 +241,61 @@ const onConfirmToggle = (open: boolean) => {
   else cancelChange()
 }
 
+// --- Region ------------------------------------------------------------------
+/**
+ * Where the member's training days turn over.
+ *
+ * Picked in a sheet and sent with Update, not on tap: it moves when the next
+ * session opens, so it is worth a second look. `setRegion` goes to the server,
+ * which applies it from now on only — nothing logged moves, and a day already
+ * under way cannot be reopened by picking a zone where it is still yesterday.
+ *
+ * The details card freezes with it as well as the sheet. Both writes land on
+ * the member document, and a profile save built from the member as it was
+ * before the region landed would put the old region back in the local copy.
+ */
+const regionOpen = ref(false)
+const regionDraft = ref<RegionChoice>({ ...store.region.value })
+const savingRegion = ref(false)
+const regionError = ref('')
+
+const openRegion = () => {
+  regionDraft.value = { ...store.region.value }
+  regionError.value = ''
+  regionOpen.value = true
+}
+
+const regionUnchanged = computed(
+  () =>
+    regionDraft.value.id === store.region.value.id &&
+    regionDraft.value.timezone === store.region.value.timezone,
+)
+
+const saveRegion = async () => {
+  if (savingRegion.value || !isCompleteChoice(regionDraft.value)) return
+  if (regionUnchanged.value) {
+    regionOpen.value = false
+    return
+  }
+  savingRegion.value = true
+  regionError.value = ''
+  try {
+    await store.setRegion({ ...regionDraft.value })
+    regionOpen.value = false
+    flashSaved()
+  } catch (cause) {
+    regionError.value =
+      cause instanceof Error ? cause.message : 'Could not save that. Check your connection and try again.'
+  } finally {
+    savingRegion.value = false
+  }
+}
+
+/** Escape, the scrim or a swipe. Mid-write only the sheet goes; the write is already out. */
+const onRegionToggle = (open: boolean) => {
+  if (!open) regionOpen.value = false
+}
+
 // --- Units -----------------------------------------------------------------
 // The same two preferences setup writes and the Train screen reads.
 const units = computed(() => store.prefs.value.units)
@@ -395,7 +454,7 @@ const SNAPSHOT_VALUE = 'text-[17px] font-bold text-on-inverse tabular-nums'
       <div class="flex items-center justify-between">
         <span :class="SECTION_LABEL">Your details</span>
         <Transition name="fade">
-          <span v-if="savingProfile" class="text-[12px] text-muted">Saving…</span>
+          <span v-if="savingProfile || savingRegion" class="text-[12px] text-muted">Saving…</span>
           <span v-else-if="saved" class="text-[12px] text-primary">Saved</span>
         </Transition>
       </div>
@@ -407,14 +466,29 @@ const SNAPSHOT_VALUE = 'text-[17px] font-bold text-on-inverse tabular-nums'
       <AppCard
         variant="raised"
         class="flex flex-col gap-4.5 transition-opacity duration-150"
-        :class="savingProfile && 'opacity-60'"
-        :inert="savingProfile"
-        :aria-busy="savingProfile || undefined"
+        :class="(savingProfile || savingRegion) && 'opacity-60'"
+        :inert="savingProfile || savingRegion"
+        :aria-busy="savingProfile || savingRegion || undefined"
       >
         <div>
           <span :class="FIELD_LABEL" class="mb-1.5 block">Display name</span>
           <p :class="FIXED_VALUE">{{ displayName }}</p>
           <p :class="FIXED_HINT">Set during setup. It can’t be changed.</p>
+        </div>
+
+        <!-- Where their training days turn over. The one setup answer that
+             stays editable. -->
+        <div>
+          <span :class="FIELD_LABEL" class="mb-1.5 block">Your region</span>
+          <button
+            type="button"
+            class="flex h-13.5 w-full items-center justify-between gap-3 rounded-2xl bg-sunken px-4.25 text-left text-[15px] font-semibold text-ink"
+            @click="openRegion"
+          >
+            <span class="min-w-0 truncate">{{ store.regionName.value }}</span>
+            <span class="shrink-0 text-[13px] font-bold text-primary">Change</span>
+          </button>
+          <p :class="FIXED_HINT">Your training days open at midnight here. Travelling? Change it before you go.</p>
         </div>
 
         <!-- The number the coach uses to add somebody to the cohort's group
@@ -585,6 +659,38 @@ const SNAPSHOT_VALUE = 'text-[17px] font-bold text-on-inverse tabular-nums'
           {{ signingOut ? 'Signing out…' : 'Sign out' }}
         </AppButton>
       </div>
+    </BottomSheet>
+
+    <!-- Region. The picker and both buttons freeze for the write; the error sits
+         outside that, so it is still read out. -->
+    <BottomSheet
+      :model-value="regionOpen"
+      title="Your region"
+      description="It applies from now on. Anything you’ve logged stays as it is, and a day you’ve already started can’t be opened again."
+      @update:model-value="onRegionToggle"
+    >
+      <div
+        class="flex flex-col gap-4 transition-opacity duration-150"
+        :class="savingRegion && 'opacity-60'"
+        :inert="savingRegion"
+        :aria-busy="savingRegion || undefined"
+      >
+        <!-- Capped, because the sheet is not: eight options and a zone list
+             are taller than a phone. Padded out by a pixel or two so the
+             selected card's inset ring is not clipped by the scroll edge. -->
+        <div class="-mx-1 max-h-[min(58dvh,520px)] overflow-y-auto overscroll-contain px-1 py-0.5">
+          <RegionPicker v-model="regionDraft" />
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <AppButton variant="secondary" @click="regionOpen = false">Cancel</AppButton>
+          <AppButton :disabled="!isCompleteChoice(regionDraft) || regionUnchanged" @click="saveRegion">
+            {{ savingRegion ? 'Saving…' : 'Update' }}
+          </AppButton>
+        </div>
+      </div>
+      <p v-if="regionError" role="alert" class="mt-3 mb-0 text-[12.5px] font-bold text-primary">
+        {{ regionError }}
+      </p>
     </BottomSheet>
 
     <!-- Weight and WhatsApp number. See `ask`. Confirm also waits out any

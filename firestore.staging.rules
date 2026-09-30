@@ -31,18 +31,21 @@ rules_version = '2';
 // WHAT THESE RULES CANNOT DO
 //
 // Rules validate shape, ownership and transitions. They cannot re-derive a
-// value from data they do not have. Specifically, nothing here can check that a
-// session's `setsDone` matches the sets the member actually logged, so
-// `qualifies` — and the reward points that follow from it — is asserted by the
-// client and merely shape-checked here. A determined member could inflate their
-// own totals.
+// value from data they do not have — and they have no time zones, so they
+// cannot say what day it is for a member in New York.
 //
-// The fix is to move the four writes that mint points (`saveSession`,
-// `saveCheckIn`, `awardBadge`, `redeemAccessCode`) behind Callable Functions
-// and deny those paths to clients outright. `FirestoreDataSource` is shaped so
-// each becomes a one-line `httpsCallable`. Until then the exposure is bounded
-// to a member cheating on their own leaderboard position, which is worth
-// knowing about and is not worth blocking launch over.
+// So the writes that are locked to a day or a week are not made here at all.
+// A session, a check-in and a progress photo are written by Callable Functions
+// (`logSession`, `submitCheckIn`, `logPhoto` in `apps/functions`), which read
+// the server's clock and the member's stored region, and the rules below deny
+// those paths to clients outright. The region itself (`members/{uid}.region`)
+// is written only by `setRegion`, which is what keeps a change forward-only.
+//
+// Still client-written: `awardBadge`, `redeemAccessCode`, and the member's own
+// `stats`, which nothing below locks. A determined member could inflate their
+// own totals that way. Moving those behind functions too closes it; until then
+// the exposure is bounded to a member cheating on their own leaderboard
+// position, which is worth knowing about and is not worth blocking launch over.
 // =============================================================================
 
 service cloud.firestore {
@@ -1001,6 +1004,8 @@ service cloud.firestore {
                  == request.auth.token.firebase.sign_in_provider)
         && request.resource.data.stats.points == 0
         && request.resource.data.stats.sessionsQualified == 0
+        // A region's floor is `setRegion`'s to stamp.
+        && !('region' in request.resource.data)
         // The membership and claim are one transaction, including rebuilds
         // where the code was already claimed by this uid.
         && code.data.status == 'claimed'
@@ -1029,6 +1034,10 @@ service cloud.firestore {
         && request.resource.data.programId == resource.data.programId
         && request.resource.data.get('programVersion', null)
              == resource.data.get('programVersion', null)
+        // Written only by `setRegion`, which stamps the floor that keeps a
+        // region change forward-only.
+        && request.resource.data.get('region', null)
+             == resource.data.get('region', null)
         && (request.resource.data.status == resource.data.status
             || (resource.data.status == 'onboarding'
                 && request.resource.data.status == 'active'))
@@ -1145,28 +1154,34 @@ service cloud.firestore {
 
       // Operators may inspect activity for support. Only the member writes it.
       // Check-ins and lifecycle history have stricter append-only blocks below.
+      // Sessions, check-ins and photos are filed on a day or a week, and the
+      // day is the server's: the functions in `apps/functions` write them, so
+      // no member writes them here.
       match /{collection}/{docId} {
         allow read: if isOperator()
           || (isSelf(uid)
               && collection != 'checkIns'
               && collection != 'lifecycleEvents');
         allow write: if isSelf(uid)
-          && collection != 'checkIns'
-          && collection != 'lifecycleEvents';
+          && !(collection in ['checkIns', 'lifecycleEvents', 'sessions', 'photos']);
       }
 
-      // A week's check-in is create-once and immutable.
+      // A week's check-in is create-once and immutable. `submitCheckIn` creates it.
       match /checkIns/{weekId} {
         allow read: if isSelf(uid) || isOperator();
-        allow create: if isSelf(uid);
         allow update: if isOperator() && isValidCheckInReview();
         allow delete: if false;
       }
 
+      // `logSession` creates it; a logged session stays logged.
       match /sessions/{sessionId} {
         allow read: if isSelf(uid) || isOperator();
-        allow create, update: if isSelf(uid);
         allow update: if isOperator() && isValidSessionReview();
+        allow delete: if false;
+      }
+
+      // `logPhoto` files it; the member may still take their own image back.
+      match /photos/{photoId} {
         allow delete: if isSelf(uid);
       }
 

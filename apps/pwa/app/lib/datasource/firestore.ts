@@ -41,6 +41,7 @@ import {
   type DocumentSnapshot,
   type QueryDocumentSnapshot,
 } from 'firebase/firestore'
+import { FunctionsError, httpsCallable } from 'firebase/functions'
 import {
   deleteObject,
   getDownloadURL,
@@ -52,7 +53,9 @@ import {
   authRestored,
   currentUser,
   firebaseAuth,
+  firebaseDatabaseName,
   firebaseDb,
+  firebaseFunctions,
   firebaseStorage,
 } from '~/lib/firebase/app'
 import {
@@ -63,11 +66,11 @@ import {
   typingIsFresh,
 } from '~/lib/chat'
 import { withShippedBadges } from '~/data/badges'
-import { daysBetween, isDateKey, resolvePlanWeek, weekOf } from '~/lib/domain/challenge'
+import { daysBetween, isDateKey } from '~/lib/domain/challenge'
 import { liveCallFrom } from '~/lib/domain/liveCall'
-import { prescribedSets } from '~/lib/domain/sets'
 import { storage as webStorage } from '~/lib/storage'
 import { trustedNow } from '~/lib/time'
+import type { RegionChoice } from '~/lib/domain/region'
 import type { ProcessedImage } from '~/lib/image'
 import {
   DataSourceError,
@@ -103,6 +106,7 @@ import type {
   LeaderboardEntryDoc,
   Member,
   MemberDoc,
+  MemberRegion,
   MemberPreferences,
   MemberProfile,
   MemberStats,
@@ -556,13 +560,13 @@ const emptyStats = (): MemberStats => ({
  * in the same batch as the document it summarises, so the two can never
  * disagree.
  *
- * **The trust boundary is real but not yet closed.** These writes run as client
- * transactions, guarded by rules that check ownership and shape. Rules cannot
- * re-derive `qualifies` from a set count, so a determined member could still
- * write a session claiming more sets than they did. Moving `saveSession`,
- * `saveCheckIn`, `awardBadge` and `redeemAccessCode` behind Callable Functions
- * closes it, and each is shaped to become a one-line `httpsCallable` when it
- * does. See the header of `firestore.rules`.
+ * **The day-locked writes are the server's.** A session, a check-in and a
+ * progress photo are filed on a day or a week, and the day came off the phone
+ * until these moved behind Callable Functions (`logSession`, `submitCheckIn`,
+ * `logPhoto`, and `setRegion` for the zone they read). The rules now refuse
+ * those writes from a browser. What is left client-side — `awardBadge`,
+ * `redeemAccessCode`, the member's own `stats` — is the boundary still open:
+ * see the header of `firestore.rules`.
  */
 export class FirestoreDataSource implements DataSource {
   private memberCache: Member | null = null
@@ -1228,6 +1232,16 @@ export class FirestoreDataSource implements DataSource {
     return member
   }
 
+  async setRegion(choice: RegionChoice): Promise<Member> {
+    const member = await this.requireMember()
+    const { region } = await this.call<{
+      region: { id: MemberRegion['id']; timezone: string; floor: string | null; sinceMs: number }
+    }>('setRegion', { region: choice })
+    const { sinceMs, ...stored } = region
+    this.memberCache = { ...member, region: { ...stored, since: Timestamp.fromMillis(sinceMs) } }
+    return this.memberCache
+  }
+
   // =========================================================================
   // Authored content — `programs/{id}` and `cohorts/{id}`
   //
@@ -1426,90 +1440,34 @@ export class FirestoreDataSource implements DataSource {
   }
 
   async saveSession(log: SessionInput): Promise<SessionLog> {
-    const member = await this.requireMember()
-    const program = await this.program()
-
-    // Judged against what the plan asked for, so sets the member added
-    // themselves can only ever help, and sets they removed still count. The
-    // fallback covers a session made entirely of added sets, which has no
-    // prescription to measure against.
-    const setsPrescribed = log.exercises.reduce((n, e) => n + prescribedSets(e), 0)
-    const denominator = setsPrescribed || log.setsTotal
-    const qualifies =
-      denominator > 0 && (log.setsDone / denominator) * 100 >= program.qualifyingSetPercent
-
-    const rewardPoints = qualifies ? program.rewards.values.workout : 0
-    const weekNumber = weekOf(await this.weeks(), log.completedAt)
-    const record: Omit<SessionLog, 'id'> = {
-      ...log,
-      weekNumber,
-      planWeek: resolvePlanWeek(log.planWeek, weekNumber),
-      qualifies,
-      rewardPoints,
-      // The program that actually decided the two fields above, not whatever
-      // the member document says — which for a member whose code carried no
-      // `programId` is the empty string. See `program()`.
-      programId: program.id,
-      programVersion: program.version ?? member.programVersion,
-      createdAt: Timestamp.now(),
-    }
-
-    const db = firebaseDb()
-    const ref = doc(collection(db, 'members', member.id, 'sessions'))
-    const batch = writeBatch(db)
-    batch.set(ref, record)
-    // The counters and the log they summarise land together, so the board can
-    // never show a total the sessions behind it do not support.
-    batch.update(doc(db, 'members', member.id), {
-      'stats.sessionsLogged': increment(1),
-      'stats.sessionsQualified': increment(qualifies ? 1 : 0),
-      'stats.points': increment(rewardPoints),
-      'stats.lastSessionAt': record.completedAt,
-      updatedAt: serverTimestamp(),
+    // Only the member's own work goes up. The day it is filed on, the week, the
+    // time, the totals and whether it qualifies are the function's to decide.
+    const decided = await this.call<
+      Omit<SessionLog, 'completedAt' | 'createdAt' | 'durationSeconds' | 'proofPhoto' | 'note' | 'exercises' | 'dayId'>
+        & { completedAtMs: number }
+    >('logSession', {
+      session: {
+        dayId: log.dayId,
+        planWeek: log.planWeek,
+        durationSeconds: log.durationSeconds,
+        note: log.note,
+        proofPhoto: log.proofPhoto,
+        exercises: log.exercises,
+      },
     })
-    if (qualifies) {
-      batch.set(
-        this.leaderboardRef(member.cohortId, member.id),
-        {
-          name: member.profile.displayName || 'Member',
-          avatarUrl: member.profile.avatarUrl || '',
-          sessions: increment(1),
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true },
-      )
-    }
-    await batch.commit()
-
+    const { completedAtMs, ...fields } = decided
+    const completedAt = Timestamp.fromMillis(completedAtMs)
     this.memberCache = null
-    return { id: ref.id, ...record }
-  }
-
-  async deleteSession(id: string): Promise<void> {
-    const member = await this.requireMember()
-    const db = firebaseDb()
-    const ref = doc(db, 'members', member.id, 'sessions', id)
-    const snap = await getDoc(ref)
-    if (!snap.exists()) return
-    const session = snap.data() as SessionLog
-
-    const batch = writeBatch(db)
-    batch.delete(ref)
-    batch.update(doc(db, 'members', member.id), {
-      'stats.sessionsLogged': increment(-1),
-      'stats.sessionsQualified': increment(session.qualifies ? -1 : 0),
-      'stats.points': increment(-session.rewardPoints),
-      updatedAt: serverTimestamp(),
-    })
-    if (session.qualifies) {
-      batch.set(
-        this.leaderboardRef(member.cohortId, member.id),
-        { sessions: increment(-1), updatedAt: serverTimestamp() },
-        { merge: true },
-      )
+    return {
+      ...fields,
+      dayId: log.dayId,
+      durationSeconds: log.durationSeconds,
+      proofPhoto: log.proofPhoto,
+      note: log.note,
+      exercises: log.exercises,
+      completedAt,
+      createdAt: completedAt,
     }
-    await batch.commit()
-    this.memberCache = null
   }
 
   async getActiveSession(): Promise<ActiveSessionDoc | null> {
@@ -1542,45 +1500,17 @@ export class FirestoreDataSource implements DataSource {
   }
 
   async saveCheckIn(input: CheckInInput): Promise<CheckIn> {
-    const member = await this.requireMember()
-    const program = await this.program()
-    const submittedAt = Timestamp.now()
-    const weekNumber = weekOf(await this.weeks(), submittedAt)
-
-    const record = {
-      ...input,
-      weekNumber,
-      submittedAt,
-      rewardPoints: program.rewards.values.checkIn,
-    }
-
-    const db = firebaseDb()
-    // The week is the document id, so one check-in per week is enforced by the
-    // key rather than by a query. A sent check-in is final, and the rules
-    // refuse the overwrite regardless. The read is here for the refusal: a
-    // member who already sent this week, from this device or another, gets the
-    // sentence rather than a raw `permission-denied`. Inside the transaction
-    // because two devices can both find the week empty in the same moment.
-    const id = `week-${weekNumber}`
-    const ref = doc(db, 'members', member.id, 'checkIns', id)
-
-    await runTransaction(db, async (tx) => {
-      if ((await tx.get(ref)).exists()) {
-        throw new DataSourceError(
-          `Your week ${weekNumber} check-in is already in.`,
-          'check-in-submitted',
-        )
-      }
-      tx.set(ref, record)
-      tx.update(doc(db, 'members', member.id), {
-        'stats.checkInsSubmitted': increment(1),
-        'stats.points': increment(record.rewardPoints),
-        updatedAt: serverTimestamp(),
-      })
-    })
-
+    // The week is the Cohort Clock's on the server's time. One per week: the
+    // week is the document id, and a second is refused with
+    // `check-in-submitted`, which `call` carries through.
+    const { submittedAtMs, ...decided } = await this.call<{
+      id: string
+      weekNumber: number
+      submittedAtMs: number
+      rewardPoints: number
+    }>('submitCheckIn', { checkIn: input })
     this.memberCache = null
-    return { id, ...record }
+    return { ...input, ...decided, submittedAt: Timestamp.fromMillis(submittedAtMs) }
   }
 
   // =========================================================================
@@ -1598,37 +1528,18 @@ export class FirestoreDataSource implements DataSource {
   }
 
   async savePhoto(input: PhotoInput): Promise<ProgressPhoto> {
-    const member = await this.requireMember()
-    const program = await this.program()
-    // The trusted clock, the one a session's `completedAt` is stamped on: Final
-    // Photo Proof asks whether this came after the block's last session, and
-    // two clocks would let a phone set a few hours slow answer that wrongly.
-    const takenAt = Timestamp.fromDate(trustedNow())
-
-    // Upload first: a document pointing at a file that failed to upload renders
-    // as a broken tile, whereas an orphaned upload is only wasted bytes.
+    // Upload first: the function files a photo that is already in the bucket,
+    // and an orphaned upload is only wasted bytes. `logPhoto` stamps `takenAt`
+    // on the server's clock — the one a session's `completedAt` is stamped on,
+    // which Final Photo Proof compares it against.
     const image = await this.uploadImage(input.image, 'progress')
-
-    const record = {
-      pose: input.pose,
-      weekNumber: weekOf(await this.weeks(), takenAt),
-      image,
-      takenAt,
-    }
-
-    const db = firebaseDb()
-    const ref = doc(collection(db, 'members', member.id, 'photos'))
-    const batch = writeBatch(db)
-    batch.set(ref, record)
-    batch.update(doc(db, 'members', member.id), {
-      'stats.photosUploaded': increment(1),
-      'stats.points': increment(program.rewards.values.progressPhoto),
-      updatedAt: serverTimestamp(),
-    })
-    await batch.commit()
-
+    const { takenAtMs, ...decided } = await this.call<{
+      id: string
+      weekNumber: number
+      takenAtMs: number
+    }>('logPhoto', { pose: input.pose, image })
     this.memberCache = null
-    return { id: ref.id, ...record }
+    return { ...decided, pose: input.pose, image, takenAt: Timestamp.fromMillis(takenAtMs) }
   }
 
   async deletePhoto(id: string): Promise<void> {
@@ -2594,6 +2505,39 @@ export class FirestoreDataSource implements DataSource {
   // =========================================================================
   // internals
   // =========================================================================
+
+  /**
+   * One of the member-write functions, on this database.
+   *
+   * The function's refusal is already a sentence a member can read — "That
+   * session opens on Monday 12 Oct." — so it is passed through as the message.
+   * A call that never reached the function says so instead, because the
+   * callable SDK's own word for that is "internal".
+   */
+  private async call<T>(name: string, data: Record<string, unknown>): Promise<T> {
+    await this.requireUser()
+    try {
+      const run = httpsCallable<Record<string, unknown>, T>(firebaseFunctions(), name)
+      return (await run({ ...data, database: firebaseDatabaseName() })).data
+    } catch (cause) {
+      if (!(cause instanceof FunctionsError)) throw cause
+      const reason = (cause.details as { reason?: string } | undefined)?.reason
+      if (reason === 'check-in-submitted') {
+        throw new DataSourceError(cause.message, 'check-in-submitted')
+      }
+      if (cause.code === 'functions/unauthenticated') {
+        throw new DataSourceError(cause.message, 'unauthenticated')
+      }
+      if (['functions/internal', 'functions/unavailable', 'functions/deadline-exceeded'].includes(cause.code)) {
+        throw new DataSourceError(
+          'Couldn’t reach DP Fitness. Check your connection and try again.',
+          'unknown',
+        )
+      }
+      throw new DataSourceError(cause.message, 'unknown')
+    }
+  }
+
   private leaderboardRef(cohortId: string, memberId: string) {
     return doc(firebaseDb(), 'cohorts', cohortId, 'leaderboard', memberId)
   }

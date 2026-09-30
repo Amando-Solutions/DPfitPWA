@@ -1,7 +1,7 @@
 import type { Timestamp } from 'firebase/firestore'
 
 import type { LiveCall } from '~/data/types'
-import { dateKey } from '~/lib/time'
+import { dateKeyIn } from '~/lib/time'
 
 const MINUTE_MS = 60 * 1000
 
@@ -64,17 +64,22 @@ export interface LiveCallToday {
  *
  * `calls` are the cohort's dated calls from the `liveCalls` collection, each a
  * one-off: nothing repeats. A call is shown on the day it happens *for the
- * member*. `startsAt` is an instant, so a 7 PM Lagos call is 7 PM for a member
- * in Lagos and 6 PM for one in London, and each sees it on their own calendar
- * day. One that runs past midnight stays until it ends, because a member still
- * in it should not lose the card at 00:00.
+ * member*, in `zone` — their stored region, not the device's zone. `startsAt`
+ * is an instant and the slot never moves: a 7 PM Lagos call is 7 PM for a
+ * member in Lagos and 2 PM for one in New York, and each sees it on their own
+ * calendar day. One that runs past midnight stays until it ends, because a
+ * member still in it should not lose the card at 00:00.
  *
  * With more than one call today, a live call wins, then the next one to start,
  * then the last one to have ended.
  */
-export const todaysLiveCall = (calls: LiveCall[], now: Date): LiveCallToday | null => {
+export const todaysLiveCall = (
+  calls: LiveCall[],
+  now: Date,
+  zone: string,
+): LiveCallToday | null => {
   const at = now.getTime()
-  const today = dateKey(now)
+  const today = dateKeyIn(now, zone)
   let ended: LiveCallToday | null = null
 
   const sorted = [...calls].sort((a, b) => a.startsAt.toMillis() - b.startsAt.toMillis())
@@ -84,7 +89,7 @@ export const todaysLiveCall = (calls: LiveCall[], now: Date): LiveCallToday | nu
     const base = { startsAt: new Date(start), endsAt: new Date(end), joinUrl: call.joinUrl }
 
     if (start <= at && at < end) return { ...base, phase: 'live', changesAt: base.endsAt }
-    if (dateKey(base.startsAt) !== today) continue
+    if (dateKeyIn(base.startsAt, zone) !== today) continue
     if (at < start) return { ...base, phase: 'upcoming', changesAt: base.startsAt }
     ended = { ...base, phase: 'ended', changesAt: null }
   }

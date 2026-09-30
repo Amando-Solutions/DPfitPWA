@@ -35,6 +35,7 @@ export const FIRST_SETUP_STEP = '/setup/about-you'
 /** Reachable once signed in but before setup is finished. */
 export const SETUP_ROUTES = [
   FIRST_SETUP_STEP,
+  '/setup/region',
   '/setup/body-metrics',
   '/setup/activity-goal',
 ]
