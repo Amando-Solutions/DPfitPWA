@@ -62,7 +62,7 @@ export function preorderWindow(registration: unknown, cohortStart: Date, fallbac
   if (!startsAt && !endsAt) return null
   if (!startsAt || !endsAt) throw new Error('A pre-order needs both a start and an end.')
   if (endsAt.getTime() <= startsAt.getTime()) throw new Error('The pre-order must end after it starts.')
-  if (endsAt.getTime() > cohortStart.getTime()) throw new Error('The pre-order must end by the time the cohort starts.')
+  // if (endsAt.getTime() > cohortStart.getTime()) throw new Error('The pre-order must end by the time the cohort starts.')
   return { startsAt, endsAt }
 }
 

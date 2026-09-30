@@ -181,10 +181,13 @@ describe('The pre-order window', () => {
     expect(preorderWindow(undefined, start, env)?.startsAt).toEqual(new Date('2026-08-31T23:00:00Z'))
     expect(preorderWindow(undefined, start)).toBeNull()
   })
-  test('half-set, reversed, late or mistyped windows throw instead of guessing', () => {
+  test('a window may run past the cohort start', () => {
+    expect(preorderWindow({ ...window, preorderEndsAt: at('2026-09-30T00:00:00Z') }, start)?.endsAt)
+      .toEqual(new Date('2026-09-30T00:00:00Z'))
+  })
+  test('half-set, reversed or mistyped windows throw instead of guessing', () => {
     expect(() => preorderWindow({ preorderStartsAt: window.preorderStartsAt }, start)).toThrow('both')
     expect(() => preorderWindow({ preorderStartsAt: window.preorderEndsAt, preorderEndsAt: window.preorderStartsAt }, start)).toThrow('after it starts')
-    expect(() => preorderWindow({ ...window, preorderEndsAt: at('2026-09-30T00:00:00Z') }, start)).toThrow('by the time the cohort starts')
     expect(() => preorderWindow({ ...window, preorderEndsAt: '2026-09-20' }, start, env)).toThrow('must be a timestamp')
     expect(() => preorderWindow(undefined, start, { ...env, preorderEndsAt: 'soon' })).toThrow('not an ISO 8601 date')
   })
