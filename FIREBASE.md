@@ -960,9 +960,19 @@ in the member's region as a courtesy — "2:00 – 3:00 PM your time · 7:00 PM 
 `startsAt` or an http(s) `joinUrl` is no call (`liveCallFrom`).
 
 Rules: operators write, with the shape checked; a member reads only calls whose
-`cohortId` is their own cohort. Nothing else is involved — no scheduled
-function, no copy on the cohort document. The old `cohorts/{id}.liveCall` field
-is no longer read.
+`cohortId` is their own cohort. There is no copy on the cohort document. The
+old `cohorts/{id}.liveCall` field is no longer read.
+
+**Reminders.** Scheduling a call sends nothing. On the call's day, in the
+cohort's zone, `remindLiveCalls` (`apps/functions/src/live-call-reminders.ts`,
+every 15 minutes) writes a coach notification to the cohort's inbox: "Live call
+today", "Weekly live call at 7:00 PM WAT. Join from Home." It goes out at 8 AM,
+or an hour before a call that starts earlier than 9 AM, and never after the
+call has ended. Like every notification, it is pushed to members who turned
+push on. Its id is `live-call-{callId}-{date}`, created rather than set, so it
+is sent once per call per day; a call moved to another day is announced again
+there. The admin app must not write its own notification for a call, or
+members get two.
 
 ## The leaderboard switch
 

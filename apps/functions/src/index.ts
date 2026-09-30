@@ -12,6 +12,11 @@
 //                    sends the access codes held during a cohort's pre-order
 //                    once it has closed. See `release.ts`.
 //
+// remindLiveCalls    Every 15 minutes. On the day of each live call, puts a
+//                    notification in the cohort's inbox, which pushes it too.
+//                    Nothing is sent when a call is scheduled. See
+//                    `live-call-reminders.ts`.
+//
 // setRegion, logSession, submitCheckIn, logPhoto
 //                    The member writes locked to a day or a week. The day is
 //                    the server's time in the member's stored region; the week
@@ -34,6 +39,7 @@ import {
   submitCheckInHandler,
 } from './member-writes.js'
 import { pushCohortMessage, pushCohortNotification } from './push.js'
+export { remindLiveCalls } from './live-call-reminders.js'
 export { releasePreorderCodes } from './release.js'
 
 /**

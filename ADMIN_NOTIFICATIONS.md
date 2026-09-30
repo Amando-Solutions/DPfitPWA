@@ -84,7 +84,7 @@ Functions or API routes holding a service account, for the right-hand column:
 | List, revoke or delete codes | ✓ | |
 | Read registrations and unmatched sales | ✓ | |
 | Mark an unmatched sale resolved, or record a resent email | | ✓ Client writes are refused. |
-| Create and edit cohorts, the live call and the leaderboard switch | ✓ | |
+| Create and edit cohorts, live calls and the leaderboard switch | ✓ | |
 | Write programs, weeks, days and guides | ✓ | |
 | Upload program hero images | | ✓ Storage refuses client writes under `programs/`. |
 | Write announcements and notifications | ✓ | |
@@ -479,10 +479,9 @@ apps without a reload.
 | `startDate`, `endDate` | Timestamp | Scripts | The member app's calendar comes from the program's weeks, not these. The seed and migration scripts place week 1 on `startDate`. |
 | `durationWeeks` | number | Website | Displayed directly from Firestore. |
 | `registration` | map | Website | `amountMinor`, `currency`, `codeTtlDays`; see Firestore setup. |
-| `timezone` | string | Scripts, and you | An IANA zone such as `Africa/Lagos`. Build live-call times in it. |
+| `timezone` | string | Scripts, live call reminders, and you | An IANA zone such as `Africa/Lagos`. Build live-call times in it; reminders go out on the call's day in it. |
 | `coach` | map | Member app, watched | `{ uid, name, title, avatarUrl }`. See below. |
 | `programId`, `programName`, `programVersion` | string, string, number, or `null` each | `createAccessCode`; member app as a fallback | Must be set before codes can be issued. |
-| `liveCall` | map or `null` | Member app, watched | See below. |
 | `leaderboardVisible` | boolean | Member app, watched | See below. |
 | `leaderboardRevealWeek` | number | Member app, watched | See below. |
 | `memberCount` | number | Nothing | See below. |
@@ -503,26 +502,38 @@ chat.
 - Renaming the coach here doesn't rename past messages, which keep the
   `authorName` they were sent with.
 
-### The weekly live call
+### Live calls
 
-`liveCall` is `{ startsAt, durationMinutes, joinUrl }`. The member app shows a
-card on Home on the day of the call, and the join button works from `startsAt`
-for `durationMinutes`. The call repeats every 7 days from `startsAt` until it
-is cleared. The essentials are below; the full detail is in
-[FIREBASE.md → The weekly live call](FIREBASE.md#the-weekly-live-call).
+A call is one document in the top-level `liveCalls` collection, not a field on
+the cohort. Each is a one-off: a weekly call is one document per week. The
+member app shows a card on Home on the day of the call, and the join button
+works from `startsAt` for `durationMinutes`. The full detail is in
+[FIREBASE.md → Live calls](FIREBASE.md#live-calls).
 
-- **`startsAt` must be a Timestamp built in the cohort's `timezone`,** not the
-  admin's browser zone. `new Date('2026-09-16T21:00')` means 9 PM wherever the
+| Field | Type | Notes |
+|---|---|---|
+| `title` | string | 2–100 characters, such as "Weekly live call". |
+| `cohortId`, `cohortName` | string | The one cohort it is for. |
+| `startsAt` | Timestamp | The instant it starts. |
+| `durationMinutes` | integer | 5–480. |
+| `joinUrl` | string | An `https://` link. |
+| update audit fields | | `updatedAt`, `updatedByUid`, `updatedByEmail`. |
+
+- **`startsAt` must be built in the cohort's `timezone`,** not the admin's
+  browser zone. `new Date('2026-09-16T21:00')` means 9 PM wherever the
   admin's laptop is. Use `fromZonedTime(input, cohort.timezone)` from
   `date-fns-tz`, or an explicit offset such as `+01:00` for Lagos.
-- **There is no card unless both `startsAt` and `joinUrl` are set.**
-- `joinUrl` must start with `https://`. `durationMinutes` must be 1–1440;
-  anything else reads as 60.
-- Set it once; any occurrence works. To skip a week, move `startsAt` to the
-  occurrence after it. To stop the calls, set `joinUrl` to `null`.
-- Keep all three keys present, set to `null` when empty. No rule checks the
-  shape, so validate before writing.
-- It keeps repeating after the cohort's `endDate` until the admin clears it.
+- **Write only the fields above.** The rule refuses any other key.
+- **Don't write a notification for a call.** Members are told on the day, in
+  the cohort's zone, by the `remindLiveCalls` function: a "Live call today"
+  line in the inbox at 8 AM (or an hour before a call that starts earlier),
+  pushed to members who have push on. Nothing is sent when the call is
+  scheduled. A notification from the console as well would reach members twice.
+- To move a call, change `startsAt`. Moved to another day before it happens,
+  the reminder goes out on the new day. To cancel one, delete it; if that is
+  on the day, delete its reminder too (below).
+- Its reminder is `cohorts/{cohortId}/notifications/live-call-{callId}-{date}`.
+  Deleting a call doesn't remove a reminder that has already gone out.
 
 ### The leaderboard switch
 
@@ -550,7 +561,6 @@ field from an Admin SDK trigger on member create and delete.
 2. Create the cohort with:
    - `status: 'draft'`
    - `coach`, `timezone`, and `programId`, `programName` and `programVersion`
-   - `liveCall: { startsAt: null, durationMinutes: 60, joinUrl: null }`
    - `leaderboardVisible: false` and a `leaderboardRevealWeek`
    - `memberCount: 0` and `archivedAt: null`
    - the audit fields
@@ -846,10 +856,11 @@ async function publishAnnouncement(db, cohortId, admin, card) {
 - **`pinned` and `publishedAt` must both be present.** The app's query orders
   by both, and Firestore leaves out any document missing an `orderBy` field.
   The notification is simply never delivered, with no error.
-- **Use auto-generated ids, and never start an id with `chat-`.** Read markers
-  for mentions, replies and reactions are stored as `chat-{messageId}` and
-  `chat-{messageId}-reactions` in the same collection, so a colliding id would
-  share their read state.
+- **Use auto-generated ids, and never start an id with `chat-` or
+  `live-call-`.** Read markers for mentions, replies and reactions are stored
+  as `chat-{messageId}` and `chat-{messageId}-reactions` in the same
+  collection, so a colliding id would share their read state. `live-call-` ids
+  are the live call reminders (section 4).
 
 ### Behaviour to expect
 
@@ -1273,8 +1284,8 @@ The console shouldn't promise these, because the member app doesn't do them:
 **Cohorts and programs**
 
 - [ ] `coach.uid` matches the Auth uid the coach uses in the console.
-- [ ] Live-call times are built in the cohort's `timezone`, and all three
-      `liveCall` keys are always present.
+- [ ] Live calls are `liveCalls` documents with `startsAt` built in the
+      cohort's `timezone`, and the console writes no notification for them.
 - [ ] Every program has a `rewards` block, and badge ids stay within the fixed
       list.
 - [ ] Week and day dates are `YYYY-MM-DD` strings, and day ids repeat across
@@ -1290,7 +1301,8 @@ The console shouldn't promise these, because the member app doesn't do them:
 - [ ] Each notification has `type`, `title`, `body`, `icon`, `pinned` (always
       set) and `publishedAt` (a Timestamp), plus `createdAt`, `createdByUid`
       and `createdByEmail`.
-- [ ] Notification ids are auto-generated and never start with `chat-`.
+- [ ] Notification ids are auto-generated and never start with `chat-` or
+      `live-call-`.
 - [ ] Test notifications go to a staging cohort. Every notification document is
       pushed to the phones of the cohort's members who have push on.
 
