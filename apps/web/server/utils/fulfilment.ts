@@ -83,20 +83,78 @@ export const findRegistrationForSale = async (
     .get()
   if (snap.empty) return null
 
-  const at = (doc: FirebaseFirestore.QueryDocumentSnapshot) =>
-    (doc.data().createdAt as Timestamp | undefined)?.toMillis() ?? 0
-
   // Newest first, and an unfulfilled one in preference to a fulfilled one. A
   // buyer who has registered twice — abandoned checkout, came back, paid — has
   // two pending documents, and the seat belongs on the attempt they just paid
   // for. If every one of them already holds a code, the newest is returned
   // anyway so the caller reports `already-issued` rather than losing the sale.
-  const docs = [...snap.docs].sort((a, b) => at(b) - at(a))
+  const docs = [...snap.docs].sort((a, b) => createdAt(b) - createdAt(a))
   const pending = docs.filter((doc) => !doc.data().code)
-  // Email alone cannot distinguish purchases for different cohorts/offers.
-  const offers = new Set(pending.map((doc) => JSON.stringify([doc.get('cohortId'), doc.get('amountMinor'), doc.get('currency')])))
-  if (offers.size > 1 || snap.size === 25) return null
-  return (pending[0] ?? docs[0]!).id
+  if (snap.size === 25) return null
+  if (!pending.length) return docs[0]!.id
+
+  // Email alone cannot distinguish purchases for different cohorts or offers,
+  // so the sale's own evidence narrows the field first. Only if the survivors
+  // still disagree is the sale left for somebody to match by hand.
+  const candidates = narrowToSale(pending, sale)
+  if (new Set(candidates.map(offerOf)).size > 1) return null
+  return candidates[0]!.id
+}
+
+type RegistrationDoc = FirebaseFirestore.QueryDocumentSnapshot
+
+const createdAt = (doc: RegistrationDoc) =>
+  (doc.data().createdAt as Timestamp | undefined)?.toMillis() ?? 0
+
+/** What a registration was offered: two with the same one are interchangeable. */
+const offerOf = (doc: RegistrationDoc) =>
+  JSON.stringify([doc.get('cohortId'), doc.get('amountMinor'), doc.get('currency')])
+
+/**
+ * How long a buyer plausibly takes between the form and paying. The same
+ * three hours the confirmation cookie in `register.post.ts` lives for.
+ */
+const RECENT_MS = 3 * 60 * 60 * 1000
+
+/**
+ * The pending registrations a sale could belong to, newest first.
+ *
+ * Without this, one abandoned registration on an archived cohort blocks every
+ * later purchase from that address: its offer differs from the new one, and
+ * two offers under one email was all it took to give up.
+ *
+ * Two steps, each applied only when it leaves something behind. Evidence that
+ * fits nothing — a converted currency, a payment that matches no saved price,
+ * a notification replayed days later — falls through untouched to the
+ * ambiguity check, so the worst case is the manual match that happened anyway.
+ *
+ *   1. Price. When the sale is in the registration's currency, only a
+ *      registration saved at exactly the amount paid can be the one bought.
+ *   2. Recency. Still split, the registrations made in the last few hours are
+ *      the live checkout; older ones are abandoned attempts.
+ *
+ * Deliberately not "the cohort that is active now". The offer saved at
+ * registration is what gets honoured, so a notification that arrives just
+ * after a cohort is archived must still be able to find its registration.
+ */
+const narrowToSale = (pending: RegistrationDoc[], sale: SaleEvent): RegistrationDoc[] => {
+  let candidates = pending
+
+  if (sale.amountMinor !== null && sale.currency) {
+    const paid = sale.currency.toUpperCase()
+    const priced = candidates.filter((doc) =>
+      doc.get('amountMinor') === sale.amountMinor &&
+      typeof doc.get('currency') === 'string' && doc.get('currency').toUpperCase() === paid)
+    if (priced.length) candidates = priced
+  }
+
+  if (new Set(candidates.map(offerOf)).size > 1) {
+    const since = Date.now() - RECENT_MS
+    const recent = candidates.filter((doc) => createdAt(doc) >= since)
+    if (recent.length) candidates = recent
+  }
+
+  return candidates
 }
 
 /**

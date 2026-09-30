@@ -55,6 +55,80 @@ test('ambiguous email-only purchases across cohorts require manual matching', as
   expect(await findRegistrationForSale(db, { ...sale, reference: null })).toBeNull()
 })
 
+const HOUR = 60 * 60 * 1000
+type Row = { id: string; cohortId: string; amountMinor: number; currency: string; ageMs: number; code?: string }
+
+function lookupDb(rows: Row[]) {
+  const docs = rows.map((row) => {
+    const data = { ...row, code: row.code ?? null, createdAt: { toMillis: () => Date.now() - row.ageMs } }
+    return { id: row.id, data: () => data, get: (field: string) => (data as Record<string, unknown>)[field] }
+  })
+  const query = { where: () => query, limit: () => query, get: async () => ({ empty: !docs.length, size: docs.length, docs }) }
+  return { collection: () => query } as unknown as Firestore
+}
+
+const emailOnly = (amountMinor: number | null, currency: string | null) =>
+  ({ ...sale, reference: null, amountMinor, currency })
+
+test('a stale registration at another price does not block a new purchase', async () => {
+  const db = lookupDb([
+    { id: 'yesterday', cohortId: 'archived', amountMinor: 3000000, currency: 'NGN', ageMs: 13 * HOUR },
+    { id: 'first-try', cohortId: 'active', amountMinor: 0, currency: 'NGN', ageMs: 10 * 60_000 },
+    { id: 'paid-try', cohortId: 'active', amountMinor: 0, currency: 'NGN', ageMs: 2 * 60_000 },
+  ])
+  expect(await findRegistrationForSale(db, emailOnly(0, 'NGN'))).toBe('paid-try')
+})
+
+test('the paid amount picks the older registration when that is the one it matches', async () => {
+  const db = lookupDb([
+    { id: 'old-price', cohortId: 'archived', amountMinor: 3000000, currency: 'NGN', ageMs: 26 * HOUR },
+    { id: 'new-price', cohortId: 'active', amountMinor: 2500000, currency: 'ngn', ageMs: 5 * 60_000 },
+  ])
+  expect(await findRegistrationForSale(db, emailOnly(3000000, 'NGN'))).toBe('old-price')
+})
+
+test('at the same price, the recent registration wins over an abandoned one', async () => {
+  const db = lookupDb([
+    { id: 'abandoned', cohortId: 'archived', amountMinor: 3000000, currency: 'NGN', ageMs: 26 * HOUR },
+    { id: 'live', cohortId: 'active', amountMinor: 3000000, currency: 'NGN', ageMs: 5 * 60_000 },
+  ])
+  expect(await findRegistrationForSale(db, emailOnly(3000000, 'NGN'))).toBe('live')
+})
+
+test('a converted-currency sale still narrows by recency', async () => {
+  const db = lookupDb([
+    { id: 'abandoned', cohortId: 'archived', amountMinor: 3000000, currency: 'NGN', ageMs: 26 * HOUR },
+    { id: 'live', cohortId: 'active', amountMinor: 2500000, currency: 'NGN', ageMs: 5 * 60_000 },
+  ])
+  expect(await findRegistrationForSale(db, emailOnly(1500, 'GBP'))).toBe('live')
+})
+
+test('two recent registrations for different offers still need a manual match', async () => {
+  const db = lookupDb([
+    { id: 'a', cohortId: 'archived', amountMinor: 3000000, currency: 'NGN', ageMs: 50 * 60_000 },
+    { id: 'b', cohortId: 'active', amountMinor: 2500000, currency: 'NGN', ageMs: 5 * 60_000 },
+  ])
+  expect(await findRegistrationForSale(db, emailOnly(null, null))).toBeNull()
+})
+
+test('a sale matching no saved price and no recent registration still needs a manual match', async () => {
+  const db = lookupDb([
+    { id: 'a', cohortId: 'archived', amountMinor: 3000000, currency: 'NGN', ageMs: 30 * HOUR },
+    { id: 'b', cohortId: 'active', amountMinor: 2500000, currency: 'NGN', ageMs: 6 * HOUR },
+  ])
+  expect(await findRegistrationForSale(db, emailOnly(100000, 'NGN'))).toBeNull()
+})
+
+test('fulfilled registrations are skipped, and all fulfilled returns the newest', async () => {
+  const rows: Row[] = [
+    { id: 'done', cohortId: 'archived', amountMinor: 3000000, currency: 'NGN', ageMs: 26 * HOUR, code: 'OLD-CODE' },
+    { id: 'open', cohortId: 'active', amountMinor: 0, currency: 'NGN', ageMs: 5 * 60_000 },
+  ]
+  expect(await findRegistrationForSale(lookupDb(rows), emailOnly(0, 'NGN'))).toBe('open')
+  rows[1]!.code = 'NEW-CODE'
+  expect(await findRegistrationForSale(lookupDb(rows), emailOnly(0, 'NGN'))).toBe('open')
+})
+
 test('legacy registrations use environment lifetime only when their cohort lacks it', async () => {
   const { db, paths } = dbFor({ cohortId: 'original', code: null, email: sale.email })
   await fulfilRegistration(db, sale, { ...options, codeTtlDaysFallback: '60' })
