@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@dpfit/theme": "workspace:*",
+    "@vercel/analytics": "^2.0.1",
     "@vvo/tzdb": "^6.198.0",
     "firebase-admin": "^14.3.0",
     "google-auth-library": "^10.6.2",
