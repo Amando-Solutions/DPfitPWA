@@ -1,12 +1,11 @@
 <script setup lang="ts">
 /**
- * The pill the page asks you to press, in the three treatments the design uses.
+ * The pill the page asks you to press.
  *
- * Every variant is flat -- no cast shadow, no glow -- so the buttons sit on the
- * page rather than hover over it. `primary` is the main ask; `ink` is the same
- * shape in near-black, used where the page is already light and a purple button
- * would be the third purple thing in view; `outline` is the quiet companion that
- * only ever appears on the dark panels.
+ * Every variant shares the design's one hover: the pill lifts 2px and fills
+ * with the deep plum, whatever it started as. `ink` is the main ask on the
+ * paper page, `outline` its quiet companion, and `paper` / `outline-light` the
+ * same pair drawn on the plum footer.
  *
  * Renders as an `<a>` when given an `href` and a `<button>` otherwise, so a
  * link is a link and a submit is a submit.
@@ -14,46 +13,37 @@
 const props = withDefaults(
   defineProps<{
     href?: string
-    variant?: 'primary' | 'ink' | 'outline'
+    variant?: 'ink' | 'outline' | 'paper' | 'outline-light'
     type?: 'button' | 'submit'
-    /** Sized down for the header bar, where the pill sits in a 72px row. */
+    /** Header-bar size. */
     compact?: boolean
-    /**
-     * Full width below `sm`, with a label that may wrap. For a pill inside a
-     * card, where a long label -- a price, a date -- would otherwise push it
-     * out past the edge of a phone screen.
-     */
-    fluid?: boolean
-    /**
-     * Ignored on the `<a>` form: `disabled` is not a thing an anchor has, and
-     * the browser silently ignores it there rather than making the link inert.
-     * Only the `<button>` form -- the one that submits the registration -- has
-     * anything to be disabled for.
-     */
+    /** Full width, 58px tall: the submit button inside the booking card. */
+    block?: boolean
+    /** Ignored on the `<a>` form, which has nothing to disable. */
     disabled?: boolean
   }>(),
-  { variant: 'primary', type: 'button', compact: false, fluid: false, disabled: false },
+  { variant: 'ink', type: 'button', compact: false, block: false, disabled: false },
 )
 
 const VARIANTS = {
-  primary: 'bg-[var(--primary-fill)] text-white hover:brightness-110',
-  ink: 'bg-[var(--text)] text-paper hover:brightness-125',
-  outline:
-    'border border-white/25 text-paper hover:border-white/45 hover:bg-white/5',
+  ink: 'bg-lp-ink text-lp-paper',
+  outline: 'border border-lp-ink text-lp-ink',
+  paper: 'bg-lp-paper text-lp-ink',
+  'outline-light': 'border border-[rgba(247,244,252,0.35)] text-lp-paper',
 } as const
 
 const classes = computed(() => [
-  'inline-flex items-center justify-center rounded-pill font-body font-semibold',
-  props.fluid ? 'w-full text-center text-balance sm:w-auto sm:whitespace-nowrap' : 'whitespace-nowrap',
-  'transition duration-150 ease-out',
-  'focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--primary-fill)]',
-  props.compact ? 'px-[22px] py-[11px] text-[13.5px]'
-    : props.fluid ? 'px-6 py-[17px] text-[15.5px] sm:px-[34px]'
-    : 'px-[34px] py-[17px] text-[15.5px]',
+  'inline-flex items-center justify-center gap-1.5 rounded-full font-landing font-semibold',
+  'transition-[transform,background-color,color] duration-[400ms,300ms,300ms] ease-[cubic-bezier(0.2,0.7,0.2,1)]',
+  'hover:-translate-y-0.5 hover:bg-lp-ink-hover hover:text-lp-paper',
+  'focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lp-accent',
+  props.compact ? 'px-5 py-3 text-[14px] whitespace-nowrap'
+    : props.block ? 'mt-2 h-[58px] w-full px-6 text-center text-[15px]'
+    : 'px-6 py-[15px] text-[15px] whitespace-nowrap',
   VARIANTS[props.variant],
   // Dimmed rather than restyled, so a button waiting on the network is
-  // recognisably the same button and the row does not reflow around it.
-  'disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:brightness-100',
+  // recognisably the same button and nothing reflows around it.
+  'disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:translate-y-0 disabled:hover:bg-lp-ink',
 ])
 </script>
 

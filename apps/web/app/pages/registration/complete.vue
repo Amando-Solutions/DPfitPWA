@@ -110,26 +110,31 @@ useHead({ title: 'Registration · DP Fitness' })
 </script>
 
 <template>
-  <main class="flex min-h-screen items-center justify-center bg-page px-6 py-16">
-    <div class="w-full max-w-110 text-center">
-      <BrandLogo :size="52" class="mx-auto text-ink" label="DP Fitness" />
+  <main class="flex min-h-screen items-center justify-center bg-lp-paper px-6 py-16 font-landing text-lp-ink antialiased">
+    <div class="w-full max-w-115 rounded-[28px] border border-lp-edge bg-white p-[clamp(24px,5vw,44px)] text-center shadow-[0_30px_60px_-40px_rgba(29,22,40,0.25)]">
+      <a href="/" class="inline-block text-lp-ink">
+        <BrandLogo :size="48" label="DP Fitness" />
+      </a>
 
       <!-- `role="status"` and `aria-live` so each phase is announced as it
            replaces the last, rather than changing silently under a screen
            reader that has already read the page. -->
-      <div role="status" aria-live="polite" class="mt-10">
+      <div role="status" aria-live="polite" class="mt-9">
         <template v-if="phase === 'checking'">
-          <p class="font-body text-[16px] text-soft">Confirming your payment…</p>
+          <p class="m-0 text-[16px] text-lp-soft">Confirming your payment…</p>
         </template>
 
         <template v-else-if="phase === 'done'">
-          <h1 class="title-section text-ink">Your slot is reserved.</h1>
-          <p v-if="emailed" class="mt-4 font-body text-[17px] leading-[1.7] text-soft">
+          <span class="lp-eyebrow">you're in</span>
+          <h1 class="mt-3 mb-0 text-[40px] leading-[1.05] font-medium tracking-[-0.03em]">
+            your slot is <span class="serif-accent">reserved.</span>
+          </h1>
+          <p v-if="emailed" class="mt-4 mb-0 text-[16px] leading-[1.7] text-lp-soft">
             Check your email for your access code.
           </p>
           <!-- Paid, code minted, email refused. Saying "check your inbox" here
                would send somebody to look for a message that is not coming. -->
-          <p v-else class="mt-4 font-body text-[17px] leading-[1.7] text-soft">
+          <p v-else class="mt-4 mb-0 text-[16px] leading-[1.7] text-lp-soft">
             Your access code is issued, but we couldn't email it just yet. Get in
             touch and we'll send it straight over.
           </p>
@@ -138,10 +143,13 @@ useHead({ title: 'Registration · DP Fitness' })
         <!-- A pre-order sale. The code exists but is held until the window
              closes, so the inbox has a confirmation in it, not a code. -->
         <template v-else-if="phase === 'reserved'">
-          <h1 class="title-section text-ink">Your slot is reserved.</h1>
-          <p class="mt-4 font-body text-[17px] leading-[1.7] text-soft">
+          <span class="lp-eyebrow">you're in</span>
+          <h1 class="mt-3 mb-0 text-[40px] leading-[1.05] font-medium tracking-[-0.03em]">
+            your slot is <span class="serif-accent">reserved.</span>
+          </h1>
+          <p class="mt-4 mb-0 text-[16px] leading-[1.7] text-lp-soft">
             <template v-if="emailed">We've emailed you a confirmation. </template>
-            Your access code follows by email when pre-orders close<template v-if="codesOn">
+            Your access code follows by email when enrolment closes<template v-if="codesOn">
               on {{ codesOn }}</template>.
           </p>
         </template>
@@ -151,8 +159,10 @@ useHead({ title: 'Registration · DP Fitness' })
              payment — and this page is read by people who have just been
              charged. -->
         <template v-else-if="phase === 'waiting'">
-          <h1 class="title-section text-ink">Still confirming.</h1>
-          <p class="mt-4 font-body text-[17px] leading-[1.7] text-soft">
+          <h1 class="m-0 text-[40px] leading-[1.05] font-medium tracking-[-0.03em]">
+            still <span class="serif-accent">confirming.</span>
+          </h1>
+          <p class="mt-4 mb-0 text-[16px] leading-[1.7] text-lp-soft">
             If your payment went through, your access code is on its way by email
             — it can take a few minutes. Nothing more to do here; get in touch if
             it hasn't arrived.
@@ -160,8 +170,10 @@ useHead({ title: 'Registration · DP Fitness' })
         </template>
 
         <template v-else>
-          <h1 class="title-section text-ink">Nothing to confirm here.</h1>
-          <p class="mt-4 font-body text-[17px] leading-[1.7] text-soft">
+          <h1 class="m-0 text-[40px] leading-[1.05] font-medium tracking-[-0.03em]">
+            nothing to <span class="serif-accent">confirm here.</span>
+          </h1>
+          <p class="mt-4 mb-0 text-[16px] leading-[1.7] text-lp-soft">
             We can't match this to a registration. If you were charged, your
             access code is still on its way — give it a few minutes, then get in
             touch.
@@ -172,21 +184,17 @@ useHead({ title: 'Registration · DP Fitness' })
       <!-- The way out. Always a real link, so the page is never a dead end for
            somebody with the countdown paused or JavaScript disabled; the timer
            is a convenience on top of it, not the only exit. -->
-      <div class="mt-9">
-        <CtaButton href="/" variant="ink">Back to the site</CtaButton>
+      <div class="mt-9 flex flex-col items-center">
+        <CtaButton href="/">back to the site ↗</CtaButton>
         <p
           v-if="phase === 'done' || phase === 'reserved'"
-          class="mt-3.5 font-data text-[11px] tracking-[0.12em] text-ink-mute uppercase"
+          class="mt-3.5 mb-0 text-[12px] text-lp-soft"
         >
           Returning in {{ secondsLeft }}s
         </p>
       </div>
 
-      <!-- The credit sits below the way out rather than above it, because this
-           page has exactly one thing it wants the reader to do next and
-           nothing should come between them and it. `inline-flex` inside the
-           centred column, so it centres without a wrapper. -->
-      <PoweredBy class="mt-12 text-ink-mute" />
+      <PoweredBy class="mt-10 text-lp-soft" />
     </div>
   </main>
 </template>

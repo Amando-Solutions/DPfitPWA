@@ -1,127 +1,90 @@
 <script setup lang="ts">
-import {
-  FOOTER_BLURB,
-  LEGAL_DISCLAIMER,
-  footerColumns,
-} from '~/data/landing'
+import { FOOTER_BLURB, LEGAL_DISCLAIMER, REGISTER_ANCHOR, followLinks, footerColumns } from '~/data/landing'
 
 /**
- * The band the page ends on.
- *
- * `--text` — the near-black violet — rather than `--night`, so it reads as the
- * floor under the closing panel instead of a second dark panel repeating it.
- * The hairline at the top is what separates the two, since both are dark.
- *
- * Deliberately no call-to-action here: the section immediately above this one
- * is a full-bleed "Join the Challenge", and a second button 80px below it would
- * only make the first look ignorable. The footer restates the ask as a plain
- * link in its column and lets the panel above do the selling.
+ * The plum panel the page ends on: the closing ask, the link columns, the
+ * disclaimer and the credits. Rounded at the top so it reads as a sheet
+ * pulled up over the page rather than a band across it.
  */
-// Straight through: every value the footer needs that is not copy is
-// deployment configuration, and `footerColumns` decides what that adds up to.
-const { appUrl, contactEmail, instagramHandle } = useRuntimeConfig().public
-const columns = footerColumns({ appUrl, contactEmail, instagramHandle })
+const { contactEmail, instagramHandle, tiktokHandle } = useRuntimeConfig().public
+const columns = footerColumns(contactEmail)
+const follow = followLinks({ instagramHandle, tiktokHandle })
 
-/**
- * The page is prerendered, so the server renders the year of the *build*. Vue
- * corrects the text on the client, which is what makes this right on a site
- * that has not been redeployed since December rather than merely right at
- * build time.
- */
+// Rendered on each request, and corrected on the client besides.
 const year = new Date().getFullYear()
 
-/**
- * The member app is a separate deployment and the socials are somebody else's
- * site, so both leave this page — `noopener` because a link that opens a tab
- * should not hand that tab a handle back to this one. Everything else here is
- * an anchor on this page or a `mailto:`, and neither wants a new tab.
- */
-function linkAttrs(href: string) {
-  return /^https?:/.test(href)
-    ? { target: '_blank', rel: 'noopener noreferrer' }
-    : {}
-}
+const linkAttrs = (href: string) =>
+  /^https?:/.test(href) ? { target: '_blank', rel: 'noopener noreferrer' } : {}
 </script>
 
 <template>
-  <footer class="bg-ink">
-    <PageContainer>
-      <div
-        class="grid gap-x-16 gap-y-12 border-t border-rule-inverse pt-14 pb-12 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]"
-      >
-        <div class="max-w-95">
-          <!-- The footer band is `--text`, a near-black violet, so this is the
-               white lockup for the same reason the header is. -->
-          <BrandLogo mono :size="38" class="text-white" label="DP Fitness" />
-          <p class="mt-5 font-body text-[14.5px] leading-[1.7] text-white/70">
-            {{ FOOTER_BLURB }}
-          </p>
+  <footer class="mt-34 rounded-t-[36px] bg-lp-ink pb-22 text-lp-paper md:pb-0">
+    <div class="mx-auto flex max-w-300 flex-col gap-18 px-6 pt-22 pb-8">
+      <div class="flex flex-wrap items-end justify-between gap-8">
+        <h2
+          class="m-0 max-w-180 text-[clamp(40px,5.4vw,80px)] leading-none font-medium tracking-[-0.04em]"
+        >
+          ready when <span class="serif-accent">you are.</span>
+        </h2>
+        <div class="flex flex-wrap gap-3">
+          <CtaButton :href="REGISTER_ANCHOR" variant="paper">book a slot ↗</CtaButton>
+          <CtaButton href="#top" variant="outline-light">back to top ↑</CtaButton>
         </div>
+      </div>
 
-        <!--
-          `break-words` on the links because the contact address comes from the
-          environment and can be any length: at 1024px an unbreakable 26-character
-          address overflowed its track by 50px and put a horizontal scrollbar on
-          the whole page.
-
-          Three tracks above phone width, and the columns pack into them from
-          the left. The count is not fixed — the contact column is absent until
-          an address is configured — so a track-based grid is what puts the
-          space that leaves *after* the last column rather than between the
-          brand and the first one, which is where `justify-between` on a flex
-          row put it. Two tracks on a phone, where a third would not fit.
-        -->
-        <nav aria-label="Footer" class="grid grid-cols-2 gap-x-8 gap-y-10 sm:grid-cols-3">
-          <div v-for="column in columns" :key="column.title">
-            <!-- 55%, not the 45% this label wants to be: at 10.5px it is the
-                 smallest type in the footer, and 45% white on this band
-                 measures 4.41:1 — under AA by a hair. 55% is 5.84:1. -->
-            <h2 class="meta text-white/55">{{ column.title }}</h2>
-            <ul class="mt-4 flex flex-col gap-2.5">
-              <li v-for="link in column.links" :key="link.href">
-                <a
-                  :href="link.href"
-                  v-bind="linkAttrs(link.href)"
-                  class="font-body text-[14.5px] wrap-break-word text-white/78 transition-colors hover:text-white"
-                >
-                  {{ link.label }}
-                </a>
-              </li>
-            </ul>
+      <div
+        class="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-10 border-t border-[rgba(247,244,252,0.14)] pt-12"
+      >
+        <div class="flex flex-col gap-3.5">
+          <BrandLogo :size="56" mono label="DP Fitness" />
+          <span class="max-w-60 text-[14px] leading-[1.6] text-lp-on-ink-soft">{{ FOOTER_BLURB }}</span>
+        </div>
+        <nav
+          v-for="column in columns"
+          :key="column.title"
+          :aria-label="column.title"
+          class="flex flex-col gap-3 text-[14px]"
+        >
+          <span class="text-[12px] tracking-[0.08em] text-lp-on-ink-soft uppercase">{{ column.title }}</span>
+          <a
+            v-for="link in column.links"
+            :key="link.href"
+            :href="link.href"
+            v-bind="linkAttrs(link.href)"
+            class="lp-ul self-start break-all text-lp-paper transition-colors hover:text-lp-on-ink-hover"
+          >
+            {{ link.label }}
+          </a>
+        </nav>
+        <!-- Dropped entirely until a handle is configured, rather than
+             shipping icons that go nowhere. -->
+        <nav v-if="follow.length" aria-label="follow" class="flex flex-col gap-3 text-[14px]">
+          <span class="text-[12px] tracking-[0.08em] text-lp-on-ink-soft uppercase">follow</span>
+          <div class="flex gap-2.5">
+            <a
+              v-for="link in follow"
+              :key="link.href"
+              :href="link.href"
+              :aria-label="link.label"
+              :title="link.label"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="grid size-11 place-items-center rounded-full border border-[rgba(247,244,252,0.35)] text-lp-paper transition-[transform,background-color] duration-[400ms,300ms] ease-[cubic-bezier(0.2,0.7,0.2,1)] hover:-translate-y-0.5 hover:bg-lp-ink-hover focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lp-accent"
+            >
+              <SocialIcon :network="link.network" />
+            </a>
           </div>
         </nav>
       </div>
 
-      <div class="border-t border-rule-inverse py-9">
-        <p class="max-w-155 font-body text-[12.5px] leading-[1.7] text-white/55">
-          {{ LEGAL_DISCLAIMER }}
-        </p>
-        <div
-          class="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
-        >
-          <p class="meta text-white/55">
-            © {{ year }} DP Fitness · The Recomp Challenge
-          </p>
+      <p class="m-0 max-w-160 text-[13px] leading-[1.7] text-lp-on-ink-soft">{{ LEGAL_DISCLAIMER }}</p>
 
-          <!-- The build credit, in the middle of the three: it is the one item
-               here that is neither DP Fitness's copyright nor a control, and
-               putting it between them is what keeps it from reading as either.
-               `inverse` because this band is near-black in a theme pinned
-               light, so the terracotta has to be asked for rather than
-               inferred. -->
-          <PoweredBy inverse class="text-white/45" />
-
-          <!-- A real anchor to the top of the document rather than a scroll
-               handler, so it works with JavaScript off and inherits the smooth
-               scrolling `main.css` already sets on `html`. -->
-          <a
-            href="#top"
-            class="meta text-white/55 transition-colors hover:text-white"
-          >
-            Back to top ↑
-          </a>
-        </div>
+      <div
+        class="flex flex-wrap items-center justify-between gap-4 border-t border-[rgba(247,244,252,0.14)] pt-6 text-[13px] text-lp-on-ink-soft"
+      >
+        <span>© {{ year }} DP Fitness. All rights reserved.</span>
+        <PoweredBy class="text-lp-on-ink-soft" />
       </div>
-    </PageContainer>
+    </div>
   </footer>
 </template>

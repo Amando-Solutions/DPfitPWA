@@ -10,6 +10,8 @@ export interface Challenge {
   name: string
   startsOn: string
   startsLabel: string
+  /** The cohort's first moment, as an ISO 8601 instant. Drives the countdown. */
+  startsAt: string
   endsOn: string
   timezone: string
   durationWeeks: number

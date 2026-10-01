@@ -1,24 +1,22 @@
 <script setup lang="ts">
 import { detectTimezone, isTimezone } from '~/data/timezones'
-
-const price = usePrice()
-const challenge = useChallenge()
+import { APP_NAME, EQUIPMENT, NEXT_STEPS, TRAINING_SPLIT } from '~/data/landing'
 
 /**
- * The whole of registration on this site: the details the coach needs before
- * anyone pays.
+ * "book your slot": the offer on the left, the form on the right.
  *
- * One form, no progress bar. Payment happens on Selar's own checkout at its own
- * URL, so a step indicator here would be counting steps this page cannot show
- * and does not own. `POST /api/register` records the attempt and answers with a
- * checkout URL, and this component's last act is to navigate to it — so there
- * is no success state here at all. What happens after payment belongs to
+ * The form records the registration (`POST /api/register`), which answers with
+ * a Selar checkout URL. Payment happens on Selar's own page, so the moment the
+ * URL is in hand this card turns into the design's "one last step" panel and
+ * the browser leaves for Selar — the panel's own link is there for anyone
+ * whose navigation is slow or blocked. What happens after payment belongs to
  * `pages/registration/complete.vue`.
  *
- * Nothing about the access code passes through this component. It is not
- * minted until Selar reports the sale, it is delivered by email when the
- * pre-order closes, and the browser is never told what it is.
+ * Nothing about the access code passes through this component. It is minted
+ * when Selar reports the sale, emailed, and never shown to the browser.
  */
+const { challenge, weeks, price, perWeek, startsLong, closesLong, opensLong, state } = useCohortLabels()
+const rawPrice = usePrice()
 
 interface RegistrationDetails {
   firstName: string
@@ -28,14 +26,7 @@ interface RegistrationDetails {
   timezone: string
 }
 
-/**
- * Fired with the validated answers just before the browser leaves for Selar.
- *
- * Nothing listens to it today. It is kept because it is the only moment the
- * page knows who is about to pay, which is what an analytics or pixel call
- * would need — and because the navigation that follows makes it the last thing
- * this component ever does.
- */
+/** Fired with the validated answers just before the browser leaves for Selar. */
 const emit = defineEmits<{ submit: [RegistrationDetails] }>()
 
 const form = reactive<RegistrationDetails>({
@@ -51,48 +42,28 @@ type FieldName = keyof RegistrationDetails
 interface Field {
   name: FieldName
   label: string
-  /** Rendered as `TimezoneSelect` rather than an `<input>`. Only one field is. */
   control?: 'select'
   type?: string
   placeholder?: string
-  /** Absent on the time zone, which is a button and has nothing to fill. */
   autocomplete?: string
   inputmode?: 'text' | 'email' | 'tel'
-  /**
-   * How many of the six columns the field takes on the widest layout.
-   *
-   * Two apiece for the name and the email, which fills the first row; four for
-   * the time zone, because it is the one field holding a sentence — "New York
-   * City, Brooklyn — Eastern Time (GMT-05:00)" — and a narrower one shows the
-   * first two words of it.
-   */
-  columns: 2 | 4
   /** Returns an error message, or an empty string when the value is fine. */
   validate: (value: string) => string
 }
 
-/**
- * Tailwind reads class names out of the source, so it cannot see one that is
- * assembled at runtime. A lookup, not a template string.
- */
-const COLUMN_CLASS: Record<Field['columns'], string> = {
-  2: 'xl:col-span-2',
-  4: 'sm:col-span-2 xl:col-span-4',
-}
-
 const required = (value: string) => value.trim().length > 0
 
+/**
+ * The same five fields the server validates in `register.post.ts`. WhatsApp
+ * stays although the design reference leaves it out: the cohort's group chat
+ * runs on it, the server requires it, and it pre-fills Selar's checkout.
+ */
 const FIELDS: Field[] = [
-  // Two fields rather than one. The coach addresses people by their first
-  // name — in the access-code email, in the group chat — and splitting a
-  // typed "full name" on whitespace guesses wrong the moment somebody has two
-  // given names or none. Asking is the only way to actually know.
   {
     name: 'firstName',
     label: 'First name',
     type: 'text',
     autocomplete: 'given-name',
-    columns: 2,
     validate: (v) => (required(v) ? '' : 'Tell us what to call you.'),
   },
   {
@@ -100,19 +71,15 @@ const FIELDS: Field[] = [
     label: 'Last name',
     type: 'text',
     autocomplete: 'family-name',
-    columns: 2,
     validate: (v) => (required(v) ? '' : 'We need your last name too.'),
   },
   {
     name: 'email',
     label: 'Email',
     type: 'email',
+    placeholder: 'you@email.com',
     autocomplete: 'email',
     inputmode: 'email',
-    columns: 2,
-    // Deliberately permissive. The only thing worth catching in the browser is
-    // a value that could not possibly be deliverable; anything stricter starts
-    // rejecting real addresses, and the confirmation mail is the real check.
     validate: (v) =>
       !required(v)
         ? 'We need an email to send your access details to.'
@@ -127,9 +94,6 @@ const FIELDS: Field[] = [
     placeholder: '+234…',
     autocomplete: 'tel',
     inputmode: 'tel',
-    columns: 2,
-    // The group chat runs on WhatsApp, so this is how someone actually gets
-    // into the cohort. Digits, spaces and the usual punctuation, seven or more.
     validate: (v) =>
       !required(v)
         ? 'Enter your phone number.'
@@ -137,76 +101,70 @@ const FIELDS: Field[] = [
           ? ''
           : 'Include the country code, like +234 801 234 5678.',
   },
-  // A picker, where this was once a text input asking for "e.g. Lagos, WAT".
-  // The live calls run in two slots and this is the answer that decides which
-  // one somebody is pointed at, so it is the single field where a typo costs
-  // a person a call — and nothing downstream can tell a typo from a place it
-  // has not heard of. The list and what it stores are in `~/data/timezones`.
   {
     name: 'timezone',
-    label: 'Time zone',
+    label: 'Your timezone',
     control: 'select',
-    placeholder: 'Select your time zone',
-    columns: 4,
+    placeholder: 'Select your timezone',
     validate: (v) =>
       !required(v)
         ? 'This decides which call slot suits you.'
         : isTimezone(v)
           ? ''
-          : 'Pick your time zone from the list.',
+          : 'Pick your timezone from the list.',
   },
 ]
 
-/** Populated on the first submit attempt, then kept live as fields are fixed. */
+const nameFields = FIELDS.slice(0, 2)
+const otherFields = FIELDS.slice(2)
+
 const errors = reactive<Partial<Record<FieldName, string>>>({})
 const attempted = ref(false)
-const done = ref(false)
 
-/**
- * In flight, and stays true once a checkout URL is in hand.
- *
- * Never reset on the success path: the browser is on its way to Selar, and a
- * button that springs back to life during that navigation is an invitation to
- * start a second checkout.
- */
+/** In flight, and stays true once a checkout URL is in hand. */
 const submitting = ref(false)
-
-/**
- * The button's words. Seats are only sold during the pre-order, so outside it
- * the button says which side of the window this is, rather than a bare
- * "unavailable" that reads like a fault. Dates go in the note beside it, so the
- * pill stays a short line rather than a paragraph.
- */
-const actionLabel = computed(() => {
-  if (submitting.value) return 'Taking you to payment…'
-  // No-break before the dot: on a phone the price wraps alone, not "· ₦…".
-  if (challenge.value?.registrationOpen && price.value) return `Continue to payment · ${price.value.label}`
-  const preorder = challenge.value?.preorder
-  if (preorder?.state === 'upcoming') return 'Pre-orders open soon'
-  if (preorder?.state === 'closed') return 'Pre-orders are closed'
-  return 'Registration unavailable'
-})
-
-/**
- * A failure that belongs to the form rather than to any one field — the server
- * refusing, or not answering at all. Kept apart from `errors` because nothing
- * on the form is wrong when this is set and pointing at a field would be a lie.
- */
+/** The Selar URL, once the registration is recorded. Swaps the card's contents. */
+const checkoutUrl = ref<string | null>(null)
 const failure = ref('')
 
-/**
- * The browser already knows where it is, so the field starts answered.
- *
- * On mount rather than in the form's initial state, because this page is
- * prerendered: a zone resolved while the state is built is resolved during the
- * build, which bakes the build machine's zone into the HTML every visitor is
- * served — and hydrates into a mismatch besides. A zone the list does not carry
- * resolves to `''` and leaves the placeholder showing, which is the honest
- * answer: a wrong zone sitting in a filled-looking field is never re-read.
- */
+/** True while the timezone is still the one the browser guessed. */
+const tzDetected = ref(false)
+
 onMounted(() => {
-  if (!form.timezone) form.timezone = detectTimezone()
+  // On mount rather than in the initial state: a zone resolved during SSR is
+  // the server's zone, not the visitor's.
+  if (!form.timezone) {
+    form.timezone = detectTimezone()
+    tzDetected.value = Boolean(form.timezone)
+  }
 })
+
+const open = computed(() => Boolean(challenge.value?.registrationOpen && rawPrice.value))
+
+const actionLabel = computed(() => {
+  if (submitting.value) return 'taking you to payment…'
+  if (open.value) return 'book a slot ↗'
+  if (state.value === 'upcoming') return 'enrolment opens soon'
+  if (state.value === 'closed') return 'enrolment is closed'
+  return 'registration unavailable'
+})
+
+/** The line under the button. */
+const footnote = computed(() => {
+  if (state.value === 'upcoming' && opensLong.value) {
+    return { strong: `Enrolment opens ${opensLong.value}.`, rest: closesLong.value ? `It closes ${closesLong.value}.` : '' }
+  }
+  if (state.value === 'closed') return { strong: 'Enrolment for this cohort is closed.', rest: '' }
+  if (closesLong.value) return { strong: `Enrolment closes ${closesLong.value}.`, rest: 'Your next steps are sent to your email.' }
+  return { strong: '', rest: 'Your next steps are sent to your email.' }
+})
+
+const details = computed(() => [
+  { label: 'Starts', value: startsLong.value ?? 'To be announced' },
+  { label: 'Where', value: APP_NAME },
+  { label: 'Training', value: TRAINING_SPLIT },
+  { label: 'Equipment', value: EQUIPMENT },
+])
 
 function validateField(field: Field) {
   const message = field.validate(form[field.name])
@@ -215,39 +173,26 @@ function validateField(field: Field) {
   return !message
 }
 
-// Re-validating on input before the first submit would scold someone for an
-// incomplete email while they are still typing it, so it only starts once they
-// have asked to continue.
+// Only scold after the first submit, so nobody is told their email is
+// incomplete while they are still typing it.
 function onInput(field: Field) {
+  if (field.name === 'timezone') tzDetected.value = false
   if (attempted.value) validateField(field)
   if (failure.value) failure.value = ''
 }
 
-/**
- * What went wrong, in the server's words where it gave any.
- *
- * `$fetch` throws with the JSON body on `data`, and the route sets
- * `statusMessage` to something a person can act on — being rate-limited, most
- * usefully. A network failure has no body at all, which is what the fallback
- * is for.
- */
 const failureMessage = (cause: unknown) => {
   const message = (cause as { data?: { statusMessage?: string } })?.data?.statusMessage
   return message || 'We could not reach the server. Check your connection and try again.'
 }
 
 async function onSubmit() {
-  // Re-entrancy guard. Enter and a click both land here, and a second request
-  // while the first is open would issue against an address that is about to
-  // have a code.
-  if (submitting.value || done.value || !challenge.value?.registrationOpen || !price.value) return
+  if (submitting.value || checkoutUrl.value || !open.value || !challenge.value || !rawPrice.value) return
 
   attempted.value = true
   failure.value = ''
   const ok = FIELDS.map(validateField).every(Boolean)
   if (!ok) {
-    // Send focus to the first thing that needs fixing, rather than leaving the
-    // page still and the error somewhere off screen.
     const firstBad = FIELDS.find((f) => errors[f.name])
     if (firstBad) document.getElementById(`register-${firstBad.name}`)?.focus()
     return
@@ -257,93 +202,118 @@ async function onSubmit() {
   try {
     const result = await $fetch<{ ok: true; checkoutUrl: string }>('/api/register', {
       method: 'POST',
-      body: { ...form, cohortId: challenge.value.id,
-        amountMinor: price.value.minor, currency: price.value.currency },
+      body: {
+        ...form,
+        cohortId: challenge.value.id,
+        amountMinor: rawPrice.value.minor,
+        currency: rawPrice.value.currency,
+      },
     })
 
     emit('submit', { ...form })
-    done.value = true
-
-    // `assign`, not `replace`: Selar's checkout has its own way back and so
-    // does the browser, and that somewhere is this page with the form still
-    // filled in.
+    checkoutUrl.value = result.checkoutUrl
+    // `assign`, not `replace`: Back from Selar should land on this page.
     window.location.assign(result.checkoutUrl)
   } catch (cause) {
     failure.value = failureMessage(cause)
-    // Reset only on failure. On the way to Selar the button stays disabled,
-    // because the navigation has not visibly started yet and a second press
-    // would open a second registration.
+    // Reset only on failure. On the way to Selar the form stays locked so a
+    // second press cannot open a second registration.
     submitting.value = false
   }
 }
+
+const inputClass = (name: FieldName) => [
+  'h-[52px] w-full rounded-[14px] border bg-white px-4 font-landing text-[15px] text-lp-ink',
+  'transition-[border-color,box-shadow] duration-300 placeholder:text-[#8a8399]',
+  'focus:border-lp-ink focus:shadow-[0_0_0_3px_rgba(29,22,40,0.12)] focus:outline-none',
+  errors[name] ? 'border-[#b3261e]' : 'border-lp-field-edge',
+]
 </script>
 
 <template>
-  <section id="register" class="bg-page py-20 lg:py-30">
-    <PageContainer>
-      <div class="max-w-155">
-        <p class="eyebrow-section text-primary-fill">Register, then pay</p>
-        <h2 class="title-section mt-4.5 text-ink">Register for your spot.</h2>
-        <p class="mt-4 font-body text-[17px] leading-[1.7] text-soft">
-          Fill this in once. Your program access and nutrition guidance are set
-          up from what you enter here, and payment comes right after.
-        </p>
+  <section id="join" class="mx-auto max-w-300 px-6 pt-34 pb-10">
+    <div class="grid grid-cols-1 items-start gap-x-24 gap-y-14 lg:grid-cols-2">
+      <!-- The offer. -->
+      <div class="lp-reveal flex flex-col gap-6">
+        <span class="lp-eyebrow">join the challenge</span>
+        <h2 class="lp-h2-lg">book your <span class="serif-accent">slot</span></h2>
+
+        <div class="mt-2 flex flex-col gap-1.5">
+          <div class="flex flex-wrap items-baseline gap-3">
+            <span class="text-[52px] font-medium tracking-[-0.03em]">{{ price ?? 'Price to be announced' }}</span>
+            <span v-if="price && weeks" class="text-[14px] text-lp-soft">for the full {{ weeks }} weeks</span>
+          </div>
+          <span v-if="perWeek" class="text-[15px] text-lp-soft">
+            That's about <b class="font-semibold text-lp-ink">{{ perWeek }} a week</b> for your
+            program, coaching, check-ins and community.
+          </span>
+        </div>
+
+        <dl class="m-0 flex flex-col border-t border-lp-rule">
+          <div
+            v-for="row in details"
+            :key="row.label"
+            class="flex justify-between gap-4 border-b border-lp-rule py-3.5 text-[15px]"
+          >
+            <dt class="text-lp-soft">{{ row.label }}</dt>
+            <dd class="m-0 text-right">{{ row.value }}</dd>
+          </div>
+        </dl>
+
+        <div class="flex flex-col gap-3">
+          <span class="text-[13px] font-semibold">What happens next</span>
+          <ol class="m-0 grid list-none grid-cols-3 gap-2 p-0">
+            <li
+              v-for="(step, i) in NEXT_STEPS"
+              :key="step"
+              class="flex flex-col gap-2 rounded-2xl border border-lp-edge bg-white p-3.5"
+            >
+              <span class="text-[12px] font-bold text-lp-accent">{{ String(i + 1).padStart(2, '0') }}</span>
+              <span class="text-[13px] leading-[1.45]">{{ step }}</span>
+            </li>
+          </ol>
+        </div>
       </div>
 
+      <!-- The form card. -->
       <div
-        class="mt-12 rounded-card border border-[rgba(36,27,46,0.12)] bg-white p-6 shadow-[0_30px_35px_rgba(36,27,46,0.09)] sm:p-10 lg:mt-13 lg:p-12.25"
+        class="lp-reveal rounded-[28px] border border-lp-edge bg-white p-[clamp(24px,4vw,40px)] shadow-[0_30px_60px_-40px_rgba(29,22,40,0.25)]"
       >
-        <form novalidate @submit.prevent="onSubmit">
-          <!-- Six columns, counted in twos: the two halves of a name and the
-               email fill the first row, the phone number and the time zone the
-               second — the picker taking four of them because it is the only
-               field holding a sentence. Two-up below that, which keeps a name
-               on one line and gives the picker a row of its own.
-
-               `inert` from the moment the request goes out and, like the
-               button, never lifted on the way through: the answers below are
-               what the registration was recorded against and what the access
-               code will be emailed to, and they are read once, here, before
-               the browser leaves for Selar. A field that still takes input
-               after that lets somebody correct their email onto a screen whose
-               value no longer goes anywhere — they pay, and the code is
-               delivered to the address they can see they changed.
-
-               `inert` rather than `disabled` on each control: it is one
-               attribute on the row that already exists, so it cannot miss a
-               field as fields are added, and it reaches inside the time-zone
-               picker — its button and its panel both — where `disabled` would
-               have to be threaded through as a prop. -->
-          <!-- `grid-cols-1` is not decoration. Unset, the single column on a
-               phone is an implicit `auto` track sized to its widest item's
-               *max*-content — which for the time-zone button is the whole
-               untruncated label, so the track ran past the card and gave the
-               page a horizontal scrollbar. The class compiles to
-               `minmax(0, 1fr)`, the column the other two breakpoints were
-               already getting. -->
+        <form v-if="!checkoutUrl" novalidate class="flex flex-col gap-5" @submit.prevent="onSubmit">
+          <!-- `inert` while the request is out: the answers are read once, and
+               a field still taking input after that would let somebody "fix"
+               an email that is no longer going anywhere. -->
           <div
-            class="grid grid-cols-1 gap-5 transition-opacity duration-150 sm:grid-cols-2 xl:grid-cols-6"
-            :class="(submitting || done) && 'opacity-60'"
-            :inert="submitting || done"
+            class="flex flex-col gap-5 transition-opacity duration-150"
+            :class="submitting && 'opacity-60'"
+            :inert="submitting"
             :aria-busy="submitting || undefined"
           >
-            <div
-              v-for="field in FIELDS"
-              :key="field.name"
-              class="flex min-w-0 flex-col gap-1.75"
-              :class="COLUMN_CLASS[field.columns]"
-            >
-              <label
-                :for="`register-${field.name}`"
-                class="font-data text-[11.5px] tracking-[0.06em] text-soft uppercase"
-              >
-                {{ field.label }}
-              </label>
+            <div class="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-5">
+              <div v-for="field in nameFields" :key="field.name" class="flex min-w-0 flex-col gap-2">
+                <label :for="`register-${field.name}`" class="text-[13px] font-semibold">{{ field.label }}</label>
+                <input
+                  :id="`register-${field.name}`"
+                  v-model="form[field.name]"
+                  :type="field.type"
+                  :name="field.name"
+                  :placeholder="field.placeholder"
+                  :autocomplete="field.autocomplete"
+                  :aria-invalid="errors[field.name] ? true : undefined"
+                  :aria-describedby="errors[field.name] ? `register-${field.name}-error` : undefined"
+                  :class="inputClass(field.name)"
+                  @input="onInput(field)"
+                  @blur="onInput(field)"
+                >
+                <p v-if="errors[field.name]" :id="`register-${field.name}-error`" class="m-0 text-[12.5px] text-[#b3261e]">
+                  {{ errors[field.name] }}
+                </p>
+              </div>
+            </div>
 
-              <!-- The time zone, which is the one field with no text input
-                   behind it at all: see `TimezoneSelect`. Picking is the only
-                   way a value arrives, so re-validating on change is enough —
-                   there is no half-typed state to scold anybody for. -->
+            <div v-for="field in otherFields" :key="field.name" class="flex min-w-0 flex-col gap-2">
+              <label :for="`register-${field.name}`" class="text-[13px] font-semibold">{{ field.label }}</label>
+
               <TimezoneSelect
                 v-if="field.control === 'select'"
                 :id="`register-${field.name}`"
@@ -351,12 +321,9 @@ async function onSubmit() {
                 :label="field.label"
                 :placeholder="field.placeholder ?? ''"
                 :invalid="Boolean(errors[field.name])"
-                :describedby="
-                  errors[field.name] ? `register-${field.name}-error` : undefined
-                "
+                :describedby="errors[field.name] ? `register-${field.name}-error` : (tzDetected ? 'register-timezone-hint' : undefined)"
                 @update:model-value="onInput(field)"
               />
-
               <input
                 v-else
                 :id="`register-${field.name}`"
@@ -367,66 +334,84 @@ async function onSubmit() {
                 :autocomplete="field.autocomplete"
                 :inputmode="field.inputmode"
                 :aria-invalid="errors[field.name] ? true : undefined"
-                :aria-describedby="
-                  errors[field.name] ? `register-${field.name}-error` : undefined
-                "
-                class="h-11.5 rounded-field border bg-field px-3.75 font-body text-[15px] text-ink transition-colors placeholder:text-[#757575] focus:outline-none focus-visible:border-primary-fill focus-visible:ring-2 focus-visible:ring-primary-ring"
-                :class="
-                  errors[field.name]
-                    ? 'border-primary-fill'
-                    : 'border-field-edge'
-                "
+                :aria-describedby="errors[field.name] ? `register-${field.name}-error` : undefined"
+                :class="inputClass(field.name)"
                 @input="onInput(field)"
                 @blur="onInput(field)"
               >
-              <p
-                v-if="errors[field.name]"
-                :id="`register-${field.name}-error`"
-                class="font-body text-[13px] text-primary-fill"
-              >
+
+              <p v-if="errors[field.name]" :id="`register-${field.name}-error`" class="m-0 text-[12.5px] text-[#b3261e]">
                 {{ errors[field.name] }}
               </p>
+              <span
+                v-else-if="field.control === 'select' && tzDetected"
+                id="register-timezone-hint"
+                class="text-[12px] text-lp-soft"
+              >
+                Detected from your device. Change it if it's wrong.
+              </span>
             </div>
           </div>
 
-          <!-- Stays put and stays disabled once a checkout URL is in hand.
-               The browser is mid-navigation to Selar at that point, and a
-               button that springs back to life opens a second checkout. -->
-          <div class="mt-7 flex flex-wrap items-center gap-3.5 lg:mt-7">
-            <CtaButton type="submit" variant="ink" fluid :disabled="submitting || done || !challenge?.registrationOpen">
-              {{ actionLabel }}
-            </CtaButton>
-            <p class="font-body text-[13.5px] text-ink-mute">
-              <template v-if="challenge?.preorder?.state === 'closed'">
-                Pre-orders closed {{ challenge.preorder.endsLabel }}.
-              </template>
-              <template v-else-if="challenge?.preorder?.state === 'upcoming'">
-                Pre-orders open {{ challenge.preorder.startsLabel }} and close
-                {{ challenge.preorder.endsLabel }}.
-              </template>
-              <template v-else-if="challenge?.preorder">
-                Secure checkout with Selar. Pre-orders close
-                {{ challenge.preorder.endsLabel }}.
-              </template>
-              <template v-else>
-                Secure checkout with Selar.
-              </template>
-            </p>
+          <CtaButton type="submit" block :disabled="submitting || !open">
+            {{ actionLabel }}
+          </CtaButton>
+
+          <div class="flex flex-wrap items-center justify-center gap-2.5 text-[13px] text-lp-soft">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="4" y="11" width="16" height="10" rx="2" />
+              <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+            </svg>
+            <span>Secure payment via</span>
+            <img
+              src="/landing/selar-logo.png"
+              alt="Selar"
+              width="392"
+              height="203"
+              loading="lazy"
+              decoding="async"
+              class="h-4 w-auto"
+            >
           </div>
 
-          <!-- `role="alert"` rather than `status`: this interrupts, because the
-               form looked correct and the failure is the only reason nothing
-               happened. -->
+          <p class="m-0 text-center text-[13px] leading-[1.6] text-lp-soft">
+            <b v-if="footnote.strong" class="font-semibold text-lp-ink">{{ footnote.strong }}</b>
+            {{ footnote.rest }}
+          </p>
+
+          <!-- Interrupts: the form looked correct and this is the only reason
+               nothing happened. -->
           <p
             v-if="failure"
             role="alert"
-            class="mt-6 rounded-field border border-primary-fill bg-[rgba(147,51,234,0.06)] px-4 py-3 font-body text-[14.5px] text-primary-fill"
+            class="m-0 rounded-[14px] border border-[#b3261e] bg-[rgba(179,38,30,0.06)] px-4 py-3 text-[14.5px] text-[#b3261e]"
           >
             {{ failure }}
           </p>
-
         </form>
+
+        <div v-else role="status" class="flex flex-col gap-4.5 py-4">
+          <span class="lp-eyebrow">almost there</span>
+          <h3 class="m-0 text-[34px] font-medium tracking-[-0.02em]">
+            one last step<template v-if="form.firstName.trim()">, <span class="serif-accent">{{ form.firstName.trim() }}</span></template>.
+          </h3>
+          <p class="m-0 text-[15px] leading-[1.65] text-lp-soft">
+            Complete your payment on Selar to secure your slot. Once it's done,
+            your next steps and app access details are sent to your email.
+          </p>
+          <CtaButton :href="checkoutUrl" class="self-start">continue to selar ↗</CtaButton>
+        </div>
       </div>
-    </PageContainer>
+    </div>
   </section>
 </template>

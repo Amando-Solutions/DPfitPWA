@@ -180,6 +180,7 @@ export async function loadChallenge(db: Firestore, fallback: CohortFallbacks = {
   const challenge: Challenge = {
     id: snap.id, name: data.name.trim(),
     startsOn: date.format(data.startDate.toDate()), startsLabel: start.format(data.startDate.toDate()),
+    startsAt: data.startDate.toDate().toISOString(),
     endsOn: date.format(data.endDate.toDate()), timezone: data.timezone, durationWeeks: data.durationWeeks,
     program: validProgram ? { id: programId, name: program!.name, version: data.programVersion } : null,
     weeks: (weeks?.docs ?? []).flatMap((doc) => {

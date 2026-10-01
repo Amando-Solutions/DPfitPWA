@@ -1,9 +1,8 @@
 # DP Fitness · public landing site
 
-The page people arrive on. One route, thirteen sections, built from the Figma
-composition
-[`DP Fitness · Landing Page`](https://www.figma.com/design/B931SXWG53I3zKWa2MS9pY/DP-Fitness?node-id=444-2)
-(desktop frame `448:2`, with tablet and mobile artboards alongside it).
+The page people arrive on. One route, built from the "Body Recomp Challenge"
+design reference: a lavender paper page in Manrope with Instrument Serif
+italics, a plum countdown strip, and a rounded plum footer.
 
 ```bash
 bun install                       # from the repo root
@@ -13,27 +12,44 @@ bun run dev:web                   # http://localhost:3001
 
 Everything on the page renders without a `.env`. The one thing that does not is
 the registration form, which needs a Firebase service account to issue an access
-code — see [Registration](#registration) below.
+code — see [Registration](#registration-and-payment) below.
 
 ## How it is put together
 
 ```
-app/data/landing.ts          every word on the page, and the types around them
+app/data/landing.ts              every word on the page that is not per-cohort
+app/composables/useCohortLabels  the cohort's dates and price, worded for the page
         ↓
-app/components/landing/      one component per section, plus three shared pieces
+app/components/landing/          one component per section
         ↓
-app/pages/index.vue          nothing but the order of the sections
+app/pages/index.vue              the order of the sections, and the cohort fetch
 ```
 
-The same split the member app makes between `data/` and `components/`: the
-components own layout and behaviour, `data/landing.ts` owns the copy. A price
-change is one edit, and the three places the price appears cannot drift apart.
+Sections, top to bottom: `CountdownBar`, `SiteHeader`, `HeroSection`,
+`CohortBanner`, `ResultsSection`, `ManifestoSection`, `IncludedSection`,
+`WeeksSection`, `FitSection`, `CoachSection`, `RegisterSection` (`#join`),
+`FaqSection`, `SiteFooter`, and the phone-only `MobileCta`.
 
-`PageContainer` and `CtaButton` are the only shared pieces in this app, and
-`BrandLogo` comes from the design-system layer rather than from here — the mark
-is authored once in `packages/theme` and both apps import it. Every other
-component is a section, named for what it says rather than where it sits, so
-re-ordering the argument is a matter of moving a line in `index.vue`.
+What comes from the active cohort (`/api/challenge`): the countdown target
+(pre-order open/close, then the cohort's `startsAt`), duration, start date,
+enrolment close, price and per-week price, and the week cards (the published
+program's weeks; the design's six focuses only when it has none).
+
+**Placeholders.** The design ships with bracketed client results, an
+early-bird offer and a `[Selar logo]` chip. They are rendered as designed and
+live in `data/landing.ts` under `PLACEHOLDER` comments — swap the copy there.
+
+**Photos.** The coach portrait, the before / after pairs and the app
+screenshots are served from `public/landing/` at web sizes, cut down from the
+masters (`meet-the-coach-original.jpg`, `public/before-and-after-images/`,
+`public/app-mock/`). Each result photo is 352×640, cropped around the subject to
+fit the card's slot, and each app screenshot is 440×1068 with the capture's pale
+edge trimmed, so a new one needs the same treatment rather than the raw upload.
+
+The palette is declared once at the top of `app/assets/styles/main.css` as
+`--lp-*` tokens (Tailwind colours `lp-paper`, `lp-ink`, `lp-accent`, the
+`lp-lilac-*` ramp, …), alongside the interaction recipes from the design
+(`lp-ul`, `lp-lift`, the marquee, scroll reveals).
 
 ## Registration and payment
 
@@ -139,19 +155,12 @@ cohort or fallback document, ambiguous active cohorts or a failed read clear
 availability. Offer fields missing from both Firestore and the environment disable checkout. See [Firestore setup](../../FIREBASE.md#active-cohort-and-registration).
 
 **Pinned to the light palette.** `data-theme="light"` is set on `<html>` in
-`nuxt.config.ts`. This is one authored composition — a warm paper page with two
-deliberately dark panels — rather than a surface someone lives in, so it does not
-follow the visitor's OS the way the member app does.
-
-**Its own tokens are few and named.** Almost everything comes from
-`@dpfit/theme`. What the marketing composition genuinely adds — the paper page,
-the near-black panels, the heavier rules, the marketing type scale — is declared
-at the top of `app/assets/styles/main.css` with a note on why each one is not
-just the app's equivalent.
+`nuxt.config.ts`. This is one authored composition, so it does not follow the
+visitor's OS the way the member app does.
 
 **The FAQ is `<details>`.** Keyboard-operable, announced as expandable, findable
-with the browser's own find-in-page, and open-able with JavaScript off. The only
-thing written by hand is the rotation of the `+`.
+with the browser's own find-in-page, and open-able with JavaScript off. Each
+entry has an id, so `#faq-refund` (the footer's "refund policy") opens it.
 
 ## What is not finished
 

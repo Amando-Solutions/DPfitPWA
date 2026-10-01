@@ -1,140 +1,75 @@
 <script setup lang="ts">
-import { REGISTER_ANCHOR } from '~/data/landing'
-const challenge = useChallenge()
-const price = usePrice()
+import { APP_NAME, PROOF, PROOF_AVATARS, REGISTER_ANCHOR, TRAINING_DAYS } from '~/data/landing'
+
+const { weeks, startsShort, closesShort, opensShort, state } = useCohortLabels()
+
+const eyebrow = computed(() =>
+  weeks.value ? `${weeks.value}-week coaching challenge for women` : 'coaching challenge for women')
+
+/**
+ * The four facts under the headline. The last one follows the pre-order: it
+ * says when enrolment closes while it can, and when it opens before then.
+ */
 const stats = computed(() => [
-  { value: price.value?.label ?? 'Unavailable', caption: 'One-time payment' },
-  { value: challenge.value ? `${challenge.value.durationWeeks} ${challenge.value.durationWeeks === 1 ? 'week' : 'weeks'}` : '—', caption: 'Program duration' },
-  { value: challenge.value?.startsLabel ?? 'To be announced', caption: 'Cohort starts' },
+  { label: 'duration', value: weeks.value ? `${weeks.value} ${weeks.value === 1 ? 'week' : 'weeks'}` : '—' },
+  { label: 'starts', value: startsShort.value ?? 'to be announced' },
+  { label: 'training', value: `${TRAINING_DAYS} days a week` },
+  state.value === 'upcoming' && opensShort.value
+    ? { label: 'enrolment opens', value: opensShort.value }
+    : { label: state.value === 'closed' ? 'enrolment closed' : 'enrolment closes', value: closesShort.value ?? 'to be announced' },
 ])
 </script>
 
 <template>
-  <section class="relative overflow-hidden bg-night pt-33 pb-10 lg:pt-39">
-    <!--
-      Two glows, painted rather than gradiented onto the panel itself: a primary
-      one bleeding down from above the fold and a violet one behind the
-      photograph. `aria-hidden` because they carry no meaning, and
-      `pointer-events-none` so they never swallow a click on the buttons.
-    -->
-    <div aria-hidden="true" class="pointer-events-none absolute inset-0">
-      <div
-        class="absolute -top-70 left-1/2 h-190 w-300 -translate-x-1/2"
-        style="
-          background: radial-gradient(
-            50% 50% at 50% 50%,
-            rgba(147, 51, 234, 0.34) 0%,
-            rgba(147, 51, 234, 0.05) 45%,
-            rgba(147, 51, 234, 0) 70%
-          );
-        "
-      />
-      <div
-        class="absolute top-35 -right-40 size-155"
-        style="
-          background: radial-gradient(
-            50% 50% at 50% 50%,
-            rgba(157, 127, 234, 0.2) 0%,
-            rgba(157, 127, 234, 0) 66%
-          );
-        "
-      />
+  <section
+    class="mx-auto flex max-w-300 flex-wrap items-end justify-between gap-10 px-6 pt-20 pb-18"
+  >
+    <div class="max-w-200 flex-[1_1_560px]">
+      <p class="lp-hero-in lp-eyebrow mb-5.5">{{ eyebrow }}</p>
+      <h1
+        class="lp-hero-in d2 m-0 text-[clamp(46px,6.8vw,100px)] leading-[0.98] font-medium tracking-[-0.04em]"
+      >
+        body recomp
+        <span class="serif-accent tracking-[-0.02em]">challenge</span>
+      </h1>
+      <p class="lp-hero-in d3 mt-7 max-w-120 text-[17px] leading-[1.6] text-lp-soft">
+        Build muscle and lose fat at the same time. A structured gym program,
+        weekly check-ins and a community of goal-driven women, all inside the
+        {{ APP_NAME }}.
+      </p>
     </div>
 
-    <PageContainer class="relative">
-      <div
-        class="grid items-center gap-12 lg:grid-cols-2 lg:gap-15.75 xl:gap-15.75"
-      >
-        <div>
-          <p
-            class="inline-flex items-center gap-2.5 rounded-pill border border-white/18 bg-white/5 px-4.25 py-2.25"
-          >
-            <span
-              aria-hidden="true"
-              class="block size-1.25 rounded-xs bg-primary-fill opacity-45"
-            />
-            <span
-              class="font-data text-[10.5px] tracking-[0.17em] text-white/78 uppercase"
-            >
-              {{ challenge?.name ?? 'Challenge details unavailable' }}
-            </span>
-          </p>
-
-          <!--
-            The breaks are authored, not left to the measure. The design sets
-            this headline as five short lines, and the purple-to-violet wash only
-            reads as a wash if "Do both" and "at once." are the two lines it
-            travels across — let the browser choose, and the gradient's midpoint
-            lands mid-word.
-          -->
-          <h1 class="title-hero mt-6.5 text-white">
-            Lose the fat.<br >
-            Keep the muscle.<br >
-            <span class="text-recomp">Do both<br >at once.</span>
-          </h1>
-
-          <p
-            class="mt-6.5 max-w-131.25 font-body text-[18.5px] leading-[1.65] text-white/70"
-          >
-            {{ challenge?.program?.name ?? 'A coached body recomposition challenge' }}. Structured
-            training, clear nutrition guidance and real weekly accountability.
-            Built for women done choosing between shrinking and building.
-          </p>
-
-          <div class="mt-9 flex flex-wrap items-center gap-3.5">
-            <CtaButton :href="REGISTER_ANCHOR">Join the Challenge →</CtaButton>
-            <CtaButton href="#package" variant="outline">
-              See what's included
-            </CtaButton>
-          </div>
-        </div>
-
-        <!--
-          The photograph, with the violet hairline frame offset behind it. The
-          frame is a sibling rather than a border so it can sit 16px down and to
-          the right of the image the way the design draws it; it is decorative,
-          hence `aria-hidden` and its absence from the tab order.
-        -->
-        <div class="relative mx-auto w-full max-w-131 lg:mx-0">
-          <div
-            aria-hidden="true"
-            class="absolute inset-0 translate-x-4 translate-y-4 rounded-card border border-[rgba(157,127,234,0.4)]"
-          />
-          <img
-            src="/landing/hero-woman-training.jpg"
-            alt="A woman lifting a loaded barbell across her shoulders in a gym"
-            width="1049"
-            height="1200"
-            fetchpriority="high"
-            class="relative aspect-524/600 w-full rounded-[20px] object-cover shadow-[0_40px_90px_rgba(0,0,0,0.55)]"
-          >
-        </div>
+    <div class="lp-hero-in d3 flex flex-col gap-5 pb-2">
+      <div class="flex flex-wrap gap-3">
+        <CtaButton href="#results" variant="outline">see the results ↗</CtaButton>
+        <CtaButton :href="REGISTER_ANCHOR">book a slot ↗</CtaButton>
       </div>
-
-      <!--
-        The three headline numbers. One hairline above the row and one between
-        each cell, drawn as gaps in a tinted grid so the rules meet exactly at
-        the corners instead of being three separate borders that don't line up.
-      -->
-      <dl
-        class="mt-16 grid gap-px border-t border-white/12 bg-white/12 pt-px sm:grid-cols-3 lg:mt-17.5"
-      >
-        <!-- `flex-col-reverse` prints the value above its caption while leaving
-             the term before its definition in the markup, where a screen reader
-             wants them. -->
-        <div
-          v-for="stat in stats"
-          :key="stat.caption"
-          class="flex flex-col-reverse bg-night px-0 pt-6.5 pb-8.5 sm:px-6 sm:first:pl-0"
-        >
-          <dt class="meta mt-2 text-white/75">{{ stat.caption }}</dt>
-          <dd
-            class="font-display text-[34px] font-black tracking-tight text-white"
+      <div class="flex items-center gap-3">
+        <div class="flex" aria-hidden="true">
+          <img
+            v-for="(src, i) in PROOF_AVATARS"
+            :key="src"
+            :src="src"
+            alt=""
+            width="32"
+            height="32"
+            class="size-8 rounded-full border-2 border-lp-paper bg-lp-lilac-200 object-cover"
+            :class="{ '-ml-2.5': i > 0 }"
           >
-            {{ stat.value }}
-          </dd>
         </div>
-      </dl>
-    </PageContainer>
+        <span class="text-[14px] text-lp-soft">
+          <b class="font-semibold text-lp-ink">{{ PROOF.strong }}</b> {{ PROOF.rest }}
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <section class="lp-reveal mx-auto max-w-300 px-6">
+    <dl class="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] border-t border-lp-rule">
+      <div v-for="stat in stats" :key="stat.label" class="flex flex-col gap-2 py-6 pr-6">
+        <dt class="text-[13px] text-lp-soft">{{ stat.label }}</dt>
+        <dd class="m-0 text-[26px] font-medium tracking-[-0.02em]">{{ stat.value }}</dd>
+      </div>
+    </dl>
   </section>
 </template>

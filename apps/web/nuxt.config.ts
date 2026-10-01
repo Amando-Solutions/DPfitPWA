@@ -166,6 +166,9 @@ export default defineNuxtConfig({
        */
       instagramHandle: process.env.NUXT_PUBLIC_INSTAGRAM_HANDLE || '',
 
+      /** The TikTok handle the footer links to, in any of the same forms. Empty drops it. */
+      tiktokHandle: process.env.NUXT_PUBLIC_TIKTOK_HANDLE || '',
+
       // Used by the server only when Firestore has no corresponding offer field.
       price: process.env.NUXT_PUBLIC_PRICE || '',
       priceCurrency: process.env.NUXT_PUBLIC_PRICE_CURRENCY || '',
@@ -178,31 +181,31 @@ export default defineNuxtConfig({
     head: {
       htmlAttrs: {
         lang: 'en',
-        // The marketing site is a single authored composition — the hero and
-        // the closing panel are dark *by design*, on a lavender-white page — so it
-        // pins the light palette instead of following the visitor's OS. The
+        // The marketing site is a single authored composition — a lavender
+        // paper page with plum panels — so it pins the light palette instead
+        // of following the visitor's OS. The
         // member app, where someone spends real time, is the one that flips.
         'data-theme': 'light',
       },
-      title: 'DP Fitness · Lose the fat. Keep the muscle. Do both at once.',
+      title: 'DP Fitness · Body Recomp Challenge',
       viewport: 'width=device-width, initial-scale=1, viewport-fit=cover',
       meta: [
         { charset: 'utf-8' },
-        { name: 'theme-color', content: '#241b2e' },
+        { name: 'theme-color', content: '#1d1628' },
         {
           name: 'description',
           content:
-            'A coached body recomposition challenge for people who are done choosing between losing fat and building muscle. Coached programming, weekly check-ins, and proof you can measure.',
+            'Build muscle and lose fat at the same time. A coached body recomp challenge for women: a structured gym program, weekly check-ins and a community of goal-driven women, all inside the DP Fitness app.',
         },
         { property: 'og:type', content: 'website' },
         {
           property: 'og:title',
-          content: 'DP Fitness · Lose the fat. Keep the muscle. Do both at once.',
+          content: 'DP Fitness · Body Recomp Challenge',
         },
         {
           property: 'og:description',
           content:
-            'A coached body recomposition challenge. Coached programming, weekly check-ins, and proof you can measure.',
+            'Build muscle and lose fat at the same time. A structured gym program, weekly check-ins and a goal-driven community, all inside the DP Fitness app.',
         },
         /**
          * The share card. `summary_large_image` was already being declared
@@ -232,6 +235,12 @@ export default defineNuxtConfig({
       // drift. Regenerate the set with `bun run brand:assets` after changing
       // anything in `/logo`; don't retouch a PNG by hand.
       link: [
+        // Instrument Serif for the italic half of every heading. Manrope, the
+        // page's sans, already comes in with the theme layer's font request.
+        {
+          rel: 'stylesheet',
+          href: 'https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap',
+        },
         { rel: 'icon', type: 'image/svg+xml', href: '/brand/favicon.svg' },
         { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/brand/favicon-32.png' },
         { rel: 'apple-touch-icon', sizes: '180x180', href: '/brand/apple-touch-icon.png' },

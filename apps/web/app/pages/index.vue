@@ -33,23 +33,23 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <!-- `id="top"` is the footer's "Back to top" target, and the only reason
-       this wrapper carries an id at all. -->
-  <div id="top">
+  <!-- `id="top"` is the target of "back to top" and the header logo. -->
+  <div id="top" class="w-full bg-lp-paper font-landing text-lp-ink antialiased">
+    <CountdownBar />
     <SiteHeader />
     <main>
       <HeroSection />
-      <ProblemSection />
-      <ProofBand />
-      <PackageSection />
-      <PhasesSection />
+      <CohortBanner />
+      <ResultsSection />
+      <ManifestoSection />
+      <IncludedSection />
+      <WeeksSection />
       <FitSection />
-      <GallerySection />
-      <PriceSection />
+      <CoachSection />
       <RegisterSection />
       <FaqSection />
-      <ClosingSection />
     </main>
     <SiteFooter />
+    <MobileCta />
   </div>
 </template>
