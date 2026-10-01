@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// The cohort is over. See `MemberGate`: an archived cohort puts this screen in
-// place of every other, and `plugins/cohort-ended.client.ts` brings a member
-// here from wherever they were when it happened.
+// The cohort is over. See `MemberGate`: a cohort archived, or past its last
+// day, puts this screen in place of every other, and
+// `plugins/cohort-ended.client.ts` brings a member here from wherever they
+// were when it happened.
 definePageMeta({ layout: 'default' })
 
 import { useDataSourceClient, type SupportContact } from '~/lib/datasource'

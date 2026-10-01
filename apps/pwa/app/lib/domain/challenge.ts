@@ -1,7 +1,7 @@
 import type { Timestamp } from 'firebase/firestore'
 
-import type { DateKey, ProgramWeek, TrainingWeek, WorkoutDay } from '~/data/types'
-import { dateKeyIn } from '~/lib/time'
+import type { Cohort, DateKey, ProgramWeek, TrainingWeek, WorkoutDay } from '~/data/types'
+import { COHORT_ZONE_FALLBACK, canonicalZone, dateKeyIn } from '~/lib/time'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -185,4 +185,31 @@ export const challengeClock = (
       : `Week ${current.weekNumber}`,
     complete: today > last.endDate,
   }
+}
+
+/**
+ * Whether a cohort is over: archived, or past the last day its `endDate` names.
+ *
+ * `endDate` is read as a day on the cohort's calendar, the way `startDate` is
+ * (see `trainingOpensOn` in the store): the cohort runs to the end of that day
+ * and closes at the midnight after it, in its own zone, on the trusted clock.
+ * An instant would close it at whatever time of day the console happened to
+ * store, and a date picker stores the *start* of the day, which would cost
+ * members their last one. No usable `endDate` is no end on the calendar;
+ * archiving still closes it.
+ *
+ * Mirrors `cohortOver` in `apps/functions/src/calendar.ts`, which refuses the
+ * day-locked writes by the same rule. `firestore.rules` holds every other
+ * write to it.
+ */
+export const cohortOver = (
+  cohort: Pick<Cohort, 'status' | 'endDate' | 'timezone'> | null,
+  now: Date,
+): boolean => {
+  if (!cohort) return false
+  if (cohort.status === 'archived') return true
+  const end = cohort.endDate
+  if (typeof end?.toDate !== 'function') return false
+  const zone = canonicalZone(cohort.timezone) ?? COHORT_ZONE_FALLBACK
+  return dateKeyIn(now, zone) > dateKeyIn(end.toDate(), zone)
 }

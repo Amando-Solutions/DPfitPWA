@@ -606,6 +606,9 @@ export class FirestoreDataSource implements DataSource {
    */
   private readonly typingWrittenAt = new Map<string, number>()
 
+  /** The store's answer to whether the member's cohort is over. Open until it gives one. */
+  private cohortOver: () => boolean = () => false
+
   // =========================================================================
   // Auth — email and password, and Google
   //
@@ -1198,7 +1201,25 @@ export class FirestoreDataSource implements DataSource {
     }
   }
 
+  refuseWritesWhen(over: () => boolean): void {
+    this.cohortOver = over
+  }
+
+  /**
+   * The first line of every member write. See `refuseWritesWhen`.
+   *
+   * Thrown before anything reaches the SDK, because past that point the write
+   * is out of this app's hands: Firestore queues it on disk and replays it on
+   * the next connection, and only the rules can stop it then.
+   */
+  private refuseIfOver() {
+    if (this.cohortOver()) {
+      throw new DataSourceError('Your cohort has ended, so training and chat are closed.', 'cohort-ended')
+    }
+  }
+
   async updateMember(patch: Partial<MemberDoc>): Promise<Member> {
+    this.refuseIfOver()
     const member = await this.requireMember()
     await updateDoc(doc(firebaseDb(), 'members', member.id), {
       ...patch,
@@ -1378,6 +1399,7 @@ export class FirestoreDataSource implements DataSource {
     image: ProcessedImage,
     folder: 'proof' | 'progress' | 'chat',
   ): Promise<StoredImage> {
+    this.refuseIfOver()
     const member = await this.requireMember()
     // Chat images are readable by their thread; the other two are the member's
     // alone. The path is what the storage rules key off, so it decides both.
@@ -1403,6 +1425,7 @@ export class FirestoreDataSource implements DataSource {
   }
 
   async uploadAttachment(file: PendingFile): Promise<ChatAttachment> {
+    this.refuseIfOver()
     const member = await this.requireMember()
     const path = `chat/${member.cohortId}/${member.id}/${uid()}`
 
@@ -1478,6 +1501,7 @@ export class FirestoreDataSource implements DataSource {
   }
 
   async setActiveSession(session: ActiveSessionInput | null): Promise<void> {
+    this.refuseIfOver()
     const member = await this.requireMember()
     const ref = doc(firebaseDb(), 'members', member.id, 'state', ACTIVE_SESSION_ID)
     if (session === null) await deleteDoc(ref)
@@ -1542,6 +1566,7 @@ export class FirestoreDataSource implements DataSource {
   }
 
   async deletePhoto(id: string): Promise<void> {
+    this.refuseIfOver()
     const member = await this.requireMember()
     const program = await this.program()
     const db = firebaseDb()
@@ -1698,6 +1723,7 @@ export class FirestoreDataSource implements DataSource {
   }
 
   async markNotificationRead(id: string): Promise<void> {
+    this.refuseIfOver()
     const member = await this.requireMember()
     await setDoc(
       doc(firebaseDb(), 'members', member.id, 'notificationState', id),
@@ -1708,6 +1734,7 @@ export class FirestoreDataSource implements DataSource {
 
   async markNotificationsRead(ids: string[]): Promise<void> {
     if (!ids.length) return
+    this.refuseIfOver()
     const member = await this.requireMember()
     const db = firebaseDb()
     const batch = writeBatch(db)
@@ -1729,6 +1756,7 @@ export class FirestoreDataSource implements DataSource {
   // nobody else's" for everything down there covers these too.
   // =========================================================================
   async registerPushDevice(input: PushDeviceInput): Promise<void> {
+    this.refuseIfOver()
     const user = await this.requireUser()
     const device: PushDeviceDoc = {
       token: input.token,
@@ -2013,6 +2041,7 @@ export class FirestoreDataSource implements DataSource {
     mentions: ChatMention[] = [],
     outgoing?: OutgoingMessage,
   ): Promise<ChatMessageView> {
+    this.refuseIfOver()
     const member = await this.requireMember()
     const ref = await this.messagesRef(threadId)
 
@@ -2053,6 +2082,9 @@ export class FirestoreDataSource implements DataSource {
    * reach the composer, which is in the middle of a keystroke.
    */
   async setTyping(threadId: ThreadId, typing: boolean): Promise<void> {
+    // Stopping still goes through once the cohort is over, so a marker written
+    // just before the end does not hang in the thread. Starting does not.
+    if (typing && this.cohortOver()) return
     try {
       const member = await this.requireMember()
       const ref = doc(await this.typingRef(threadId), member.id)
@@ -2166,6 +2198,7 @@ export class FirestoreDataSource implements DataSource {
     text: string,
     mentions: ChatMention[] = [],
   ): Promise<ChatMessageView> {
+    this.refuseIfOver()
     const member = await this.requireMember()
     const messages = await this.messagesRef(threadId)
     const messageRef = doc(messages, messageId)
@@ -2220,6 +2253,7 @@ export class FirestoreDataSource implements DataSource {
     messageId: string,
     emoji: string,
   ): Promise<ChatReaction[]> {
+    this.refuseIfOver()
     const member = await this.requireMember()
     const messages = await this.messagesRef(threadId)
     const messageRef = doc(messages, messageId)
@@ -2334,6 +2368,7 @@ export class FirestoreDataSource implements DataSource {
   }
 
   async awardBadge(id: string): Promise<void> {
+    this.refuseIfOver()
     const member = await this.requireMember()
     const program = await this.program()
     const def = program.rewards.badges.find((b) => b.id === id)
@@ -2514,6 +2549,8 @@ export class FirestoreDataSource implements DataSource {
    * callable SDK's own word for that is "internal".
    */
   private async call<T>(name: string, data: Record<string, unknown>): Promise<T> {
+    // Every one of these is a member write, so this covers all four.
+    this.refuseIfOver()
     await this.requireUser()
     try {
       const run = httpsCallable<Record<string, unknown>, T>(firebaseFunctions(), name)
@@ -2523,6 +2560,9 @@ export class FirestoreDataSource implements DataSource {
       const reason = (cause.details as { reason?: string } | undefined)?.reason
       if (reason === 'check-in-submitted') {
         throw new DataSourceError(cause.message, 'check-in-submitted')
+      }
+      if (reason === 'cohort-ended') {
+        throw new DataSourceError(cause.message, 'cohort-ended')
       }
       if (cause.code === 'functions/unauthenticated') {
         throw new DataSourceError(cause.message, 'unauthenticated')

@@ -37,6 +37,14 @@ rules_version = '2';
 // `firestore.rules` is not repeated here, which would be a second: a device
 // signed out by a later sign-in can still reach its own uploads until its
 // session ends, and nothing of anybody else's.
+//
+// A member of a cohort that is over uploads and deletes nothing, as in
+// `firestore.rules`; see `cohortRunning`. That reads the cohort document as
+// well as the member's, which is the most a rule here may: Storage allows two
+// distinct Firestore documents per check. Repeat reads of either are cached
+// and do not count. The staging bucket skips this with the rest, for the
+// reason above. There, an upload after the end is only bytes in a bucket:
+// nothing shows it without a document, and `firestore.rules` refuses those.
 // =============================================================================
 
 service firebase.storage {
@@ -85,6 +93,39 @@ service firebase.storage {
              == cohortId);
     }
 
+    /**
+     * Whether the cohort is still running: not archived, and not past the last
+     * day its `endDate` names. `cohortRunning` in `firestore.rules`, restated,
+     * because rules cannot share code across services. Keep the two in step,
+     * 24-hour reading of `endDate` and all. On the staging bucket, true.
+     */
+    function cohortRunning(cohortId) {
+      return isStagingBucket()
+        || !firestore.exists(/databases/(default)/documents/cohorts/$(cohortId))
+        || cohortStillOn(firestore.get(/databases/(default)/documents/cohorts/$(cohortId)).data);
+    }
+
+    /**
+     * The test itself, on a cohort document that exists. As in
+     * `firestore.rules`, `endDate` is type-checked through `get` and then read
+     * directly: a name bound to the `get` is typed as possibly `null`, and the
+     * compiler refuses `null + duration` even behind the check.
+     */
+    function cohortStillOn(cohort) {
+      return cohort.get('status', '') != 'archived'
+        && !(cohort.get('endDate', null) is timestamp
+             && request.time >= cohort.endDate + duration.value(1, 'd'));
+    }
+
+    /**
+     * The caller's own cohort is still running, for paths that do not name it.
+     * Staging is checked before the member document is, which it has none of.
+     */
+    function ownCohortRunning() {
+      return isStagingBucket() || cohortRunning(
+        firestore.get(/databases/(default)/documents/members/$(request.auth.uid)).data.cohortId);
+    }
+
     /** Images only, and small enough that a full-size camera dump is refused. */
     function isImageUnder(mb) {
       return request.resource.contentType.matches('image/.*')
@@ -99,10 +140,10 @@ service firebase.storage {
     // 12 MP original pushed straight at the bucket.
     match /members/{uid}/{folder}/{file} {
       allow read: if isSelf(uid) && isMember();
-      allow write: if isSelf(uid) && isMember()
+      allow write: if isSelf(uid) && isMember() && ownCohortRunning()
         && folder in ['progress', 'proof']
         && isImageUnder(4);
-      allow delete: if isSelf(uid) && isMember();
+      allow delete: if isSelf(uid) && isMember() && ownCohortRunning();
     }
 
     // --- Program artwork ---------------------------------------------------
@@ -137,9 +178,9 @@ service firebase.storage {
     // room for the base64 expansion an upload carries.
     match /chat/{cohortId}/{uid}/{file} {
       allow read: if isSelf(uid) && inCohort(cohortId);
-      allow write: if isSelf(uid) && inCohort(cohortId)
+      allow write: if isSelf(uid) && inCohort(cohortId) && cohortRunning(cohortId)
         && request.resource.size < 2 * 1024 * 1024;
-      allow delete: if isSelf(uid) && isMember();
+      allow delete: if isSelf(uid) && isMember() && ownCohortRunning();
     }
   }
 }

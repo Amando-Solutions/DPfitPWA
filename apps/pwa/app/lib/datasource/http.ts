@@ -229,6 +229,9 @@ export class HttpDataSource implements DataSource {
     return this.get<Member | null>('/me')
   }
 
+  /** The service refuses writes for a cohort that is over; nothing to do here. */
+  refuseWritesWhen(_over: () => boolean) {}
+
   updateMember(patch: Partial<MemberDoc>) {
     return this.send<Member>('/me', 'PATCH', patch)
   }

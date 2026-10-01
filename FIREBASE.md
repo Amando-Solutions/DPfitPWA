@@ -43,6 +43,22 @@ multiple active cohorts remain an error. Read failures do not trigger fallback. 
 Firestore, preserving paid membership rather than moving someone to another cohort.
 Its initial read and live listener both hide missing/inactive cohort metadata.
 
+**When a cohort is over.** A cohort is over when it is `archived`, or when
+the day its `endDate` falls on, in its `timezone`, has passed. It runs to the
+end of that day, the same way `startDate` names the day training opens. A member
+of a cohort that is over gets `/cohort-ended` and nothing else, and every write
+is refused three times. The app's data source refuses before anything is sent
+(`refuseWritesWhen`). The member functions refuse with `cohort-ended`.
+`firestore.rules` refuses everything else through `cohortRunning`: messages,
+reactions, typing, board rows, the member document and everything under it.
+`storage.rules` restates it for uploads and deletes, on the production bucket.
+The rules matter most for a message queued offline before the end and replayed
+after it. Reads, sign-out, releasing a push device and clearing a typing marker
+stay open. Nothing more is pushed to the cohort's members, and no more live-call
+reminders go out to it. Both signals are watched, so an open app changes screen when either
+lands. The admin contract is in
+[ADMIN_NOTIFICATIONS.md → Closing a cohort](ADMIN_NOTIFICATIONS.md#closing-a-cohort).
+
 The cohort must contain `name`, `startDate` and `endDate` (Firestore timestamps),
 `durationWeeks`, `timezone` (IANA), `programId`, and `programVersion`. Its program
 must exist, be published and match that version to open registration. The website
@@ -249,6 +265,9 @@ email, a trusted sign-in — because a function bypasses the rules.
 | `logSession` | `members/{uid}/sessions/{id}`, the stats and the leaderboard row | a day before the cohort starts, not yet open on the member's calendar, or already logged; a second finisher on one member day |
 | `submitCheckIn` | `members/{uid}/checkIns/week-{n}`, on the Cohort Clock's week | before the cohort starts; a second for the week |
 | `logPhoto` | `members/{uid}/photos/{id}`, dated and on the Cohort Clock's week | a second photo before the cohort starts |
+
+All four also refuse a member whose cohort is over, with `failed-precondition`
+and `reason: 'cohort-ended'`. See **When a cohort is over**.
 
 Session ids are stable — `w{planWeek}-{dayId}`, or `{dayKey}-{dayId}` for the
 finisher — so two finishes of the same day racing cannot both land. Sessions from
@@ -605,6 +624,11 @@ Notifications.
 - **Housekeeping.** Tokens FCM reports as gone are deleted as they fail. The
   app rewrites its document when the token changes, and at least weekly while
   it's being opened.
+- **Not for a cohort that is over.** Both triggers read the cohort and send
+  nothing once it is archived or past its last day. The app opens on the ended
+  screen, which has no inbox and no chat. The message trigger reads the cohort
+  only when the write names, answers or is reacted to by somebody new, so a
+  plain message costs no extra read.
 
 **Setting it up (once per project)**
 
@@ -968,8 +992,8 @@ cohort's zone, `remindLiveCalls` (`apps/functions/src/live-call-reminders.ts`,
 every 15 minutes) writes a coach notification to the cohort's inbox: "Live call
 today", "Weekly live call at 7:00 PM WAT. Join from Home." It goes out at 8 AM,
 or an hour before a call that starts earlier than 9 AM, and never after the
-call has ended. Like every notification, it is pushed to members who turned
-push on. Its id is `live-call-{callId}-{date}`, created rather than set, so it
+call has ended, or once the cohort is over. Like every notification, it is
+pushed to members who turned push on. Its id is `live-call-{callId}-{date}`, created rather than set, so it
 is sent once per call per day; a call moved to another day is announced again
 there. The admin app must not write its own notification for a call, or
 members get two.

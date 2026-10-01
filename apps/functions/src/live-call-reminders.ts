@@ -26,7 +26,7 @@
 import { FieldValue, Timestamp, type DocumentData, type Firestore } from 'firebase-admin/firestore'
 import { logger } from 'firebase-functions'
 import { onSchedule } from 'firebase-functions/scheduler'
-import { cohortZoneOf, dateKeyIn, type DateKey } from './calendar.js'
+import { cohortOver, cohortZoneOf, dateKeyIn, type DateKey } from './calendar.js'
 import { DATABASES, database, type DatabaseId } from './databases.js'
 
 const MINUTE_MS = 60 * 1000
@@ -148,15 +148,19 @@ const remindIn = async (databaseId: DatabaseId, db: Firestore, now: Date) => {
     .where('startsAt', '<', Timestamp.fromMillis(now.getTime() + 2 * DAY_MS))
     .get()
 
-  // A cohort's zone, or `null` for a cohort that no longer exists. Read once
-  // per run however many calls it has.
+  // A cohort's zone, or `null` for a cohort that no longer exists or is over:
+  // a call left on the schedule of a cohort that has ended reminds nobody,
+  // since its members' app opens on the ended screen. Read once per run
+  // however many calls it has.
   const zones = new Map<string, Promise<string | null>>()
   const zoneOf = (cohortId: string) => {
     if (!zones.has(cohortId)) {
       zones.set(
         cohortId,
         db.collection('cohorts').doc(cohortId).get().then((cohort) =>
-          cohort.exists ? cohortZoneOf(cohort.get('timezone')) : null,
+          cohort.exists && !cohortOver(cohort.data() ?? {}, now)
+            ? cohortZoneOf(cohort.get('timezone'))
+            : null,
         ),
       )
     }

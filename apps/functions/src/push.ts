@@ -24,6 +24,7 @@ import type { DocumentData, DocumentReference, Firestore } from 'firebase-admin/
 import { getMessaging } from 'firebase-admin/messaging'
 import { logger } from 'firebase-functions'
 import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/firestore'
+import { cohortOver } from './calendar.js'
 import { app, database, type DatabaseId } from './databases.js'
 
 // --- Contract ---------------------------------------------------------------
@@ -71,6 +72,17 @@ const EXCERPT_CHARS = 120
 const messaging = getMessaging(app)
 
 // --- Who --------------------------------------------------------------------
+
+/**
+ * Whether `cohortId` is over, by `cohortOver`. Nothing is pushed for one that
+ * is: its members' app opens on the ended screen, which has no inbox and no
+ * chat, so a push would be a tap that leads nowhere. The coach can still write
+ * to the cohort; it just reaches nobody's phone.
+ */
+const cohortEnded = async (db: Firestore, cohortId: string): Promise<boolean> => {
+  const cohort = await db.collection('cohorts').doc(cohortId).get()
+  return cohortOver(cohort.data() ?? {}, new Date())
+}
 
 interface Target {
   ref: DocumentReference
@@ -230,6 +242,7 @@ export const pushCohortNotification = (databaseId: DatabaseId) =>
 
       const db = database(databaseId)
       const { cohortId, notificationId } = event.params
+      if (await cohortEnded(db, cohortId)) return
       const members = await db.collection('members').where('cohortId', '==', cohortId).select().get()
       const targets = await devicesOf(db, members.docs.map((d) => d.id))
 
@@ -267,15 +280,25 @@ export const pushCohortMessage = (databaseId: DatabaseId) =>
       const url = `/chat?message=${encodeURIComponent(messageId)}`
       const sends: Array<Promise<void>> = []
 
-      // --- Named or answered, for the first time ---------------------------
+      // Who this write could tell anything new, worked out before any read.
+      // A newly named or answered member; a reactor the message didn't have.
+      // A second emoji from the same person, or one taken back, adds nobody.
       const already = new Set(uidsIn(before?.addressedUids))
-      const addressed = await inCohort(
-        db,
-        uidsIn(after.addressedUids)
-          .filter((uid) => uid !== author && !already.has(uid))
-          .slice(0, MAX_ADDRESSED),
-        cohortId,
+      const named = uidsIn(after.addressedUids)
+        .filter((uid) => uid !== author && !already.has(uid))
+        .slice(0, MAX_ADDRESSED)
+      const reactedBefore = (before?.reactors ?? {}) as Record<string, unknown>
+      const joined = Object.keys((after.reactors ?? {}) as Record<string, unknown>).filter(
+        (uid) => uid !== author && !(uid in reactedBefore),
       )
+
+      // Most writes are a plain message and tell nobody anything, so the
+      // cohort is read only when there is something to send.
+      if (!named.length && !(joined.length && author)) return
+      if (await cohortEnded(db, cohortId)) return
+
+      // --- Named or answered, for the first time ---------------------------
+      const addressed = await inCohort(db, named, cohortId)
       // A reply wins over a mention when a message is both, as in the inbox.
       const repliedTo = text(after.replyTo?.authorUid)
       for (const replied of [true, false]) {
@@ -294,11 +317,6 @@ export const pushCohortMessage = (databaseId: DatabaseId) =>
       }
 
       // --- Reacted to by somebody new ---------------------------------------
-      // A second emoji from the same person, or one taken back, adds nobody.
-      const reactedBefore = (before?.reactors ?? {}) as Record<string, unknown>
-      const joined = Object.keys((after.reactors ?? {}) as Record<string, unknown>).filter(
-        (uid) => uid !== author && !(uid in reactedBefore),
-      )
       if (joined.length && author) {
         sends.push(
           inCohort(db, [author], cohortId)

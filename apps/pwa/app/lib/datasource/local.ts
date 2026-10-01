@@ -362,6 +362,9 @@ export class LocalDataSource implements DataSource {
     return storage.read<Member | null>(KEY.member, null)
   }
 
+  /** Nothing on this device is shared with a cohort, so there is nothing to shut. */
+  refuseWritesWhen(_over: () => boolean) {}
+
   async updateMember(patch: Partial<MemberDoc>): Promise<Member> {
     const member = await this.requireMember()
     const next: Member = { ...member, ...patch, ...this.touch(member) }

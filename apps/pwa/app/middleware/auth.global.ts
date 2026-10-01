@@ -5,7 +5,8 @@
  *                        to make an account or `/sign-in` to use one
  *   member, no setup   → the setup steps
  *   member, setup done → the app; the door screens bounce to Home
- *   cohort archived    → `/cohort-ended` and nothing else, set up or not
+ *   cohort over        → `/cohort-ended` and nothing else, set up or not:
+ *                        archived, or past the last day of its `endDate`
  *
  * "No member" covers three different situations, because an account exists a
  * moment before its code is redeemed: nobody signed in at all, somebody signed
@@ -41,7 +42,7 @@ export const SETUP_ROUTES = [
   '/setup/activity-goal',
 ]
 
-/** The only screen a member of an archived cohort can reach, and only they can. */
+/** The only screen a member of a cohort that is over can reach, and only they can. */
 export const COHORT_ENDED_ROUTE = '/cohort-ended'
 
 export default defineNuxtRouteMiddleware((to) => {

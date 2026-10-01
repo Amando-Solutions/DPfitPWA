@@ -133,6 +133,15 @@ once-a-day rule of its own.
 | Signed in, no member | `/access-code`, which redeems for that session |
 | Member, setup unfinished | the four `/setup/*` steps: about you, region, body metrics, activity & goal |
 | Member, setup done | the app; intro screens bounce to `/home` |
+| Cohort over: archived, or past the last day of its `endDate` | `/cohort-ended` and nothing else, whatever the member's status |
+
+A cohort that is over is strict, not cosmetic. The data source refuses every
+member write from the moment the gate turns (`refuseWritesWhen`), the four
+member-write functions refuse with `cohort-ended`, and `firestore.rules` and
+`storage.rules` refuse the rest — which is what stops a message queued offline
+before the end from landing after it. Reads stay open, so the ended screen can
+show the member's totals, and so does signing out. Nothing more is pushed to the
+cohort, and live-call reminders for it stop.
 
 `/` has no screen of its own: it redirects straight to whichever of those the
 member belongs on.

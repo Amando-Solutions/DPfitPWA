@@ -6,6 +6,7 @@ import { defaultPreferences } from '~/data/preferences'
 import {
   addDays,
   challengeClock,
+  cohortOver,
   daysBetween,
   isDateKey,
   planDaysOf,
@@ -641,6 +642,19 @@ const buildStore = () => {
   const isSetupComplete = computed(() => state.value.member?.status !== 'onboarding')
 
   /**
+   * Whether the member's cohort is over: archived, or past its last day. See
+   * `cohortOver`.
+   *
+   * Off `state.cohort`, which holds the cohort whatever its state, and on the
+   * trusted clock rather than the device's. Both ways in reach an app that is
+   * already open: an archive through the cohort listener, and the end of the
+   * last day through the clock plugin's wake at the cohort's midnight.
+   */
+  const cohortIsOver = computed(() =>
+    cohortOver(state.value.cohort, new Date(state.value.nowMs)),
+  )
+
+  /**
    * How far through the door this visitor is.
    *
    * Auth and cohort membership are separate facts — an account exists a moment
@@ -662,11 +676,16 @@ const buildStore = () => {
     if (!state.value.authUser) return 'needs-auth'
     if (state.value.memberUnreadable) return 'unknown'
     if (!state.value.member) return 'needs-code'
-    if (state.value.cohort?.status === 'archived') return 'ended'
+    if (cohortIsOver.value) return 'ended'
     if (state.value.member.status === 'paused') return 'paused'
     if (state.value.member.status === 'onboarding') return 'needs-setup'
     return 'ready'
   })
+
+  // Shut every write at the moment the screens shut, not a frame later. The
+  // ended screen replaces the app, but a chat page mid-send, the outbox
+  // flushing on reconnect or a badge catching up would otherwise still go out.
+  data.refuseWritesWhen(() => gate.value === 'ended')
 
   /** Nobody is in the app yet, whichever of the three reasons applies. */
   const atTheDoor = computed(
@@ -702,16 +721,16 @@ const buildStore = () => {
   /**
    * The cohort while it is running, and `null` otherwise.
    *
-   * `state.cohort` also holds an archived one, which is how `gate` knows to
+   * `state.cohort` also holds one that is over, which is how `gate` knows to
    * say `ended`. Everything that draws from the cohort — the coach, its zone,
    * the call, the board, the start date — reads it through here, so an ended
    * cohort renders as absent everywhere instead of as the one it used to be.
    */
-  const cohort = computed(() => (state.value.cohort?.status === 'active' ? state.value.cohort : null))
-  /** The cohort that has ended, for the screen that says so. `null` while one is running. */
-  const endedCohort = computed(() =>
-    state.value.cohort?.status === 'archived' ? state.value.cohort : null,
+  const cohort = computed(() =>
+    state.value.cohort?.status === 'active' && !cohortIsOver.value ? state.value.cohort : null,
   )
+  /** The cohort that has ended, for the screen that says so. `null` while one is running. */
+  const endedCohort = computed(() => (cohortIsOver.value ? state.value.cohort : null))
   const guides = computed(() => state.value.guides)
   /**
    * `cohorts/{id}/announcements`, as the listener last delivered them.
@@ -1951,6 +1970,9 @@ const buildStore = () => {
    * nothing here can take one back.
    */
   const syncBadges = async ({ celebrate = true } = {}) => {
+    // Nothing is awarded once the cohort is over. The data source would refuse
+    // the write anyway; this keeps every load of the ended screen from trying.
+    if (gate.value === 'ended') return
     const alreadyEarned = state.value.earnedBadges
     const qualified = rewards.value.earned
     const fresh = qualified.filter((id) => !alreadyEarned[id])

@@ -27,6 +27,7 @@ import {
 } from 'firebase-admin/firestore'
 import { HttpsError, type CallableRequest } from 'firebase-functions/https'
 import {
+  cohortOver,
   cohortWeekAt,
   cohortZoneOf,
   canonicalZone,
@@ -127,6 +128,16 @@ const readCohort = async (caller: MemberCaller): Promise<Cohort> => {
   const snap = await caller.db.doc(`cohorts/${cohortId}`).get()
   const zone = cohortZoneOf(snap.get('timezone'))
   const start = snap.get('startDate')
+
+  // Every write here reads the cohort first, so this one check closes all four
+  // once the cohort is over — for an app that has not heard yet, and for a call
+  // made by hand.
+  if (cohortOver(snap.data() ?? {}, new Date())) {
+    throw new HttpsError('failed-precondition', 'Your cohort has ended, so training and chat are closed.', {
+      reason: 'cohort-ended',
+    })
+  }
+
   return {
     zone,
     opensOn: start instanceof Timestamp ? dateKeyIn(start.toDate(), zone) : null,

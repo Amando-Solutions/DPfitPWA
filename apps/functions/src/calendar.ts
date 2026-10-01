@@ -114,3 +114,37 @@ export const weekAt = <W extends DatedWeek>(weeks: W[], day: DateKey): W | null 
  */
 export const cohortWeekAt = (weeks: DatedWeek[], at: Date, cohortZone: string): number =>
   weekAt(weeks, dateKeyIn(at, cohortZone))?.weekNumber ?? 1
+
+/**
+ * Whether a cohort is over: archived, or past the last day its `endDate` names.
+ *
+ * `endDate` is read as a day on the cohort's calendar, the way `startDate` is:
+ * the cohort runs to the end of that day and closes at the midnight after it,
+ * in its own zone. An instant would close it at whatever time of day the
+ * console happened to store, and a date picker stores the *start* of the day,
+ * which would cost members their last one. No usable `endDate` is no end on
+ * the calendar; archiving still closes it.
+ *
+ * Takes the cohort document's fields as stored, so `endDate` is a Firestore
+ * `Timestamp` (anything with `toDate`) or a `Date`.
+ *
+ * Mirrors `cohortOver` in the member app's `lib/domain/challenge.ts`, which
+ * shuts the screens by the same rule.
+ */
+export const cohortOver = (
+  cohort: { status?: unknown; endDate?: unknown; timezone?: unknown },
+  now: Date,
+): boolean => {
+  if (cohort.status === 'archived') return true
+  const end = instantOf(cohort.endDate)
+  if (!end) return false
+  const zone = cohortZoneOf(cohort.timezone)
+  return dateKeyIn(now, zone) > dateKeyIn(end, zone)
+}
+
+/** A `Date`, or a Firestore `Timestamp` read as one; anything else is `null`. */
+const instantOf = (value: unknown): Date | null => {
+  if (value instanceof Date) return value
+  const toDate = (value as { toDate?: unknown } | null | undefined)?.toDate
+  return typeof toDate === 'function' ? (toDate.call(value) as Date) : null
+}

@@ -475,8 +475,8 @@ apps without a reload.
 | Field | Type | Read by | Notes |
 |---|---|---|---|
 | `name` | string | Member app (chat), `createAccessCode` | For example `Cohort 01`. Copied onto codes as `cohortName`. |
-| `status` | `'draft'` \| `'active'` \| `'archived'` | Website and member app | Website selects the active cohort; member app hides inactive cohort metadata. Codes cannot be issued for archived cohorts. |
-| `startDate`, `endDate` | Timestamp | Scripts | The member app's calendar comes from the program's weeks, not these. The seed and migration scripts place week 1 on `startDate`. |
+| `status` | `'draft'` \| `'active'` \| `'archived'` | Website, member app (watched), rules, functions | Website selects the active cohort. `archived` ends the cohort at once for its members; see [Closing a cohort](#closing-a-cohort). Codes cannot be issued for archived cohorts. |
+| `startDate`, `endDate` | Timestamp | Member app (watched), rules, functions, scripts | Each names a **day** in the cohort's `timezone`; store midnight at the start of it. Training opens on `startDate`. The cohort runs to the end of `endDate` and closes at the midnight after it. The calendar itself comes from the program's weeks; the seed and migration scripts place week 1 on `startDate`. |
 | `durationWeeks` | number | Website | Displayed directly from Firestore. |
 | `registration` | map | Website | `amountMinor`, `currency`, `codeTtlDays`; see Firestore setup. |
 | `timezone` | string | Scripts, live call reminders, and you | An IANA zone such as `Africa/Lagos`. Build live-call times in it; reminders go out on the call's day in it. |
@@ -568,8 +568,44 @@ field from an Admin SDK trigger on member create and delete.
    when it opens.
 4. If paid sales should go into it, change the landing site's cohort variable
    (section 2).
-5. To close it, set `status: 'archived'` and `archivedAt`. That stops new codes
-   being issued. Existing members keep their access.
+5. To close it early, set `status: 'archived'` and `archivedAt`. Otherwise it
+   closes on its own at the end of `endDate`. See below.
+
+### Closing a cohort
+
+A cohort is over when either is true:
+
+- `status` is `'archived'`, from the moment it is written, or
+- its last day has passed: the cohort runs to the end of the day `endDate`
+  falls on, in the cohort's `timezone`, and closes at the midnight after it.
+
+From then its members get one screen, "Your cohort has ended", with their
+totals and a sign-out button. Training, check-ins, photos, chat, reactions,
+the board and profile edits are all closed. That is enforced three times: the
+member app refuses the write, the four member functions refuse with
+`cohort-ended`, and `firestore.rules` refuses the rest. That includes a message
+queued on a phone that was offline when the cohort ended. Members can still sign
+in, read their totals and sign out.
+
+Both signals are watched, so an open app changes screen as soon as either
+lands: an archive within a second or two, and the end date at the cohort's
+midnight. Both can be undone: un-archive the cohort, or move `endDate` later,
+and members go back into the app.
+
+- **Store `endDate` as midnight at the start of the last day, in the cohort's
+  `timezone`.** Build it with `fromZonedTime('2026-11-08T00:00', cohort.timezone)`
+  or an explicit offset such as `+01:00` for Lagos, the same as `startDate`. The
+  app reads it as a day, so any time on the last day keeps members in until
+  midnight. The rules have no time zones and close 24 hours after the stored
+  instant, which matches only when it is midnight. A later time leaves the
+  rules open past the app's close by that many hours, and the app is still
+  closed.
+- New codes cannot be issued for an archived cohort. A code that is already out
+  still redeems, and the member lands on the ended screen. Revoke it if it
+  shouldn't.
+- Coach and admin writes are not affected, but nothing reaches a phone. A
+  notification or coach message posted to an ended cohort is never pushed, and
+  `remindLiveCalls` sends no reminder for a call left on its schedule.
 
 ---
 

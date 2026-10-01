@@ -7,12 +7,13 @@ import { COHORT_ENDED_ROUTE } from '~/middleware/auth.global'
  * the store has read the cohort before the first route resolves. It is not
  * enough in the two cases where the gate turns with nobody navigating — a
  * sign-in, which routes the moment the membership is known and reads the
- * cohort behind Home, and an admin archiving the cohort while members have the
- * app open, which the cohort listener delivers live. Either way the member is
- * taken off whatever screen they were on.
+ * cohort behind Home, and the cohort ending while members have the app open —
+ * an admin archiving it, which the cohort listener delivers live, or its last
+ * day running out, which the clock plugin's midnight wake delivers. Either way
+ * the member is taken off whatever screen they were on.
  *
- * The other direction too, for an archive undone: off the ended screen and
- * back through `/`, which decides where they belong. Not when the gate turns
+ * The other direction too, for an archive undone or an end date moved later:
+ * off the ended screen and back through `/`, which decides where they belong. Not when the gate turns
  * because the member signed out: the screen that signed them out is already
  * taking them to the door.
  */

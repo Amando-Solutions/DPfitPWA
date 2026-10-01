@@ -1304,10 +1304,11 @@ export interface SignInDoc {
  *
  * And one after them:
  *
- *   `ended`       a member whose cohort has been archived. The cohort is over,
- *                 so the app is too: `/cohort-ended` in place of every screen,
- *                 whatever the member's own status. Followed live, so an
- *                 archive reaches an app that is already open.
+ *   `ended`       a member whose cohort is over: archived, or past the last day
+ *                 its `endDate` names (see `cohortOver`). So the app is too:
+ *                 `/cohort-ended` in place of every screen, whatever the
+ *                 member's own status, and every write refused. Followed live,
+ *                 so either reaches an app that is already open.
  */
 export type MemberGate =
   | 'needs-auth'

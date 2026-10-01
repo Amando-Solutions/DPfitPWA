@@ -228,6 +228,23 @@ export interface DataSource {
   redeemAccessCode(code: string): Promise<Member>
 
   getMember(): Promise<Member | null>
+
+  /**
+   * Refuse every member write while `over` answers true.
+   *
+   * The store calls this once, with its own answer to whether the member's
+   * cohort is over, so the data source shuts at the same moment the screens
+   * do. A refusal is a `cohort-ended` error thrown before anything is sent,
+   * which covers what the ended screen cannot: a chat page mid-send, the
+   * outbox flushing on reconnect, a badge catching up after a load.
+   *
+   * Reads stay open, since the ended screen shows the member's totals, and so
+   * does everything that only signs out: the device claim, sign-out itself,
+   * and releasing a push device. `firestore.rules` and the functions refuse
+   * the same writes on the server; this is what keeps the app from trying.
+   */
+  refuseWritesWhen(over: () => boolean): void
+
   updateMember(patch: Partial<MemberDoc>): Promise<Member>
   saveProfile(patch: Partial<MemberProfile>): Promise<Member>
 
@@ -782,6 +799,8 @@ export class DataSourceError extends Error {
       | 'provider-disabled'
       /** This address already has an account, and the way in is signing in. */
       | 'account-exists'
+      /** The member's cohort is over, so nothing more is written. See `refuseWritesWhen`. */
+      | 'cohort-ended'
       | 'unknown' = 'unknown',
   ) {
     super(message)
