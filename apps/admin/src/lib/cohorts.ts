@@ -13,6 +13,17 @@ import {
   type Unsubscribe,
 } from "firebase/firestore"
 
+import {
+  cohortOver,
+  cohortZone,
+  dayIn,
+  DEFAULT_TIMEZONE,
+  formatDayKey,
+  isDayKey,
+  lastDayOf,
+  startOfDay,
+  type DayKey,
+} from "@/lib/cohort-calendar"
 import { firebaseDb } from "@/lib/firebase"
 import type { ProgramRecord } from "@/lib/programs"
 
@@ -30,6 +41,11 @@ export type CohortRecord = {
   name: string
   status: CohortStatus
   startDate: Date
+  /**
+   * Midnight at the start of the cohort's last day, in its `timezone`; `null`
+   * when the document has none. See `cohortOver`.
+   */
+  endDate: Date | null
   durationWeeks: number
   timezone: string
   memberCount: number
@@ -53,14 +69,19 @@ export type CohortExperienceInput = {
 type CreateCohortInput = {
   name: string
   status: Exclude<CohortStatus, "archived">
-  startDate: Date
+  /** The first day, `YYYY-MM-DD`, on the new cohort's calendar (Lagos). */
+  startDay: DayKey
   durationWeeks: number
   program: ProgramRecord
   user: User
 }
 
 const COHORT_LIMIT = 100
-const DEFAULT_TIMEZONE = "Africa/Lagos"
+
+/** Active and not yet over: the cohort its members are training in right now. */
+export const cohortInProgress = (cohort: CohortRecord, now: Date) =>
+  cohort.status === "active" && !cohortOver(cohort, now)
+
 function requireDatabase() {
   if (!firebaseDb) throw new Error("Cohorts are not configured.")
   return firebaseDb
@@ -111,6 +132,7 @@ export function subscribeToCohorts(
             name: String(data.name ?? "Unnamed cohort"),
             status: (data.status ?? "draft") as CohortStatus,
             startDate: readDate(data.startDate),
+            endDate: data.endDate instanceof Timestamp ? data.endDate.toDate() : null,
             durationWeeks:
               typeof data.durationWeeks === "number" ? data.durationWeeks : 6,
             timezone: String(data.timezone ?? DEFAULT_TIMEZONE),
@@ -138,7 +160,7 @@ export function subscribeToCohorts(
 export async function createCohort({
   name,
   status,
-  startDate,
+  startDay,
   durationWeeks,
   program,
   user,
@@ -150,17 +172,19 @@ export async function createCohort({
   if (safeName.length < 2 || safeName.length > 80) {
     throw new Error("Cohort name must be between 2 and 80 characters.")
   }
-  if (Number.isNaN(startDate.getTime())) {
+  if (!isDayKey(startDay)) {
     throw new Error("Choose a valid start date.")
   }
   if (safeDuration < 1 || safeDuration > 52) {
     throw new Error("Duration must be between 1 and 52 weeks.")
   }
 
+  // Both dates are days on the cohort's calendar, stored as midnight at the
+  // start of each. The last day is the end of the final week, not the day after.
+  const startDate = startOfDay(startDay, DEFAULT_TIMEZONE)
+  const endDate = startOfDay(lastDayOf(startDay, safeDuration), DEFAULT_TIMEZONE)
   const reference = doc(collection(database, "cohorts"))
   const batch = writeBatch(database)
-  const endDate = new Date(startDate)
-  endDate.setUTCDate(endDate.getUTCDate() + safeDuration * 7)
   batch.set(reference, {
     name: safeName,
     status,
@@ -245,6 +269,35 @@ export async function setCohortStatus(
     updatedByUid: user.uid,
     updatedByEmail: user.email,
   })
+}
+
+/**
+ * Un-archive a cohort. Its members go back into the app as soon as this lands,
+ * unless its last day has passed too: then pass `lastDay` to move it, in the
+ * same write, or they stay on the ended screen. A cohort with no program goes
+ * back to draft, since an active one needs a program for codes to be issued.
+ */
+export async function reopenCohort(cohort: CohortRecord, user: User, lastDay?: DayKey) {
+  const database = requireDatabase()
+  if (cohort.status !== "archived") return
+
+  const zone = cohortZone(cohort.timezone)
+  const patch: Record<string, unknown> = {
+    status: cohort.programId ? "active" : "draft",
+    archivedAt: null,
+    updatedAt: serverTimestamp(),
+    updatedByUid: user.uid,
+    updatedByEmail: user.email,
+  }
+  if (lastDay) {
+    if (!isDayKey(lastDay)) throw new Error("Choose a valid last day.")
+    const startDay = dayIn(cohort.startDate, zone)
+    if (lastDay < startDay) {
+      throw new Error(`The last day can't be before the start, ${formatDayKey(startDay)}.`)
+    }
+    patch.endDate = Timestamp.fromDate(startOfDay(lastDay, zone))
+  }
+  await updateDoc(doc(database, "cohorts", cohort.id), patch)
 }
 
 export async function saveCohortExperience(

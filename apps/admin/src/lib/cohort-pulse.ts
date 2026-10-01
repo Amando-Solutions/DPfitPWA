@@ -63,14 +63,19 @@ export type PulseIssue = {
   detail: string
 }
 
-export function pulseIssues({ members, checkIns, startDate, weekOwed, now }: {
+export function pulseIssues({ members, checkIns, startDate, weekOwed, now, over = false }: {
   members: MemberRecord[]
   checkIns: FeedbackRow[]
   startDate: Date
   weekOwed: number
   now: number
+  /**
+   * The cohort is over: members can no longer train or check in, so there is
+   * nothing to chase them for. A flagged or painful check-in still wants review.
+   */
+  over?: boolean
 }): PulseIssue[] {
-  const started = now >= startDate.getTime()
+  const started = now >= startDate.getTime() && !over
   return members.filter((member) => member.status === "active").flatMap((member) => {
     const issues: PulseIssue[] = []
     const base = { memberId: member.id, memberName: member.profile.displayName }
@@ -83,7 +88,7 @@ export function pulseIssues({ members, checkIns, startDate, weekOwed, now }: {
     if (started && idle > INACTIVE_AFTER_DAYS) {
       issues.push({ ...base, kind: "inactive", title: "Inactive", detail: member.stats.lastSessionAt ? `No workout logged in ${idle} days` : `No workout logged yet, ${idle} days in` })
     }
-    if (weekOwed > 0 && !mine.some((row) => row.weekNumber === weekOwed)) {
+    if (!over && weekOwed > 0 && !mine.some((row) => row.weekNumber === weekOwed)) {
       issues.push({ ...base, kind: "missing-check-in", title: "Missing check-in", detail: `No check-in submitted for Week ${weekOwed}` })
     }
     if (latest?.reviewStatus === "needs-attention") {

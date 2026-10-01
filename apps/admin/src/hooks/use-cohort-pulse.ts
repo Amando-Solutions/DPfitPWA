@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { useMembersQuery } from "@/hooks/use-admin-queries"
+import { cohortOver } from "@/lib/cohort-calendar"
 import type { CohortRecord } from "@/lib/cohorts"
 import { checkInWeekOwed, fetchCohortPulse, pulseIssues } from "@/lib/cohort-pulse"
 import { cohortWeek } from "@/lib/leaderboard"
@@ -29,7 +30,9 @@ export function useCohortPulse(cohort: CohortRecord | null) {
   })
 
   const issues = useMemo(
-    () => cohort && query.data ? pulseIssues({ members, checkIns: query.data.checkIns, startDate: cohort.startDate, weekOwed, now }) : [],
+    () => cohort && query.data
+      ? pulseIssues({ members, checkIns: query.data.checkIns, startDate: cohort.startDate, weekOwed, now, over: cohortOver(cohort, new Date(now)) })
+      : [],
     [cohort, query.data, members, weekOwed, now],
   )
 

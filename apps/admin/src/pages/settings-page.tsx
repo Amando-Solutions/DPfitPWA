@@ -13,9 +13,10 @@ import { Switch } from "@/components/ui/switch"
 import { useAdminAuth } from "@/hooks/use-admin-auth"
 import { usePlatformSettingsQuery, usePublicSettingsQuery } from "@/hooks/use-admin-queries"
 import { useSelectedCohort } from "@/hooks/use-selected-cohort"
-import type { CohortRecord } from "@/lib/cohorts"
+import { cohortOver, cohortZone, dayIn, formatDayKey, lastDayOf, lastDayOfCohort, startOfDay, zoneLabel } from "@/lib/cohort-calendar"
+import { cohortInProgress, type CohortRecord } from "@/lib/cohorts"
 import { programPhases } from "@/lib/cohort-pulse"
-import { saveCohortStartDate, savePlatformSettings, savePublicSettings, type PlatformSettings, type PublicSettings } from "@/lib/platform-settings"
+import { saveCohortLastDay, saveCohortStartDate, savePlatformSettings, savePublicSettings, type PlatformSettings, type PublicSettings } from "@/lib/platform-settings"
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const labelClass = "text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
@@ -29,8 +30,7 @@ function SettingsCard({ title, className, children }: { title: string; className
 
 const Note = ({ children }: { children: ReactNode }) => <p className="rounded-md bg-muted/60 px-3 py-2.5 text-sm text-muted-foreground">{children}</p>
 
-/** A cohort's start date as `YYYY-MM-DD` in its own zone, the form a date input takes. */
-const dateInZone = (date: Date, timeZone: string) => date.toLocaleDateString("en-CA", { timeZone: timeZone || "Africa/Lagos" })
+type AdminUser = ReturnType<typeof useAdminAuth>["user"]
 
 function ChallengeTiming() {
   const { user } = useAdminAuth()
@@ -39,22 +39,24 @@ function ChallengeTiming() {
   if (!cohort) return <SettingsCard title="Challenge timing"><Note>Create a cohort first; the challenge counts from its start date.</Note></SettingsCard>
   return <SettingsCard title="Challenge timing">
     <StartDateForm key={`${cohort.id}:${cohort.startDate.getTime()}`} cohort={cohort} phases={programPhases(program, cohort.durationWeeks)} user={user} />
+    <LastDayForm key={`${cohort.id}:${cohort.endDate?.getTime() ?? "none"}`} cohort={cohort} user={user} />
   </SettingsCard>
 }
 
-function StartDateForm({ cohort, phases, user }: { cohort: CohortRecord; phases: ReturnType<typeof programPhases>; user: ReturnType<typeof useAdminAuth>["user"] }) {
-  const saved = dateInZone(cohort.startDate, cohort.timezone)
+function StartDateForm({ cohort, phases, user }: { cohort: CohortRecord; phases: ReturnType<typeof programPhases>; user: AdminUser }) {
+  const zone = cohortZone(cohort.timezone)
+  const saved = dayIn(cohort.startDate, zone)
   const [value, setValue] = useState(saved)
   const [confirming, setConfirming] = useState(false)
   const [now] = useState(() => Date.now())
   const mutation = useMutation({
     mutationFn: () => { if (!user) throw new Error("Your admin session has expired."); return saveCohortStartDate(cohort, value, user) },
-    onSuccess: () => { toast.success(`${cohort.name} now starts ${new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`); setConfirming(false) },
+    onSuccess: () => { toast.success(`${cohort.name} now starts ${formatDayKey(value)}`); setConfirming(false) },
     onError: (error) => toast.error(error.message),
   })
 
   // Preview what the chosen date means today.
-  const start = new Date(`${value}T00:00:00+01:00`).getTime()
+  const start = startOfDay(value, zone).getTime()
   const days = Number.isNaN(start) ? null : Math.floor((now - start) / DAY_MS)
   const week = days === null ? 0 : Math.floor(days / 7) + 1
   const phase = phases.find((item) => week >= item.fromWeek && week <= item.toWeek)
@@ -71,16 +73,69 @@ function StartDateForm({ cohort, phases, user }: { cohort: CohortRecord; phases:
         <Input id="start-date" type="date" required value={value} disabled={mutation.isPending} onChange={(event) => setValue(event.target.value)} />
         <Button type="submit" disabled={mutation.isPending || !value || value === saved}>{mutation.isPending && <Spinner />}Save</Button>
       </div>
-      <FieldDescription className="text-xs">{cohort.name}'s {cohort.durationWeeks} weeks count from this date (midnight, Lagos time). The landing page's start badge reads it too.</FieldDescription>
+      <FieldDescription className="text-xs">{cohort.name}'s {cohort.durationWeeks} weeks count from this date (midnight, {zoneLabel(zone)}). The landing page's start badge reads it too. Moving it moves the last day as well, to the end of week {cohort.durationWeeks}.</FieldDescription>
     </Field>
     <Note>{summary}</Note>
 
     <Dialog open={confirming} onOpenChange={(open) => !open && !mutation.isPending && setConfirming(false)}><DialogContent>
       <DialogHeader>
         <DialogTitle>Move {cohort.name}'s start date?</DialogTitle>
-        <DialogDescription>Every member's current week, phase, check-in week and leaderboard reveal are counted from this date, so they all shift together. Sessions and check-ins already logged keep the week they were logged in.</DialogDescription>
+        <DialogDescription>Every member's current week, phase, check-in week and leaderboard reveal are counted from this date, so they all shift together. Sessions and check-ins already logged keep the week they were logged in. The last day moves to {formatDayKey(lastDayOf(value, cohort.durationWeeks))}.</DialogDescription>
       </DialogHeader>
       <DialogFooter><Button variant="outline" disabled={mutation.isPending} onClick={() => setConfirming(false)}>Cancel</Button><Button disabled={mutation.isPending} onClick={() => mutation.mutate()}>{mutation.isPending && <Spinner />}Move start date</Button></DialogFooter>
+    </DialogContent></Dialog>
+  </form>
+}
+
+/**
+ * The cohort's last day. It runs to the end of it and closes at the midnight
+ * after, in its zone; from then its members get only "Your cohort has ended".
+ * Moving it later reopens a cohort that ended this way.
+ */
+function LastDayForm({ cohort, user }: { cohort: CohortRecord; user: AdminUser }) {
+  const zone = cohortZone(cohort.timezone)
+  const [now] = useState(() => new Date())
+  const today = dayIn(now, zone)
+  const startDay = dayIn(cohort.startDate, zone)
+  const saved = lastDayOfCohort(cohort) ?? ""
+  const [value, setValue] = useState(saved)
+  const [confirming, setConfirming] = useState(false)
+  const endedNow = cohortOver(cohort, now)
+  const endsOnSave = value !== "" && value < today
+  const mutation = useMutation({
+    mutationFn: () => { if (!user) throw new Error("Your admin session has expired."); return saveCohortLastDay(cohort, value, user) },
+    onSuccess: () => { toast.success(`${cohort.name}'s last day is now ${formatDayKey(value)}`); setConfirming(false) },
+    onError: (error) => toast.error(error.message),
+  })
+
+  const summary = !value ? "No last day is set, so the cohort only ends when it's archived."
+    : value < today ? <>That day has passed, so the cohort is <strong className="text-foreground">over</strong>: members see "Your cohort has ended" and can't train, check in or chat.</>
+    : value === today ? <>Today is the last day. Members are in until midnight, {zoneLabel(zone)}.</>
+    : <>Members are in until the end of {formatDayKey(value)}, then see "Your cohort has ended".</>
+
+  const consequence = endsOnSave && !endedNow
+    ? <>That day has already passed, so {cohort.name} ends for its members as soon as you save. They move to "Your cohort has ended", with their totals, and can't train, check in or chat.</>
+    : endedNow && !endsOnSave
+      ? <>{cohort.name} reopens: its members go back into the app straight away and can train, check in and chat until the end of {formatDayKey(value)}.</>
+      : <>Members are in until the end of {formatDayKey(value)}, {zoneLabel(zone)}. The program's weeks don't move.</>
+
+  return <form className="grid gap-4 border-t pt-4" onSubmit={(event: FormEvent) => { event.preventDefault(); setConfirming(true) }}>
+    <Field className="gap-1.5">
+      <FieldLabel htmlFor="last-day" className={labelClass}>Last day</FieldLabel>
+      <div className="flex gap-2">
+        <Input id="last-day" type="date" required min={startDay} value={value} disabled={mutation.isPending} onChange={(event) => setValue(event.target.value)} />
+        <Button type="submit" disabled={mutation.isPending || !value || value === saved || value < startDay}>{mutation.isPending && <Spinner />}Save</Button>
+      </div>
+      <FieldDescription className="text-xs">The cohort runs to the end of this day and closes at the midnight after it, {zoneLabel(zone)}. Members can still sign in and see their totals.</FieldDescription>
+    </Field>
+    <Note>{summary}</Note>
+
+    <Dialog open={confirming} onOpenChange={(open) => !open && !mutation.isPending && setConfirming(false)}><DialogContent>
+      <DialogHeader>
+        <DialogTitle>{endsOnSave && !endedNow ? `End ${cohort.name} now?` : `Change ${cohort.name}'s last day?`}</DialogTitle>
+        <DialogDescription>{consequence}</DialogDescription>
+      </DialogHeader>
+      <DialogFooter><Button variant="outline" disabled={mutation.isPending} onClick={() => setConfirming(false)}>Cancel</Button><Button variant={endsOnSave && !endedNow ? "destructive" : "default"} disabled={mutation.isPending} onClick={() => mutation.mutate()}>{mutation.isPending && <Spinner />}{endsOnSave && !endedNow ? "End the cohort" : "Save last day"}</Button></DialogFooter>
     </DialogContent></Dialog>
   </form>
 }
@@ -153,7 +208,9 @@ function MultipleCohorts({ settings }: { settings: PlatformSettings }) {
     onError: (error) => toast.error(error.message),
   })
   const on = mutation.isPending ? !!mutation.variables?.multipleCohorts : settings.multipleCohorts
-  const active = cohorts.filter((cohort) => cohort.status === "active")
+  const [now] = useState(() => new Date())
+  // A cohort past its last day is over whatever its status says, so it doesn't count as running.
+  const active = cohorts.filter((cohort) => cohortInProgress(cohort, now))
   return <>
     <div className="flex items-center justify-between gap-4 border-b pb-4">
       <div className="grid gap-0.5">

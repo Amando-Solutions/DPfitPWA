@@ -16,9 +16,21 @@ if (
   !/^\d{4}-\d{2}-\d{2}$/.test(startDateInput)
 ) {
   console.error(
-    "Usage: npm run cohort:seed-default -- --project <id> [--database (default)|staging] [--start-date YYYY-MM-DD]",
+    "Usage: bun run cohort:seed-default --project <id> [--database (default)|staging] [--start-date YYYY-MM-DD]",
   )
   process.exit(1)
+}
+
+/**
+ * Midnight at the start of the cohort's last day: the end of its final week,
+ * not the day after. `endDate` names the day the cohort runs to the end of (see
+ * "Closing a cohort" in ADMIN_NOTIFICATIONS.md). The seeded cohort is on Lagos
+ * time, which has no daylight saving, so whole days from its midnight are exact.
+ */
+function lastDayFrom(startDate, durationWeeks) {
+  const endDate = new Date(startDate)
+  endDate.setUTCDate(endDate.getUTCDate() + durationWeeks * 7 - 1)
+  return endDate
 }
 
 const app =
@@ -39,9 +51,7 @@ if (snapshot.exists) {
   const patch = {}
   if (data.memberCount !== memberCount) patch.memberCount = memberCount
   if (!data.endDate && data.startDate instanceof Timestamp) {
-    const endDate = data.startDate.toDate()
-    endDate.setUTCDate(endDate.getUTCDate() + Number(data.durationWeeks ?? 6) * 7)
-    patch.endDate = Timestamp.fromDate(endDate)
+    patch.endDate = Timestamp.fromDate(lastDayFrom(data.startDate.toDate(), Number(data.durationWeeks ?? 6)))
   }
   if (!data.coach) {
     patch.coach = {
@@ -82,8 +92,7 @@ if (snapshot.exists) {
 }
 
 const startDate = new Date(`${startDateInput}T00:00:00+01:00`)
-const endDate = new Date(startDate)
-endDate.setUTCDate(endDate.getUTCDate() + 6 * 7)
+const endDate = lastDayFrom(startDate, 6)
 
 await reference.create({
   name: "Cohort 01",

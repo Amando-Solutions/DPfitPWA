@@ -79,11 +79,13 @@ import { useAdminAuth } from "@/hooks/use-admin-auth"
 import { useAccessCodesQuery, useCohortsQuery } from "@/hooks/use-admin-queries"
 import {
   effectiveCodeStatus,
-  generateAccessCodes,
+  issueAccessCode,
   revokeAccessCode,
   type AccessCodeRecord,
   type CodeStatus,
+  type IssuedAccessCode,
 } from "@/lib/access-codes"
+import { cohortOver } from "@/lib/cohort-calendar"
 
 const accessCodeColumnHelper = createColumnHelper<DataTableFeatures, AccessCodeRecord>()
 
@@ -146,31 +148,45 @@ export function AccessCodesPage() {
   const codes = useMemo(() => codesQuery.data ?? [], [codesQuery.data])
   const cohorts = useMemo(() => cohortsQuery.data ?? [], [cohortsQuery.data])
   const isLoading = codesQuery.isPending
+  const [now] = useState(() => new Date())
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [quantity, setQuantity] = useState("1")
+  const [email, setEmail] = useState("")
+  const [whatsapp, setWhatsapp] = useState("")
   const [cohort, setCohort] = useState("")
   const [expiryDays, setExpiryDays] = useState("14")
+  const [issued, setIssued] = useState<IssuedAccessCode | null>(null)
   const [revokeTarget, setRevokeTarget] = useState<AccessCodeRecord | null>(null)
 
-  const activeCohorts = useMemo(
-    () => cohorts.filter((item) => item.status === "active"),
-    [cohorts],
+  // `createAccessCode` takes a draft or active cohort with a program. One that
+  // is over is left out too: its code would redeem onto the ended screen.
+  const issuableCohorts = useMemo(
+    () => cohorts.filter((item) => item.status !== "archived" && item.programId && !cohortOver(item, now)),
+    [cohorts, now],
   )
-  const selectedCohortId = activeCohorts.some((item) => item.id === cohort)
+  const endedCohortIds = useMemo(
+    () => new Set(cohorts.filter((item) => cohortOver(item, now)).map((item) => item.id)),
+    [cohorts, now],
+  )
+  const selectedCohortId = issuableCohorts.some((item) => item.id === cohort)
     ? cohort
-    : (activeCohorts[0]?.id ?? "")
+    : (issuableCohorts[0]?.id ?? "")
+  const statusOf = (item: AccessCodeRecord) => effectiveCodeStatus(item, endedCohortIds.has(item.cohortId))
 
   const generateMutation = useMutation({
-    mutationFn: generateAccessCodes,
-    onSuccess: (_, variables) => {
-      setDialogOpen(false)
-      setQuantity("1")
-      toast.success(
-        `${variables.quantity} access code${variables.quantity === 1 ? "" : "s"} generated`,
-      )
+    mutationFn: issueAccessCode,
+    onSuccess: (result) => {
+      setIssued(result)
+      setEmail("")
+      setWhatsapp("")
     },
-    onError: () => toast.error("The codes could not be generated. Try again."),
+    onError: (error) => toast.error(error instanceof Error ? error.message : "The code could not be issued. Try again."),
   })
+
+  function closeIssueDialog(open: boolean) {
+    if (isGenerating) return
+    setDialogOpen(open)
+    if (!open) setIssued(null)
+  }
   const revokeMutation = useMutation({
     mutationFn: ({ codeId, currentUser }: { codeId: string; currentUser: NonNullable<typeof user> }) =>
       revokeAccessCode(codeId, currentUser),
@@ -184,13 +200,13 @@ export function AccessCodesPage() {
   const isRevoking = revokeMutation.isPending
 
   const unusedCount = codes.filter(
-    (item) => effectiveCodeStatus(item) === "unused",
+    (item) => statusOf(item) === "unused",
   ).length
   const claimedCount = codes.filter(
-    (item) => effectiveCodeStatus(item) === "claimed",
+    (item) => statusOf(item) === "claimed",
   ).length
   const inactiveCount = codes.filter((item) =>
-    ["expired", "revoked"].includes(effectiveCodeStatus(item)),
+    ["expired", "revoked"].includes(statusOf(item)),
   ).length
 
   async function handleGenerateCodes(event: FormEvent<HTMLFormElement>) {
@@ -201,20 +217,17 @@ export function AccessCodesPage() {
       return
     }
 
-    const safeQuantity = Math.min(
-      20,
-      Math.max(1, Number.parseInt(quantity, 10) || 1),
-    )
-    const selectedCohort = activeCohorts.find((item) => item.id === selectedCohortId)
+    const selectedCohort = issuableCohorts.find((item) => item.id === selectedCohortId)
     if (!selectedCohort) {
-      toast.error("Choose an active cohort before generating codes.")
+      toast.error("Choose a cohort that hasn't ended before issuing a code.")
       return
     }
 
     generateMutation.mutate({
-      quantity: safeQuantity,
       cohortId: selectedCohort.id,
       expiryDays: Number(expiryDays),
+      email,
+      whatsapp,
     })
   }
 
@@ -244,18 +257,28 @@ export function AccessCodesPage() {
       ),
       cell: ({ getValue }) => <span className="font-mono font-medium">{getValue()}</span>,
     }),
-    accessCodeColumnHelper.accessor((item) => effectiveCodeStatus(item), {
+    accessCodeColumnHelper.accessor((item) => statusOf(item), {
       id: "status",
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="Status" />
       ),
       cell: ({ getValue }) => statusBadge(getValue()),
     }),
+    accessCodeColumnHelper.accessor((item) => item.issuedToEmail ?? "", {
+      id: "issuedTo",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Issued to" />
+      ),
+      cell: ({ getValue }) => getValue() || "—",
+    }),
     accessCodeColumnHelper.accessor("cohortName", {
       id: "cohort",
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="Cohort" />
       ),
+      cell: ({ row }) => endedCohortIds.has(row.original.cohortId)
+        ? <>{row.original.cohortName} <span className="text-muted-foreground">· ended</span></>
+        : row.original.cohortName,
     }),
     accessCodeColumnHelper.accessor((item) => item.expiresAt.getTime(), {
       id: "expires",
@@ -278,7 +301,7 @@ export function AccessCodesPage() {
       enableHiding: false,
       cell: ({ row }) => {
         const item = row.original
-        const currentStatus = effectiveCodeStatus(item)
+        const currentStatus = statusOf(item)
 
         return (
           <DataTableRowActions
@@ -295,7 +318,8 @@ export function AccessCodesPage() {
                 icon: BanIcon,
                 variant: "destructive",
                 separatorBefore: true,
-                disabled: currentStatus !== "unused",
+                // Still offered when it reads as expired because its cohort ended: it would redeem, onto the ended screen.
+                disabled: item.status !== "unused",
                 onSelect: () => setRevokeTarget(item),
               },
             ]}
@@ -314,46 +338,88 @@ export function AccessCodesPage() {
           </h1>
         </div>
 
-        <Dialog
-          open={dialogOpen}
-          onOpenChange={(open) => !isGenerating && setDialogOpen(open)}
-        >
+        <Dialog open={dialogOpen} onOpenChange={closeIssueDialog}>
           <DialogTrigger render={<Button className="min-h-11 sm:min-h-8" />}>
             <PlusIcon data-icon="inline-start" />
-            Generate codes
+            Issue code
           </DialogTrigger>
           <DialogContent>
+            {issued ? (
+              <>
+                <DialogHeader>
+                  <DialogTitle>{issued.reused ? "They already have a code" : "Code issued"}</DialogTitle>
+                  <DialogDescription>
+                    {issued.reused
+                      ? <>{issued.issuedToEmail} already held an unused code for {issued.cohortName}, so here it is again rather than a second one. It can be redeemed until {formatDate(new Date(issued.expiresAt))}.</>
+                      : <>For {issued.issuedToEmail}, in {issued.cohortName}. It can be redeemed until {formatDate(new Date(issued.expiresAt))}.</>}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/40 px-4 py-3">
+                  <span className="font-mono text-lg font-semibold tracking-wide">{issued.code}</span>
+                  <Button type="button" variant="outline" size="sm" onClick={() => void copyCode(issued.code)}>
+                    <ClipboardIcon data-icon="inline-start" />
+                    Copy
+                  </Button>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Nothing has been sent. Send them the member app's address and this code, and tell them to sign up with exactly {issued.issuedToEmail}: no other address can redeem it.
+                </p>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setIssued(null)}>
+                    Issue another
+                  </Button>
+                  <Button type="button" onClick={() => closeIssueDialog(false)}>
+                    Done
+                  </Button>
+                </DialogFooter>
+              </>
+            ) : (
             <form onSubmit={handleGenerateCodes} className="contents">
               <DialogHeader>
-                <DialogTitle>Generate access codes</DialogTitle>
+                <DialogTitle>Issue an access code</DialogTitle>
                 <DialogDescription>
-                  Codes are saved immediately and intended for one successful
-                  registration each.
+                  One code for one person. Only the email it's issued to can
+                  redeem it.
                 </DialogDescription>
               </DialogHeader>
               <FieldGroup>
                 <Field data-disabled={isGenerating || undefined}>
-                  <FieldLabel htmlFor="quantity">Number of codes</FieldLabel>
+                  <FieldLabel htmlFor="code-email">Email</FieldLabel>
                   <Input
-                    id="quantity"
-                    type="number"
-                    inputMode="numeric"
-                    min="1"
-                    max="20"
-                    value={quantity}
-                    onChange={(event) => setQuantity(event.target.value)}
+                    id="code-email"
+                    type="email"
+                    autoComplete="off"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
                     className="h-11 sm:h-8"
                     disabled={isGenerating}
+                    autoFocus
                     required
                   />
                   <FieldDescription>
-                    Generate between 1 and 20 codes.
+                    The address they'll sign up with in the member app.
+                  </FieldDescription>
+                </Field>
+                <Field data-disabled={isGenerating || undefined}>
+                  <FieldLabel htmlFor="code-whatsapp">WhatsApp number <span className="font-normal text-muted-foreground">(optional)</span></FieldLabel>
+                  <Input
+                    id="code-whatsapp"
+                    type="tel"
+                    value={whatsapp}
+                    maxLength={30}
+                    placeholder="+234 812 345 6789"
+                    onChange={(event) => setWhatsapp(event.target.value)}
+                    className="h-11 sm:h-8"
+                    disabled={isGenerating}
+                  />
+                  <FieldDescription>
+                    Copied into their profile. It's how the coach reaches them outside the app.
                   </FieldDescription>
                 </Field>
                 <Field data-disabled={isGenerating || undefined}>
                   <FieldLabel htmlFor="cohort">Cohort</FieldLabel>
                   <Select
-                    items={activeCohorts.map((item) => ({
+                    items={issuableCohorts.map((item) => ({
                       label: item.name,
                       value: item.id,
                     }))}
@@ -366,7 +432,7 @@ export function AccessCodesPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        {activeCohorts.map((item) => (
+                        {issuableCohorts.map((item) => (
                           <SelectItem key={item.id} value={item.id}>
                             {item.name}
                           </SelectItem>
@@ -374,8 +440,8 @@ export function AccessCodesPage() {
                       </SelectGroup>
                     </SelectContent>
                   </Select>
-                  {activeCohorts.length === 0 && (
-                    <FieldDescription>Create or activate a cohort first.</FieldDescription>
+                  {issuableCohorts.length === 0 && (
+                    <FieldDescription>No cohort can take new members: create one, or give a draft a program. Cohorts that have ended aren't offered.</FieldDescription>
                   )}
                 </Field>
                 <Field data-disabled={isGenerating || undefined}>
@@ -409,21 +475,22 @@ export function AccessCodesPage() {
                 >
                   Cancel
                 </DialogClose>
-                <Button type="submit" disabled={isGenerating || !selectedCohortId}>
+                <Button type="submit" disabled={isGenerating || !selectedCohortId || !email.trim()}>
                   {isGenerating ? (
                     <>
                       <Spinner data-icon="inline-start" />
-                      Saving codes
+                      Issuing
                     </>
                   ) : (
                     <>
                       <KeyRoundIcon data-icon="inline-start" />
-                      Generate
+                      Issue code
                     </>
                   )}
                 </Button>
               </DialogFooter>
             </form>
+            )}
           </DialogContent>
         </Dialog>
       </section>
@@ -490,7 +557,7 @@ export function AccessCodesPage() {
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground">
-              Expired or manually revoked codes
+              Expired, revoked, or for a cohort that has ended
             </p>
           </CardContent>
         </Card>
@@ -517,13 +584,15 @@ export function AccessCodesPage() {
                 [
                   item.code,
                   item.cohortName,
-                  effectiveCodeStatus(item),
+                  statusOf(item),
+                  item.issuedToEmail ?? "",
                   item.claimedByName ?? "",
                 ].join(" ")
               }
               columnLabels={{
                 code: "Code",
                 status: "Status",
+                issuedTo: "Issued to",
                 cohort: "Cohort",
                 expires: "Expires",
                 claimedBy: "Claimed by",
@@ -536,12 +605,12 @@ export function AccessCodesPage() {
               <EmptyHeader>
                 <EmptyMedia variant="icon"><KeyRoundIcon /></EmptyMedia>
                 <EmptyTitle>No access codes yet</EmptyTitle>
-                <EmptyDescription>Generate the first code to begin the admin invitation flow.</EmptyDescription>
+                <EmptyDescription>Issue a code to someone's email to invite them into a cohort.</EmptyDescription>
               </EmptyHeader>
               <EmptyContent>
                 <Button type="button" onClick={() => setDialogOpen(true)}>
                   <PlusIcon data-icon="inline-start" />
-                  Generate first code
+                  Issue first code
                 </Button>
               </EmptyContent>
             </Empty>

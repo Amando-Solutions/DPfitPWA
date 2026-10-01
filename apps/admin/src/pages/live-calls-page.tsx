@@ -15,38 +15,47 @@ import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAdminAuth } from "@/hooks/use-admin-auth"
 import { useCohortsQuery, useLiveCallsQuery } from "@/hooks/use-admin-queries"
+import { addDays, cohortOver, cohortZone, dayIn, formatDayKey, lastDayOfCohort, timeIn, zonedInstant, zoneLabel } from "@/lib/cohort-calendar"
 import type { CohortRecord } from "@/lib/cohorts"
 import { callEnd, createLiveCall, deleteLiveCall, updateLiveCall, type LiveCallRecord } from "@/lib/live-calls"
 import { cn } from "@/lib/utils"
 
+/** `date` and `time` are read on the call's cohort's clock, never the browser's. */
 type FormState = { title: string; cohortId: string; date: string; time: string; durationMinutes: string; joinUrl: string }
 
-const pad = (value: number) => String(value).padStart(2, "0")
-const localDate = (date: Date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-const localTime = (date: Date) => `${pad(date.getHours())}:${pad(date.getMinutes())}`
-// The browser's zone, e.g. "GMT+1": dates are entered and shown in the admin's local time.
-const zoneLabel = new Intl.DateTimeFormat(undefined, { timeZoneName: "short" }).formatToParts(new Date()).find((part) => part.type === "timeZoneName")?.value ?? ""
+/** The zone a cohort's calls are entered and shown in. Lagos for a cohort the list doesn't have. */
+const zoneOf = (cohorts: CohortRecord[], cohortId: string) => cohortZone(cohorts.find((cohort) => cohort.id === cohortId)?.timezone)
 
-function emptyForm(cohortId: string): FormState {
-  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000)
-  return { title: "Weekly live call", cohortId, date: localDate(tomorrow), time: "19:00", durationMinutes: "60", joinUrl: "" }
+function emptyForm(cohorts: CohortRecord[]): FormState {
+  const cohortId = cohorts[0]?.id ?? ""
+  const tomorrow = addDays(dayIn(new Date(), zoneOf(cohorts, cohortId)), 1)
+  return { title: "Weekly live call", cohortId, date: tomorrow, time: "19:00", durationMinutes: "60", joinUrl: "" }
 }
 
-function formFor(call: LiveCallRecord): FormState {
-  return { title: call.title, cohortId: call.cohortId, date: localDate(call.startsAt), time: localTime(call.startsAt), durationMinutes: String(call.durationMinutes), joinUrl: call.joinUrl }
+function formFor(call: LiveCallRecord, zone: string): FormState {
+  return { title: call.title, cohortId: call.cohortId, date: dayIn(call.startsAt, zone), time: timeIn(call.startsAt, zone), durationMinutes: String(call.durationMinutes), joinUrl: call.joinUrl }
 }
 
-function CallForm({ call, cohorts, onDone }: { call: LiveCallRecord | null; cohorts: CohortRecord[]; onDone: () => void }) {
+/**
+ * `cohorts` are the ones a call can be scheduled for; `allCohorts` is every
+ * cohort, for the zone of a call whose cohort has since ended.
+ */
+function CallForm({ call, cohorts, allCohorts, onDone }: { call: LiveCallRecord | null; cohorts: CohortRecord[]; allCohorts: CohortRecord[]; onDone: () => void }) {
   const { user } = useAdminAuth()
-  const [form, setForm] = useState<FormState>(() => call ? formFor(call) : emptyForm(cohorts[0]?.id ?? ""))
+  const [form, setForm] = useState<FormState>(() => call ? formFor(call, zoneOf(allCohorts, call.cohortId)) : emptyForm(cohorts))
   const set = (patch: Partial<FormState>) => setForm((current) => ({ ...current, ...patch }))
+  const cohort = allCohorts.find((item) => item.id === form.cohortId) ?? null
+  const zone = cohortZone(cohort?.timezone)
+  const lastDay = cohort ? lastDayOfCohort(cohort) : null
+  const afterLastDay = !!lastDay && !!form.date && form.date > lastDay
   const mutation = useMutation({
     mutationFn: () => {
       if (!user) throw new Error("Your admin session has expired.")
-      const cohort = cohorts.find((item) => item.id === form.cohortId)
+      const startsAt = zonedInstant(form.date, form.time, zone)
+      if (Number.isNaN(startsAt.getTime())) throw new Error("Choose a date and time.")
       const input = {
         title: form.title, cohortId: form.cohortId, cohortName: cohort?.name ?? call?.cohortName ?? "",
-        startsAt: new Date(`${form.date}T${form.time}`), durationMinutes: Number(form.durationMinutes), joinUrl: form.joinUrl,
+        startsAt, durationMinutes: Number(form.durationMinutes), joinUrl: form.joinUrl,
       }
       return call ? updateLiveCall(call, input, user) : createLiveCall(input, user)
     },
@@ -55,7 +64,7 @@ function CallForm({ call, cohorts, onDone }: { call: LiveCallRecord | null; coho
   })
   function submit(event: FormEvent) { event.preventDefault(); mutation.mutate() }
   const busy = mutation.isPending
-  const cohortItems = cohorts.map((cohort) => ({ value: cohort.id, label: cohort.name }))
+  const cohortItems = cohorts.map((item) => ({ value: item.id, label: item.name }))
 
   return <form onSubmit={submit} className="contents">
     <FieldGroup className="gap-4">
@@ -68,9 +77,14 @@ function CallForm({ call, cohorts, onDone }: { call: LiveCallRecord | null; coho
       </Field>
       <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_6rem] gap-3">
         <Field className="gap-1.5"><FieldLabel htmlFor="call-date">Date</FieldLabel><Input id="call-date" type="date" value={form.date} required disabled={busy} onChange={(event) => set({ date: event.target.value })} /></Field>
-        <Field className="gap-1.5"><FieldLabel htmlFor="call-time">Time <span className="font-normal text-muted-foreground">({zoneLabel})</span></FieldLabel><Input id="call-time" type="time" value={form.time} required disabled={busy} onChange={(event) => set({ time: event.target.value })} /></Field>
+        <Field className="gap-1.5"><FieldLabel htmlFor="call-time">Time</FieldLabel><Input id="call-time" type="time" value={form.time} required disabled={busy} onChange={(event) => set({ time: event.target.value })} /></Field>
         <Field className="gap-1.5"><FieldLabel htmlFor="call-duration">Minutes</FieldLabel><Input id="call-duration" type="number" min={5} max={480} step={5} value={form.durationMinutes} required disabled={busy} onChange={(event) => set({ durationMinutes: event.target.value })} /></Field>
       </div>
+      <p className="-mt-2 text-xs text-muted-foreground">On {cohort?.name ?? "the cohort"}'s clock: {zoneLabel(zone)}. Members elsewhere see it in their own time too.</p>
+      {afterLastDay && lastDay && <Alert>
+        <AlertTitle>This is after {cohort?.name}'s last day</AlertTitle>
+        <AlertDescription>The cohort ends after {formatDayKey(lastDay)}. By the day of this call its members only see "Your cohort has ended", so nobody sees the call and no reminder goes out.</AlertDescription>
+      </Alert>}
       <Field className="gap-1.5"><FieldLabel htmlFor="call-link">Meeting link</FieldLabel><Input id="call-link" type="url" value={form.joinUrl} required disabled={busy} placeholder="https://meet.google.com/…" onChange={(event) => set({ joinUrl: event.target.value })} /><FieldDescription>Google Meet, Zoom, or any https link. Members open it in a new tab.</FieldDescription></Field>
     </FieldGroup>
     <DialogFooter>
@@ -80,13 +94,15 @@ function CallForm({ call, cohorts, onDone }: { call: LiveCallRecord | null; coho
   </form>
 }
 
-function CallRow({ call, now, next, onEdit, onDelete }: { call: LiveCallRecord; now: number; next: boolean; onEdit: () => void; onDelete: () => void }) {
+/** A call's date and times, on its cohort's clock. */
+function CallRow({ call, zone, now, next, onEdit, onDelete }: { call: LiveCallRecord; zone: string; now: number; next: boolean; onEdit: () => void; onDelete: () => void }) {
   const past = callEnd(call).getTime() < now
+  const inZone = (options: Intl.DateTimeFormatOptions, date = call.startsAt) => date.toLocaleString("en", { ...options, timeZone: zone })
   return <li className={cn("flex items-center gap-4 border-t px-4 py-3 first:border-t-0", past && "text-muted-foreground")}>
     <div className="grid w-16 shrink-0 text-center leading-tight">
-      <span className="text-[11px] font-medium tracking-wide uppercase">{call.startsAt.toLocaleDateString(undefined, { month: "short" })}</span>
-      <span className="text-xl font-semibold tabular-nums">{call.startsAt.getDate()}</span>
-      <span className="text-[11px]">{call.startsAt.toLocaleDateString(undefined, { weekday: "short" })}</span>
+      <span className="text-[11px] font-medium tracking-wide uppercase">{inZone({ month: "short" })}</span>
+      <span className="text-xl font-semibold tabular-nums">{inZone({ day: "numeric" })}</span>
+      <span className="text-[11px]">{inZone({ weekday: "short" })}</span>
     </div>
     <div className="grid min-w-0 flex-1 gap-1">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -95,7 +111,7 @@ function CallRow({ call, now, next, onEdit, onDelete }: { call: LiveCallRecord; 
         {next && <Badge variant="secondary" className="gap-1.5"><span className="size-1.5 rounded-full bg-emerald-500" aria-hidden />Next</Badge>}
       </div>
       <p className="truncate text-xs text-muted-foreground">
-        {call.startsAt.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}–{callEnd(call).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", timeZoneName: "short" })} · {call.durationMinutes} min ·{" "}
+        {inZone({ hour: "numeric", minute: "2-digit" })}–{inZone({ hour: "numeric", minute: "2-digit", timeZoneName: "short" }, callEnd(call))} · {call.durationMinutes} min ·{" "}
         <a href={call.joinUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline-offset-2 hover:underline">{call.joinUrl.replace(/^https:\/\//, "")}<ExternalLinkIcon className="size-3" /></a>
       </p>
     </div>
@@ -117,7 +133,8 @@ export function LiveCallsPage() {
   const [now] = useState(() => Date.now())
 
   const cohorts = useMemo(() => cohortsQuery.data ?? [], [cohortsQuery.data])
-  const schedulable = cohorts.filter((cohort) => cohort.status !== "archived")
+  // A cohort that is over has no Home screen to show a call on, so it isn't offered.
+  const schedulable = cohorts.filter((cohort) => !cohortOver(cohort, new Date(now)))
   // Each cohort's next call still to come (calls are sorted by start).
   const nextIds = new Set<string>()
   const seenCohorts = new Set<string>()
@@ -163,7 +180,7 @@ export function LiveCallsPage() {
     {(callsQuery.error || cohortsQuery.error) && <Alert variant="destructive"><AlertTitle>Live calls unavailable</AlertTitle><AlertDescription>{(callsQuery.error ?? cohortsQuery.error)?.message}</AlertDescription></Alert>}
     {callsQuery.isPending && <Skeleton className="h-64 w-full rounded-lg" />}
     {callsQuery.data && (visible.length
-      ? <ul className="rounded-lg border bg-card">{visible.map((call) => <CallRow key={call.id} call={call} now={now} next={nextIds.has(call.id)} onEdit={() => setEditing(call)} onDelete={() => setDeleting(call)} />)}</ul>
+      ? <ul className="rounded-lg border bg-card">{visible.map((call) => <CallRow key={call.id} call={call} zone={zoneOf(cohorts, call.cohortId)} now={now} next={nextIds.has(call.id)} onEdit={() => setEditing(call)} onDelete={() => setDeleting(call)} />)}</ul>
       : <Empty className="min-h-64 rounded-lg border">
           <EmptyHeader>
             <EmptyMedia variant="icon"><VideoIcon /></EmptyMedia>
@@ -175,7 +192,7 @@ export function LiveCallsPage() {
     <Dialog open={!!editing} onOpenChange={(open) => !open && setEditing(null)}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader><DialogTitle>{editing === "new" ? "Schedule live call" : "Edit live call"}</DialogTitle></DialogHeader>
-        {editing && <CallForm key={editing === "new" ? "new" : editing.id} call={editing === "new" ? null : editing} cohorts={schedulable} onDone={() => setEditing(null)} />}
+        {editing && <CallForm key={editing === "new" ? "new" : editing.id} call={editing === "new" ? null : editing} cohorts={schedulable} allCohorts={cohorts} onDone={() => setEditing(null)} />}
       </DialogContent>
     </Dialog>
 

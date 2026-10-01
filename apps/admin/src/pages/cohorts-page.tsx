@@ -5,10 +5,12 @@ import { createColumnHelper } from "@tanstack/react-table"
 import {
   AlertCircleIcon,
   ArchiveIcon,
+  ArchiveRestoreIcon,
   CalendarRangeIcon,
   CheckCircle2Icon,
   Clock3Icon,
   DumbbellIcon,
+  FlagIcon,
   PlusIcon,
   PlayCircleIcon,
   Settings2Icon,
@@ -75,27 +77,43 @@ import {
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
+import { Switch } from "@/components/ui/switch"
 import { useAdminAuth } from "@/hooks/use-admin-auth"
-import { useCohortsQuery, useLiveCallsQuery, usePlatformSettingsQuery, useProgramsQuery } from "@/hooks/use-admin-queries"
+import {
+  useAccessCodesQuery,
+  useCohortsQuery,
+  useLiveCallsQuery,
+  useMembersQuery,
+  usePlatformSettingsQuery,
+  useProgramsQuery,
+} from "@/hooks/use-admin-queries"
+import { effectiveCodeStatus, revokeAccessCodes } from "@/lib/access-codes"
+import {
+  cohortOver,
+  cohortZone,
+  dayIn,
+  DEFAULT_TIMEZONE,
+  formatDayIn,
+  formatDayKey,
+  isDayKey,
+  lastDayOf,
+  lastDayOfCohort,
+  zoneLabel,
+} from "@/lib/cohort-calendar"
 import { callEnd } from "@/lib/live-calls"
 import {
   assignProgramToCohort,
+  cohortInProgress,
   createCohort,
+  reopenCohort,
   saveCohortExperience,
   setCohortStatus,
   type CohortExperienceInput,
   type CohortRecord,
-  type CohortStatus,
 } from "@/lib/cohorts"
 import type { ProgramRecord } from "@/lib/programs"
 
 const cohortColumnHelper = createColumnHelper<DataTableFeatures, CohortRecord>()
-
-const dateFormatter = new Intl.DateTimeFormat("en", {
-  month: "short",
-  day: "numeric",
-  year: "numeric",
-})
 
 const statusItems = [
   { label: "Active", value: "active" },
@@ -107,14 +125,17 @@ const visibilityItems = [
   { label: "Hidden", value: "hidden" },
 ]
 
-function inputDate(value = new Date()) {
-  const offset = value.getTimezoneOffset() * 60_000
-  return new Date(value.getTime() - offset).toISOString().slice(0, 10)
-}
+/** Today on a new cohort's calendar: the create form's default start. */
+const todayInLagos = () => dayIn(new Date(), DEFAULT_TIMEZONE)
 
-function formatDate(value: Date) {
-  return value.getTime() > 0 ? dateFormatter.format(value) : "—"
-}
+/** A cohort's date as the day it names on the cohort's own calendar. */
+const formatCohortDay = (cohort: CohortRecord, value: Date | null) => formatDayIn(value, cohortZone(cohort.timezone))
+
+type EffectiveStatus = "draft" | "active" | "ended"
+
+/** What a cohort is to its members now: a cohort past its last day is over, whatever `status` says. */
+const effectiveStatusOf = (cohort: CohortRecord, now: Date): EffectiveStatus =>
+  cohortOver(cohort, now) ? "ended" : cohort.status === "active" ? "active" : "draft"
 
 function experienceFormOf(cohort: CohortRecord): CohortExperienceInput {
   return {
@@ -126,18 +147,24 @@ function experienceFormOf(cohort: CohortRecord): CohortExperienceInput {
   }
 }
 
-function statusBadge(status: CohortStatus) {
-  if (status === "active") {
+/** "Ended" covers both ways a cohort closes; the stored `status` stays visible beside it. */
+function statusBadge(cohort: CohortRecord, now: Date) {
+  if (cohort.status === "archived" || cohortOver(cohort, now)) {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <Badge variant="outline">
+          {cohort.status === "archived" ? <ArchiveIcon data-icon="inline-start" /> : <FlagIcon data-icon="inline-start" />} Ended
+        </Badge>
+        <span className="text-xs text-muted-foreground">
+          {cohort.status === "archived" ? "archived" : `last day passed · ${cohort.status}`}
+        </span>
+      </span>
+    )
+  }
+  if (cohort.status === "active") {
     return (
       <Badge variant="secondary">
         <CheckCircle2Icon data-icon="inline-start" /> Active
-      </Badge>
-    )
-  }
-  if (status === "archived") {
-    return (
-      <Badge variant="outline">
-        <ArchiveIcon data-icon="inline-start" /> Archived
       </Badge>
     )
   }
@@ -148,13 +175,13 @@ function statusBadge(status: CohortStatus) {
   )
 }
 
-function CohortNextCall({ cohortId }: { cohortId: string }) {
+function CohortNextCall({ cohort }: { cohort: CohortRecord }) {
   const callsQuery = useLiveCallsQuery()
   const [now] = useState(() => Date.now())
-  const next = (callsQuery.data ?? []).find((call) => call.cohortId === cohortId && callEnd(call).getTime() >= now)
+  const next = (callsQuery.data ?? []).find((call) => call.cohortId === cohort.id && callEnd(call).getTime() >= now)
   if (callsQuery.isPending) return <>Loading calls…</>
   return next
-    ? <>Next: {next.title} · {next.startsAt.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</>
+    ? <>Next: {next.title} · {next.startsAt.toLocaleString("en", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: cohortZone(cohort.timezone), timeZoneName: "short" })}</>
     : <>No upcoming calls for this cohort.</>
 }
 
@@ -163,21 +190,27 @@ export function CohortsPage() {
   const cohortsQuery = useCohortsQuery()
   const programsQuery = useProgramsQuery()
   const settingsQuery = usePlatformSettingsQuery()
+  const codesQuery = useAccessCodesQuery()
+  const membersQuery = useMembersQuery()
   const cohorts = useMemo(() => cohortsQuery.data ?? [], [cohortsQuery.data])
   const programs = useMemo(
     () => (programsQuery.data ?? []).filter((program) => program.status === "published"),
     [programsQuery.data],
   )
   const isLoading = cohortsQuery.isPending
+  const [now] = useState(() => new Date())
   const [dialogOpen, setDialogOpen] = useState(false)
   const [name, setName] = useState("")
-  const [startDate, setStartDate] = useState(inputDate())
+  const [startDate, setStartDate] = useState(todayInLagos)
   const [durationWeeks, setDurationWeeks] = useState("6")
   const [status, setStatus] = useState("active")
   const [selectedProgramId, setSelectedProgramId] = useState("")
   const [assignmentTarget, setAssignmentTarget] = useState<CohortRecord | null>(null)
   const [assignmentProgramId, setAssignmentProgramId] = useState("")
   const [archiveTarget, setArchiveTarget] = useState<CohortRecord | null>(null)
+  const [revokeUnusedCodes, setRevokeUnusedCodes] = useState(true)
+  const [reopenTarget, setReopenTarget] = useState<CohortRecord | null>(null)
+  const [reopenLastDay, setReopenLastDay] = useState("")
   const [experienceTarget, setExperienceTarget] = useState<CohortRecord | null>(null)
   const [experienceForm, setExperienceForm] = useState<CohortExperienceInput | null>(null)
   const effectiveProgramId = programs.some((program) => program.id === selectedProgramId)
@@ -189,7 +222,7 @@ export function CohortsPage() {
     onSuccess: () => {
       setDialogOpen(false)
       setName("")
-      setStartDate(inputDate())
+      setStartDate(todayInLagos())
       setDurationWeeks("6")
       setStatus("active")
       setSelectedProgramId(programs[0]?.id ?? "")
@@ -207,13 +240,33 @@ export function CohortsPage() {
     onError: (error) => toast.error(error instanceof Error ? error.message : "Program could not be assigned."),
   })
   const statusMutation = useMutation({
-    mutationFn: ({ cohort, nextStatus, currentUser }: { cohort: CohortRecord; nextStatus: "active" | "archived"; currentUser: NonNullable<typeof user> }) =>
-      setCohortStatus(cohort, nextStatus, currentUser),
-    onSuccess: (_, variables) => {
-      toast.success(`${variables.cohort.name} ${variables.nextStatus === "active" ? "activated" : "archived"}`)
-      if (variables.nextStatus === "archived") setArchiveTarget(null)
-    },
+    mutationFn: ({ cohort, currentUser }: { cohort: CohortRecord; currentUser: NonNullable<typeof user> }) =>
+      setCohortStatus(cohort, "active", currentUser),
+    onSuccess: (_, variables) => toast.success(`${variables.cohort.name} activated`),
     onError: (error) => toast.error(error instanceof Error ? error.message : "Cohort status could not be updated."),
+  })
+  // Archiving closes the cohort for its members the moment it lands. Its unused
+  // codes would still redeem, onto the ended screen, so they can go with it.
+  const archiveMutation = useMutation({
+    mutationFn: async ({ cohort, codeIds, currentUser }: { cohort: CohortRecord; codeIds: string[]; currentUser: NonNullable<typeof user> }) => {
+      await setCohortStatus(cohort, "archived", currentUser)
+      await revokeAccessCodes(codeIds, currentUser)
+    },
+    onSuccess: (_, variables) => {
+      const revoked = variables.codeIds.length
+      toast.success(`${variables.cohort.name} archived${revoked ? `, and ${revoked} unused code${revoked === 1 ? "" : "s"} revoked` : ""}`)
+      setArchiveTarget(null)
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "The cohort could not be archived."),
+  })
+  const reopenMutation = useMutation({
+    mutationFn: ({ cohort, lastDay, currentUser }: { cohort: CohortRecord; lastDay: string; currentUser: NonNullable<typeof user> }) =>
+      reopenCohort(cohort, currentUser, lastDay || undefined),
+    onSuccess: (_, variables) => {
+      toast.success(`${variables.cohort.name} reopened`)
+      setReopenTarget(null)
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "The cohort could not be reopened."),
   })
   const experienceMutation = useMutation({
     mutationFn: ({ cohort, experience, currentUser }: { cohort: CohortRecord; experience: CohortExperienceInput; currentUser: NonNullable<typeof user> }) =>
@@ -227,19 +280,44 @@ export function CohortsPage() {
   })
   const isCreating = createMutation.isPending
   const isUpdating = assignmentMutation.isPending || statusMutation.isPending || experienceMutation.isPending
+    || archiveMutation.isPending || reopenMutation.isPending
 
+  // Active and not past its last day. One that ended by date isn't running, so it doesn't block the next.
   const activeCount = useMemo(
-    () => cohorts.filter((cohort) => cohort.status === "active").length,
-    [cohorts],
+    () => cohorts.filter((cohort) => cohortInProgress(cohort, now)).length,
+    [cohorts, now],
   )
   // Settings → "Multiple simultaneous challenges" off: one active cohort at a time.
   const singleCohortBlock = settingsQuery.data?.multipleCohorts === false && activeCount > 0
-    ? "Only one cohort can run at a time. Archive the active cohort first, or allow multiple simultaneous challenges in Settings."
+    ? "Only one cohort can run at a time. Wait for the running cohort's last day to pass, archive it, or allow multiple simultaneous challenges in Settings."
     : null
   const memberCount = useMemo(
     () => cohorts.reduce((total, cohort) => total + cohort.memberCount, 0),
     [cohorts],
   )
+
+  // What archiving the target touches: its members, and the codes that could still be redeemed.
+  const archiveMembers = archiveTarget
+    ? (membersQuery.data ?? []).filter((member) => member.cohortId === archiveTarget.id).length
+    : 0
+  const archiveCodeIds = archiveTarget
+    ? (codesQuery.data ?? [])
+        .filter((code) => code.cohortId === archiveTarget.id && effectiveCodeStatus(code) === "unused")
+        .map((code) => code.id)
+    : []
+  const archiveTargetOver = archiveTarget ? cohortOver(archiveTarget, now) : false
+
+  // Reopening un-archives; a cohort whose last day has also passed needs a later one to let members back in.
+  const reopenZone = cohortZone(reopenTarget?.timezone)
+  const reopenToday = dayIn(now, reopenZone)
+  const reopenSavedLastDay = reopenTarget ? lastDayOfCohort(reopenTarget) : null
+  const reopenPastLastDay = !!reopenSavedLastDay && reopenSavedLastDay < reopenToday
+  const reopenStartDay = reopenTarget ? dayIn(reopenTarget.startDate, reopenZone) : ""
+  const reopenStillOver = reopenPastLastDay && !(reopenLastDay && reopenLastDay >= reopenToday)
+
+  const lastDayPreview = isDayKey(startDate) && Number.parseInt(durationWeeks, 10) >= 1
+    ? formatDayKey(lastDayOf(startDate, Number.parseInt(durationWeeks, 10)))
+    : null
 
   function openProgramAssignment(cohort: CohortRecord) {
     setAssignmentTarget(cohort)
@@ -258,7 +336,6 @@ export function CohortsPage() {
       return
     }
 
-    const parsedStartDate = new Date(`${startDate}T00:00:00+01:00`)
     const selectedProgram = programs.find((program) => program.id === effectiveProgramId)
     if (!selectedProgram) {
       toast.error("Choose a published program.")
@@ -266,7 +343,7 @@ export function CohortsPage() {
     }
     createMutation.mutate({
       name,
-      startDate: parsedStartDate,
+      startDay: startDate,
       durationWeeks: Number.parseInt(durationWeeks, 10),
       status: status as "active" | "draft",
       program: selectedProgram,
@@ -287,12 +364,31 @@ export function CohortsPage() {
 
   function handleActivate(cohort: CohortRecord) {
     if (!user) return
-    statusMutation.mutate({ cohort, nextStatus: "active", currentUser: user })
+    statusMutation.mutate({ cohort, currentUser: user })
+  }
+
+  function openArchive(cohort: CohortRecord) {
+    setArchiveTarget(cohort)
+    setRevokeUnusedCodes(true)
   }
 
   function handleArchive() {
     if (!user || !archiveTarget) return
-    statusMutation.mutate({ cohort: archiveTarget, nextStatus: "archived", currentUser: user })
+    archiveMutation.mutate({
+      cohort: archiveTarget,
+      codeIds: revokeUnusedCodes ? archiveCodeIds : [],
+      currentUser: user,
+    })
+  }
+
+  function openReopen(cohort: CohortRecord) {
+    setReopenTarget(cohort)
+    setReopenLastDay("")
+  }
+
+  function handleReopen() {
+    if (!user || !reopenTarget) return
+    reopenMutation.mutate({ cohort: reopenTarget, lastDay: reopenLastDay, currentUser: user })
   }
 
   function handleExperienceSave(event: FormEvent<HTMLFormElement>) {
@@ -308,18 +404,26 @@ export function CohortsPage() {
       ),
       cell: ({ getValue }) => <span className="font-medium">{getValue()}</span>,
     }),
-    cohortColumnHelper.accessor("status", {
+    cohortColumnHelper.accessor((cohort) => effectiveStatusOf(cohort, now), {
+      id: "status",
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="Status" />
       ),
-      cell: ({ getValue }) => statusBadge(getValue()),
+      cell: ({ row }) => statusBadge(row.original, now),
     }),
     cohortColumnHelper.accessor((cohort) => cohort.startDate.getTime(), {
       id: "startDate",
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="Start date" />
       ),
-      cell: ({ row }) => formatDate(row.original.startDate),
+      cell: ({ row }) => formatCohortDay(row.original, row.original.startDate),
+    }),
+    cohortColumnHelper.accessor((cohort) => cohort.endDate?.getTime() ?? 0, {
+      id: "lastDay",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Last day" />
+      ),
+      cell: ({ row }) => formatCohortDay(row.original, row.original.endDate),
     }),
     cohortColumnHelper.accessor("durationWeeks", {
       id: "duration",
@@ -389,7 +493,15 @@ export function CohortsPage() {
             variant: "destructive",
             separatorBefore: true,
             disabled: isUpdating,
-            onSelect: () => setArchiveTarget(cohort),
+            onSelect: () => openArchive(cohort),
+          })
+        }
+        if (cohort.status === "archived") {
+          actions.push({
+            label: "Reopen cohort",
+            icon: ArchiveRestoreIcon,
+            disabled: isUpdating || !!singleCohortBlock,
+            onSelect: () => openReopen(cohort),
           })
         }
 
@@ -443,7 +555,9 @@ export function CohortsPage() {
                     required
                     className="h-11 sm:h-8"
                   />
-                  <FieldDescription>Africa/Lagos timezone</FieldDescription>
+                  <FieldDescription>
+                    {zoneLabel(DEFAULT_TIMEZONE)}.{lastDayPreview && <> Its last day is {lastDayPreview}; members are in until the end of it.</>}
+                  </FieldDescription>
                 </Field>
                 <Field data-disabled={isCreating || undefined}>
                   <FieldLabel htmlFor="cohort-duration">Duration in weeks</FieldLabel>
@@ -586,12 +700,13 @@ export function CohortsPage() {
               data={cohorts}
               searchPlaceholder="Filter cohorts..."
               searchAccessor={(cohort) =>
-                [cohort.name, cohort.status, cohort.programName ?? ""].join(" ")
+                [cohort.name, cohort.status, effectiveStatusOf(cohort, now), cohort.programName ?? ""].join(" ")
               }
               columnLabels={{
                 name: "Name",
                 status: "Status",
                 startDate: "Start date",
+                lastDay: "Last day",
                 duration: "Duration",
                 program: "Program",
                 members: "Members",
@@ -692,7 +807,7 @@ export function CohortsPage() {
                 <Card size="sm">
                   <CardHeader>
                     <CardTitle>Live call</CardTitle>
-                    <CardDescription><CohortNextCall cohortId={experienceTarget.id} /></CardDescription>
+                    <CardDescription><CohortNextCall cohort={experienceTarget} /></CardDescription>
                     <CardAction><Button type="button" size="sm" variant="outline" render={<Link to="/live-calls" />}>Manage live calls</Button></CardAction>
                   </CardHeader>
                 </Card>
@@ -721,15 +836,73 @@ export function CohortsPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogMedia><ArchiveIcon /></AlertDialogMedia>
-            <AlertDialogTitle>Archive {archiveTarget?.name}?</AlertDialogTitle>
+            <AlertDialogTitle>{archiveTargetOver ? `Archive ${archiveTarget?.name}?` : `End ${archiveTarget?.name} now?`}</AlertDialogTitle>
             <AlertDialogDescription>
-              Existing members and access codes remain available. New codes cannot be generated for this cohort.
+              {archiveTargetOver
+                ? <>Its last day has passed, so its members already see "Your cohort has ended". Archiving keeps it that way whatever its dates say, hides it from the cohort picker, and stops new codes being issued for it.</>
+                : <>Archiving ends the cohort for {membersQuery.isPending ? "its members" : `its ${archiveMembers} member${archiveMembers === 1 ? "" : "s"}`} straight away. Their app moves to "Your cohort has ended", with their totals, and they can no longer train, check in or chat. No new codes can be issued for it. You can reopen it later.</>}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {codesQuery.isPending ? (
+            <Skeleton className="h-10 w-full" />
+          ) : archiveCodeIds.length > 0 ? (
+            <Field orientation="horizontal" className="gap-2" data-disabled={isUpdating || undefined}>
+              <Switch id="archive-revoke-codes" checked={revokeUnusedCodes} disabled={isUpdating} onCheckedChange={setRevokeUnusedCodes} />
+              <div className="grid gap-0.5">
+                <FieldLabel htmlFor="archive-revoke-codes">
+                  Also revoke its {archiveCodeIds.length} unused code{archiveCodeIds.length === 1 ? "" : "s"}
+                </FieldLabel>
+                <FieldDescription className="text-xs">
+                  Codes already issued still redeem after archiving, but the new member lands straight on the ended screen.
+                </FieldDescription>
+              </div>
+            </Field>
+          ) : (
+            <p className="text-sm text-muted-foreground">It has no unused codes waiting to be redeemed.</p>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isUpdating}>Cancel</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" disabled={isUpdating} onClick={() => void handleArchive()}>
-              {isUpdating && <Spinner data-icon="inline-start" />} Archive cohort
+            <AlertDialogAction variant="destructive" disabled={isUpdating || codesQuery.isPending} onClick={() => void handleArchive()}>
+              {archiveMutation.isPending && <Spinner data-icon="inline-start" />} {archiveTargetOver ? "Archive cohort" : "End and archive"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={Boolean(reopenTarget)} onOpenChange={(open) => !isUpdating && !open && setReopenTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia><ArchiveRestoreIcon /></AlertDialogMedia>
+            <AlertDialogTitle>Reopen {reopenTarget?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {reopenPastLastDay
+                ? <>Its last day, {reopenSavedLastDay && formatDayKey(reopenSavedLastDay)}, has passed too, so reopening alone leaves members on "Your cohort has ended". Set a later last day to let them back in.</>
+                : <>Its members go back into the app straight away and can train, check in and chat again{reopenSavedLastDay ? <>, until the end of {formatDayKey(reopenSavedLastDay)}</> : null}.</>}
+              {reopenTarget && !reopenTarget.programId && <> It has no program, so it reopens as a draft.</>}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {reopenPastLastDay && (
+            <Field data-disabled={isUpdating || undefined}>
+              <FieldLabel htmlFor="reopen-last-day">New last day <span className="font-normal text-muted-foreground">(optional)</span></FieldLabel>
+              <Input
+                id="reopen-last-day"
+                type="date"
+                min={reopenStartDay}
+                value={reopenLastDay}
+                disabled={isUpdating}
+                onChange={(event) => setReopenLastDay(event.target.value)}
+              />
+              <FieldDescription>
+                {reopenStillOver
+                  ? <>Leave it empty, or pick a day before today, and the cohort stays over.</>
+                  : <>Members are in until the end of {formatDayKey(reopenLastDay)}, {zoneLabel(reopenZone)}.</>}
+              </FieldDescription>
+            </Field>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isUpdating}>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={isUpdating || (!!reopenLastDay && reopenLastDay < reopenStartDay)} onClick={() => void handleReopen()}>
+              {reopenMutation.isPending && <Spinner data-icon="inline-start" />} Reopen cohort
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

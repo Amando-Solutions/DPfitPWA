@@ -108,7 +108,7 @@ function AnnouncementForm({ cohortId, editing, onDone }: { cohortId: string; edi
 
 export function AnnouncementsPage() {
   const cohortsQuery = useCohortsQuery()
-  const { cohort } = useSelectedCohort()
+  const { cohort, cohortEnded } = useSelectedCohort()
   const announcementsQuery = useAnnouncementsQuery(cohort?.id ?? "")
   const [editingState, setEditing] = useState<AnnouncementRecord | null>(null)
   // Switching cohorts in the header drops an edit that belongs to the previous one.
@@ -136,11 +136,14 @@ export function AnnouncementsPage() {
     {cohort && <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
       <Card size="sm" className="rounded-lg">
         <CardHeader>
-          <CardTitle>{editing ? "Edit announcement" : "New announcement"}</CardTitle>
-          <CardDescription>To {cohort.name}{editing ? `, posted ${formatWhen(editing.publishedAt)}` : ""}</CardDescription>
+          <CardTitle>{cohortEnded ? "Announcements are closed" : editing ? "Edit announcement" : "New announcement"}</CardTitle>
+          <CardDescription>To {cohort.name}{editing && !cohortEnded ? `, posted ${formatWhen(editing.publishedAt)}` : ""}</CardDescription>
         </CardHeader>
         <CardContent>
-          <AnnouncementForm key={`${cohort.id}:${editing?.id ?? "new"}`} cohortId={cohort.id} editing={editing} onDone={() => setEditing(null)} />
+          {/* The ended screen has no deck and no inbox, and nothing is pushed to an ended cohort. */}
+          {cohortEnded
+            ? <p className="rounded-md bg-muted/60 px-3 py-2.5 text-sm text-muted-foreground">{cohort.name} has ended. Its members only see "Your cohort has ended", with no announcements or inbox, and nothing is pushed to their phones, so a post here would reach nobody. Move its last day in Settings to reopen it.</p>
+            : <AnnouncementForm key={`${cohort.id}:${editing?.id ?? "new"}`} cohortId={cohort.id} editing={editing} onDone={() => setEditing(null)} />}
         </CardContent>
       </Card>
 
@@ -159,7 +162,7 @@ export function AnnouncementsPage() {
                     {item.notificationId && <BellIcon className="size-3.5 text-muted-foreground" aria-label="Members were notified" />}
                     {index >= 20 && <Badge variant="outline">Not shown</Badge>}
                     <div className="ml-auto flex gap-0.5 opacity-60 transition-opacity group-hover/item:opacity-100 group-focus-within/item:opacity-100">
-                      <Button size="icon-sm" variant="ghost" title="Edit" aria-label={`Edit ${item.title}`} onClick={() => setEditing(item)}><PencilIcon /></Button>
+                      {!cohortEnded && <Button size="icon-sm" variant="ghost" title="Edit" aria-label={`Edit ${item.title}`} onClick={() => setEditing(item)}><PencilIcon /></Button>}
                       <Button size="icon-sm" variant="ghost" className="text-muted-foreground" title="Delete" aria-label={`Delete ${item.title}`} onClick={() => setDeleting(item)}><Trash2Icon /></Button>
                     </div>
                   </div>

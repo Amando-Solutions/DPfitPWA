@@ -52,6 +52,7 @@ import {
   type AdminChatThread,
   type AdminChatThreadKind,
 } from "@/lib/admin-chat"
+import { cohortOver } from "@/lib/cohort-calendar"
 
 const dateTimeFormatter = new Intl.DateTimeFormat("en", {
   month: "short",
@@ -184,6 +185,10 @@ export function AdminChatPage() {
     : null
   const selectedCohortId = activeThread?.cohortId ?? ""
   const selectedThreadId = activeThread?.threadId ?? ""
+  const [now] = useState(() => new Date())
+  // The ended screen has no chat, and nothing is pushed to an ended cohort, so a message would reach nobody.
+  const activeCohort = activeThread ? cohortById.get(activeThread.cohortId) : undefined
+  const threadClosed = activeCohort ? cohortOver(activeCohort, now) : false
   const messagesQuery = useThreadMessagesQuery(selectedCohortId, selectedThreadId)
   const allMessages = useMemo(() => {
     const fetched = messagesQuery.data ?? []
@@ -486,6 +491,11 @@ export function AdminChatPage() {
             </div>
 
             {/* Input Area */}
+            {threadClosed ? (
+              <p className="border-t bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+                {activeThread.cohortName} has ended. Its members only see "Your cohort has ended", which has no chat, so messages here would reach nobody.
+              </p>
+            ) : (
             <form onSubmit={handleSend} className="flex items-end gap-2 border-t bg-background p-3 sm:px-4">
               <Button type="button" variant="ghost" size="icon" className="shrink-0 rounded-full" onClick={() => document.getElementById('chat-file-upload')?.click()}>
                 <PaperclipIcon />
@@ -546,6 +556,7 @@ export function AdminChatPage() {
                 <span className="sr-only">Send message</span>
               </Button>
             </form>
+            )}
           </div>
         )}
       </main>

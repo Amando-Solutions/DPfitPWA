@@ -1,6 +1,33 @@
 # Cohort lifecycle + the two gaps: agreed plan (not yet implemented)
 
-Status: **decisions locked 2026-09-28, parked.** Nothing below is built yet. Revisit before starting.
+Status: **decisions locked 2026-09-28, parked.** Revisit before starting, and read the update
+below first: the member app now closes a cohort on its own, and part of this plan no longer fits.
+
+## Update 2026-10-01: how a cohort ends now
+
+The member app, the Cloud Functions and the rules now treat a cohort as **over** when it is
+`archived`, or when the day its `endDate` names has passed in its `timezone`. From then its
+members get one screen, "Your cohort has ended", and every member write is refused. The contract
+is "Closing a cohort" in `ADMIN_NOTIFICATIONS.md` at the repo root. What that means for this plan:
+
+- **Built since:** item 1, the effective status (`cohortOver` in `src/lib/cohort-calendar.ts`,
+  "Ended" in the Cohorts table, the header and the pickers). Item 5, codes for an ended cohort
+  showing Expired. A "Last day" control in Settings, a "Reopen cohort" action, and an archive
+  dialog that says what archiving does.
+- **Item 2 can't work as written.** Archiving a cohort is no longer a label: it locks its members
+  out straight away. "Activating a new cohort ends the current one" would end a cohort mid-challenge
+  whenever the next one opens early, as pre-order does. It is only safe for a cohort already past
+  its last day. Decide this again before building it. Meanwhile, a cohort past its last day no
+  longer counts as running, so it doesn't block creating or activating the next.
+- **"End date = start date + program duration" is a day late.** `endDate` names the *last* day,
+  stored as midnight at the start of it in the cohort's zone: start + weeks × 7 − 1 days.
+- **"Reuse `archived` plus a new `endedAt`".** The member app, functions and rules read only
+  `status` and `endDate`. Keep writing `archivedAt`; `endedAt` is optional and nothing reads it.
+  A cohort that ends on its date needs no write at all.
+- **Item 3, "End cohort early"**, is the archive action, whose dialog now says it ends the cohort.
+  An earlier last day in Settings does the same without archiving.
+- **Not changing / Firestore rules** below is out of date: the rules now read `status` and
+  `endDate` to close a cohort. They live at the repo root, not in this app.
 
 Source ticket: "Admin: Cohort lifecycle + the two gaps we identified".
 Depends on / feeds: "PWA: What a member sees once their cohort has ended", which needs the

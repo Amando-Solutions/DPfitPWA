@@ -8,6 +8,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar"
 import { useAdminAuth } from "@/hooks/use-admin-auth"
 import { useCohortPulse } from "@/hooks/use-cohort-pulse"
 import { useSelectedCohort } from "@/hooks/use-selected-cohort"
+import { cohortOver } from "@/lib/cohort-calendar"
 import { programPhases, type PulseIssue } from "@/lib/cohort-pulse"
 import { phaseColor } from "@/lib/phase-colors"
 import { cn } from "@/lib/utils"
@@ -22,13 +23,14 @@ const ISSUE_DOT: Record<PulseIssue["kind"], string> = {
 
 /** W1…Wn for the selected cohort, coloured by phase, with the current week filled. */
 function WeekStrip() {
-  const { cohort, program } = useSelectedCohort()
+  const { cohort, cohortEnded, program } = useSelectedCohort()
   const [now] = useState(() => Date.now())
   if (!cohort) return <p className="text-sm text-muted-foreground">No cohort yet</p>
 
   const phases = programPhases(program, cohort.durationWeeks)
   const elapsed = now - cohort.startDate.getTime()
-  const ended = elapsed >= cohort.durationWeeks * WEEK_MS
+  // Over by its last day, which can differ from the program's length when it was moved.
+  const ended = cohortEnded || elapsed >= cohort.durationWeeks * WEEK_MS
   const current = elapsed < 0 ? 0 : ended ? cohort.durationWeeks + 1 : Math.floor(elapsed / WEEK_MS) + 1
   const phase = phases.find((item) => current >= item.fromWeek && current <= item.toWeek)
   const weeks = Array.from({ length: cohort.durationWeeks }, (_, index) => index + 1)
@@ -52,7 +54,7 @@ function WeekStrip() {
     </ol>
     <p className="truncate text-sm text-muted-foreground">
       {current === 0 ? <>Starts <span className="font-semibold text-foreground">{cohort.startDate.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span></>
-        : ended ? <span className="font-semibold text-foreground">Completed</span>
+        : ended ? <span className="font-semibold text-foreground">{cohortEnded ? "Ended" : "Completed"}</span>
         : <>Week <span className="font-semibold text-foreground">{current}</span>{phase && !phase.title.startsWith("Week ") && <> · <span className="font-semibold text-foreground">{phase.title}</span></>}</>}
     </p>
   </div>
@@ -60,9 +62,10 @@ function WeekStrip() {
 
 function CohortPicker() {
   const { cohort, cohorts, multipleCohorts, setCohortId } = useSelectedCohort()
+  const [now] = useState(() => new Date())
   // Shown whenever several cohorts may run, even with one so far, so it's always clear which cohort the console is showing.
   if (!multipleCohorts || !cohort) return null
-  const items = cohorts.map((item) => ({ value: item.id, label: item.name }))
+  const items = cohorts.map((item) => ({ value: item.id, label: cohortOver(item, now) ? `${item.name} · ended` : item.name }))
   return <Select items={items} value={cohort.id} onValueChange={(value) => value && setCohortId(value)}>
     <SelectTrigger size="sm" className="w-40 shrink-0" aria-label="Cohort"><SelectValue /></SelectTrigger>
     <SelectContent><SelectGroup>{items.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectGroup></SelectContent>
