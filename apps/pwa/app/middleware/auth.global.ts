@@ -5,6 +5,7 @@
  *                        to make an account or `/sign-in` to use one
  *   member, no setup   → the setup steps
  *   member, setup done → the app; the door screens bounce to Home
+ *   cohort archived    → `/cohort-ended` and nothing else, set up or not
  *
  * "No member" covers three different situations, because an account exists a
  * moment before its code is redeemed: nobody signed in at all, somebody signed
@@ -40,6 +41,9 @@ export const SETUP_ROUTES = [
   '/setup/activity-goal',
 ]
 
+/** The only screen a member of an archived cohort can reach, and only they can. */
+export const COHORT_ENDED_ROUTE = '/cohort-ended'
+
 export default defineNuxtRouteMiddleware((to) => {
   // The entry route owns its own decision. See `pages/index.vue`.
    if (
@@ -70,6 +74,14 @@ export default defineNuxtRouteMiddleware((to) => {
     return isPublic ? undefined : navigateTo(store.doorRoute.value)
   }
 
+  // A member whose cohort is over: one screen, whatever they were opening.
+  // Replaced rather than pushed, so Back cannot step into the app behind it.
+  if (store.gate.value === 'ended') {
+    return to.path === COHORT_ENDED_ROUTE
+      ? undefined
+      : navigateTo(COHORT_ENDED_ROUTE, { replace: true })
+  }
+
   // A member whose profile isn't finished: keep them in setup.
   if (store.gate.value === 'needs-setup') {
     return isSetup ? undefined : navigateTo(FIRST_SETUP_STEP)
@@ -78,6 +90,6 @@ export default defineNuxtRouteMiddleware((to) => {
   // A paused member keeps the whole app: the pause stops their coaching, not
   // their access to what they have already logged.
 
-  // Fully set up: the intro screens have nothing left to offer.
-  if (isPublic || isSetup) return navigateTo('/home')
+  // Fully set up: the intro screens, and the ended screen, have nothing to offer.
+  if (isPublic || isSetup || to.path === COHORT_ENDED_ROUTE) return navigateTo('/home')
 })

@@ -12,7 +12,7 @@
  * mounts, and therefore before the boot frame is removed. The member goes
  * straight from the splash to their destination with no frame in between.
  */
-import { FIRST_SETUP_STEP } from '~/middleware/auth.global'
+import { COHORT_ENDED_ROUTE, FIRST_SETUP_STEP } from '~/middleware/auth.global'
 
 definePageMeta({
   layout: false,
@@ -39,6 +39,8 @@ definePageMeta({
       case 'needs-code':
       case 'unknown':
         return navigateTo('/access-code', { replace: true })
+      case 'ended':
+        return navigateTo(COHORT_ENDED_ROUTE, { replace: true })
       case 'needs-setup':
         return navigateTo(FIRST_SETUP_STEP, { replace: true })
     }

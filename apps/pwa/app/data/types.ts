@@ -1301,11 +1301,19 @@ export interface SignInDoc {
  *                 member who redeemed weeks ago would be asked for a code they
  *                 no longer have, and told it was already used when they typed
  *                 it. This state asks them to retry instead.
+ *
+ * And one after them:
+ *
+ *   `ended`       a member whose cohort has been archived. The cohort is over,
+ *                 so the app is too: `/cohort-ended` in place of every screen,
+ *                 whatever the member's own status. Followed live, so an
+ *                 archive reaches an app that is already open.
  */
 export type MemberGate =
   | 'needs-auth'
   | 'needs-code'
   | 'unknown'
+  | 'ended'
   | 'needs-setup'
   | 'ready'
   | 'paused'

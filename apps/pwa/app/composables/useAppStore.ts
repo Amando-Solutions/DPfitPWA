@@ -653,11 +653,16 @@ const buildStore = () => {
    * member whose account simply could not be read was handed the access-code
    * prompt — the one screen with no way back to sign-in, asking for a code
    * they redeemed weeks ago and no longer have.
+   *
+   * `ended` comes before anything about the member themselves: a paused
+   * member, or one who never finished setup, has nothing to resume or finish
+   * in a cohort that is over.
    */
   const gate = computed<MemberGate>(() => {
     if (!state.value.authUser) return 'needs-auth'
     if (state.value.memberUnreadable) return 'unknown'
     if (!state.value.member) return 'needs-code'
+    if (state.value.cohort?.status === 'archived') return 'ended'
     if (state.value.member.status === 'paused') return 'paused'
     if (state.value.member.status === 'onboarding') return 'needs-setup'
     return 'ready'
@@ -694,7 +699,19 @@ const buildStore = () => {
 
   // --- Authored content ----------------------------------------------------
   const program = computed(() => state.value.program)
-  const cohort = computed(() => state.value.cohort)
+  /**
+   * The cohort while it is running, and `null` otherwise.
+   *
+   * `state.cohort` also holds an archived one, which is how `gate` knows to
+   * say `ended`. Everything that draws from the cohort — the coach, its zone,
+   * the call, the board, the start date — reads it through here, so an ended
+   * cohort renders as absent everywhere instead of as the one it used to be.
+   */
+  const cohort = computed(() => (state.value.cohort?.status === 'active' ? state.value.cohort : null))
+  /** The cohort that has ended, for the screen that says so. `null` while one is running. */
+  const endedCohort = computed(() =>
+    state.value.cohort?.status === 'archived' ? state.value.cohort : null,
+  )
   const guides = computed(() => state.value.guides)
   /**
    * `cohorts/{id}/announcements`, as the listener last delivered them.
@@ -708,7 +725,7 @@ const buildStore = () => {
   const announcements = computed(() => announcementFeed.value)
 
   /** The coach, off the cohort document. `null` before the cohort has loaded. */
-  const coach = computed(() => state.value.cohort?.coach ?? null)
+  const coach = computed(() => cohort.value?.coach ?? null)
 
   // --- Zones ---------------------------------------------------------------
   //
@@ -721,7 +738,7 @@ const buildStore = () => {
 
   /** The cohort's zone: WAT, for every cohort so far. */
   const cohortZone = computed(
-    () => canonicalZone(state.value.cohort?.timezone) ?? COHORT_ZONE_FALLBACK,
+    () => canonicalZone(cohort.value?.timezone) ?? COHORT_ZONE_FALLBACK,
   )
 
   /** The zone the member's days turn over in: their region's, or the cohort's until they pick one. */
@@ -760,15 +777,15 @@ const buildStore = () => {
    */
   const liveCallToday = computed(() =>
     todaysLiveCall(
-      (state.value.cohort?.liveCalls ?? []).flatMap((call) => liveCallFrom(call) ?? []),
+      (cohort.value?.liveCalls ?? []).flatMap((call) => liveCallFrom(call) ?? []),
       now.value,
       memberZone.value,
     ),
   )
 
   /** Whether the cohort's board is switched on, and the week it was promised for. */
-  const leaderboardVisible = computed(() => state.value.cohort?.leaderboardVisible === true)
-  const leaderboardRevealWeek = computed(() => state.value.cohort?.leaderboardRevealWeek ?? 0)
+  const leaderboardVisible = computed(() => cohort.value?.leaderboardVisible === true)
+  const leaderboardRevealWeek = computed(() => cohort.value?.leaderboardRevealWeek ?? 0)
 
   /** The reward economy, as authored. Empty until the program has loaded. */
   const rewardValues = computed(() => state.value.program?.rewards.values ?? null)
@@ -825,10 +842,10 @@ const buildStore = () => {
    * gate, as it was before this existed.
    */
   const trainingOpensOn = computed<string | null>(() => {
-    const cohort = state.value.cohort
-    const start = cohort?.startDate
-    if (!cohort || typeof start?.toDate !== 'function') return null
-    return dateKeyIn(start.toDate(), cohort.timezone)
+    const running = cohort.value
+    const start = running?.startDate
+    if (!running || typeof start?.toDate !== 'function') return null
+    return dateKeyIn(start.toDate(), running.timezone)
   })
 
   /** Signed in before the cohort has started, on the member's calendar: nothing logs yet. */
@@ -2000,6 +2017,7 @@ const buildStore = () => {
     // authored content
     program,
     cohort,
+    endedCohort,
     coach,
     liveCallToday,
     guides,

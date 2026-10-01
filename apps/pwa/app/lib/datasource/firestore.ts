@@ -302,11 +302,16 @@ const withId = <T>(snap: QueryDocumentSnapshot<DocumentData>): T =>
  *
  * Shared by `getCohort` and `watchCohort`, so the boot read and the listener
  * cannot disagree about whether the board is on.
+ *
+ * An archived cohort comes back as itself rather than as `null`: "this cohort
+ * is over" and "there is no cohort document" want different screens, and a
+ * `null` for both left an ended cohort's app running with pieces missing. A
+ * draft, or any status this app does not know, is still no cohort.
  */
 const cohortFrom = (snap: DocumentSnapshot<DocumentData>, liveCalls: LiveCall[]): Cohort | null => {
   if (!snap.exists()) return null
   const data = snap.data() as Partial<CohortDoc>
-  if (data.status !== 'active') return null
+  if (data.status !== 'active' && data.status !== 'archived') return null
   return {
     ...(data as CohortDoc),
     id: snap.id,
@@ -1279,16 +1284,10 @@ export class FirestoreDataSource implements DataSource {
     const member = await this.requireMember()
     const cohortDoc = await getDoc(doc(firebaseDb(), 'cohorts', member.cohortId))
 
-    // If cohort doesn't exist, return null
-    if (!cohortDoc.exists()) return null
+    // Only a running cohort has calls worth reading. Missing and draft come
+    // back `null`, archived as itself with none; `cohortFrom` decides which.
+    if (cohortDoc.get('status') !== 'active') return cohortFrom(cohortDoc, [])
 
-    const cohortData = cohortDoc.data()
-    if (!cohortData) return null
-
-    // Only return cohort if it's active (not draft or archived)
-    if (cohortData.status !== 'active') return null
-
-    // Fetch live calls for this active cohort
     const calls = await getDocs(liveCallsQuery(member.cohortId))
 
     return cohortFrom(cohortDoc, liveCallsFrom(calls.docs))
@@ -1310,8 +1309,8 @@ export class FirestoreDataSource implements DataSource {
     let calls: LiveCall[] | null = null
     const deliver = () => {
       if (stopped || !cohortSnap) return
-      // Removal/archive must clear the UI even before live calls answer.
-      if (!cohortSnap.exists() || cohortSnap.data()?.status !== 'active') onCohort(null)
+      // Removal/archive must reach the UI even before live calls answer.
+      if (cohortSnap.get('status') !== 'active') onCohort(cohortFrom(cohortSnap, []))
       else if (calls) onCohort(cohortFrom(cohortSnap, calls))
     }
     const fail = (error: unknown) => {

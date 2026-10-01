@@ -69,6 +69,25 @@ export const canonicalZone = (value: unknown): string | null => {
 }
 
 /**
+ * The zone this device is set to, for what is only ever *shown*.
+ *
+ * Never for deciding anything — see `dateKeyIn`. It is for the chat thread,
+ * whose bubble times are the member's own wall clock, and whose day bands have
+ * to agree with those times: a band reading "Today" over a bubble reading a
+ * time from last night would be the thread contradicting itself.
+ */
+export const deviceZone = (): string =>
+  canonicalZone(Intl.DateTimeFormat().resolvedOptions().timeZone) ?? COHORT_ZONE_FALLBACK
+
+/**
+ * One formatter per zone, kept.
+ *
+ * Building an `Intl.DateTimeFormat` is the expensive part of reading a day, and
+ * the chat thread reads one per message on every render of up to two hundred.
+ */
+const keyFormats = new Map<string, Intl.DateTimeFormat>()
+
+/**
  * The calendar day an instant falls on in `timeZone`, as `YYYY-MM-DD`.
  *
  * There is deliberately no version of this without a zone. The device's own
@@ -79,10 +98,16 @@ export const canonicalZone = (value: unknown): string | null => {
  */
 export const dateKeyIn = (date: Date | Timestamp, timeZone: string): string => {
   const at = date instanceof Timestamp ? date.toDate() : date
-  const format = (zone: string) =>
-    new Intl.DateTimeFormat('en-CA', {
-      year: 'numeric', month: '2-digit', day: '2-digit', timeZone: zone,
-    }).format(at)
+  const format = (zone: string) => {
+    let formatter = keyFormats.get(zone)
+    if (!formatter) {
+      formatter = new Intl.DateTimeFormat('en-CA', {
+        year: 'numeric', month: '2-digit', day: '2-digit', timeZone: zone,
+      })
+      keyFormats.set(zone, formatter)
+    }
+    return formatter.format(at)
+  }
   try {
     return format(timeZone)
   } catch {
@@ -262,6 +287,42 @@ export const scheduleDateLabel = (key: string): string => {
     weekday: 'short',
     day: 'numeric',
     month: 'short',
+  })
+}
+
+/**
+ * The band over a day's messages in a chat thread: "Today", "Yesterday",
+ * "Monday", "Tue 12 Aug", "12 Aug 2025".
+ *
+ * WhatsApp's ladder, because it is the one members already read without
+ * thinking. A weekday for the rest of the past week, since "Monday" is a day
+ * somebody remembers and a date is one they would have to work out; a date past
+ * that, with the year only once it is not this one.
+ *
+ * Both days are keys, so the zone was decided by whoever made them — see
+ * `deviceZone` for which one the thread uses. A key after `today` is a sender
+ * whose clock ran ahead of this one, and reads as today rather than as a day
+ * that has not happened yet.
+ */
+export const pastDayLabel = (key: string, today: string): string => {
+  const utc = (k: string) => {
+    const [y, m, d] = k.split('-').map(Number)
+    return Date.UTC(y ?? 0, (m ?? 1) - 1, d ?? 1)
+  }
+  const at = utc(key)
+  const days = Math.round((utc(today) - at) / 86_400_000)
+  if (days <= 0) return 'Today'
+  if (days === 1) return 'Yesterday'
+
+  // Read back in UTC, which is the zone the key was just laid out in.
+  const date = new Date(at)
+  if (days < 7) return date.toLocaleDateString(undefined, { weekday: 'long', timeZone: 'UTC' })
+  const sameYear = key.slice(0, 4) === today.slice(0, 4)
+  return date.toLocaleDateString(undefined, {
+    ...(sameYear ? { weekday: 'short' } : { year: 'numeric' }),
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'UTC',
   })
 }
 
