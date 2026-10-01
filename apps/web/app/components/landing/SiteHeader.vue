@@ -15,7 +15,7 @@ import { NAV_LINKS, REGISTER_ANCHOR } from '~/data/landing'
   <header
     class="sticky top-0 z-30 border-b border-[rgba(29,22,40,0.06)] bg-[rgba(247,244,252,0.82)] backdrop-blur-[14px]"
   >
-    <div class="mx-auto flex max-w-300 items-center justify-between gap-6 px-6 py-4.5">
+    <div class="mx-auto flex max-w-300 items-center justify-between gap-6 px-6 py-3 md:py-4.5">
       <a href="#top" class="text-lp-ink">
         <BrandLogo :size="40" label="DP Fitness" />
       </a>

@@ -110,7 +110,7 @@ useHead({ title: 'Registration · DP Fitness' })
 </script>
 
 <template>
-  <main class="flex min-h-screen items-center justify-center bg-lp-paper px-6 py-16 font-landing text-lp-ink antialiased">
+  <main class="flex min-h-dvh items-center justify-center bg-lp-paper px-4 py-10 sm:px-6 sm:py-16 font-landing text-lp-ink antialiased">
     <div class="w-full max-w-115 rounded-[28px] border border-lp-edge bg-white p-[clamp(24px,5vw,44px)] text-center shadow-[0_30px_60px_-40px_rgba(29,22,40,0.25)]">
       <a href="/" class="inline-block text-lp-ink">
         <BrandLogo :size="48" label="DP Fitness" />
@@ -119,14 +119,14 @@ useHead({ title: 'Registration · DP Fitness' })
       <!-- `role="status"` and `aria-live` so each phase is announced as it
            replaces the last, rather than changing silently under a screen
            reader that has already read the page. -->
-      <div role="status" aria-live="polite" class="mt-9">
+      <div role="status" aria-live="polite" class="mt-8 sm:mt-9">
         <template v-if="phase === 'checking'">
           <p class="m-0 text-[16px] text-lp-soft">Confirming your payment…</p>
         </template>
 
         <template v-else-if="phase === 'done'">
           <span class="lp-eyebrow">you're in</span>
-          <h1 class="mt-3 mb-0 text-[40px] leading-[1.05] font-medium tracking-[-0.03em]">
+          <h1 class="mt-3 mb-0 text-[34px] leading-[1.05] font-medium tracking-[-0.03em] text-balance sm:text-[40px]">
             your slot is <span class="serif-accent">reserved.</span>
           </h1>
           <p v-if="emailed" class="mt-4 mb-0 text-[16px] leading-[1.7] text-lp-soft">
@@ -144,7 +144,7 @@ useHead({ title: 'Registration · DP Fitness' })
              closes, so the inbox has a confirmation in it, not a code. -->
         <template v-else-if="phase === 'reserved'">
           <span class="lp-eyebrow">you're in</span>
-          <h1 class="mt-3 mb-0 text-[40px] leading-[1.05] font-medium tracking-[-0.03em]">
+          <h1 class="mt-3 mb-0 text-[34px] leading-[1.05] font-medium tracking-[-0.03em] text-balance sm:text-[40px]">
             your slot is <span class="serif-accent">reserved.</span>
           </h1>
           <p class="mt-4 mb-0 text-[16px] leading-[1.7] text-lp-soft">
@@ -159,7 +159,7 @@ useHead({ title: 'Registration · DP Fitness' })
              payment — and this page is read by people who have just been
              charged. -->
         <template v-else-if="phase === 'waiting'">
-          <h1 class="m-0 text-[40px] leading-[1.05] font-medium tracking-[-0.03em]">
+          <h1 class="m-0 text-[34px] leading-[1.05] font-medium tracking-[-0.03em] text-balance sm:text-[40px]">
             still <span class="serif-accent">confirming.</span>
           </h1>
           <p class="mt-4 mb-0 text-[16px] leading-[1.7] text-lp-soft">
@@ -170,7 +170,7 @@ useHead({ title: 'Registration · DP Fitness' })
         </template>
 
         <template v-else>
-          <h1 class="m-0 text-[40px] leading-[1.05] font-medium tracking-[-0.03em]">
+          <h1 class="m-0 text-[34px] leading-[1.05] font-medium tracking-[-0.03em] text-balance sm:text-[40px]">
             nothing to <span class="serif-accent">confirm here.</span>
           </h1>
           <p class="mt-4 mb-0 text-[16px] leading-[1.7] text-lp-soft">
@@ -184,7 +184,7 @@ useHead({ title: 'Registration · DP Fitness' })
       <!-- The way out. Always a real link, so the page is never a dead end for
            somebody with the countdown paused or JavaScript disabled; the timer
            is a convenience on top of it, not the only exit. -->
-      <div class="mt-9 flex flex-col items-center">
+      <div class="mt-8 flex flex-col items-center sm:mt-9">
         <CtaButton href="/">back to the site ↗</CtaButton>
         <p
           v-if="phase === 'done' || phase === 'reserved'"

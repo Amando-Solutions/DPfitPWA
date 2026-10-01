@@ -231,19 +231,25 @@ const inputClass = (name: FieldName) => [
 </script>
 
 <template>
-  <section id="join" class="mx-auto max-w-300 px-6 pt-34 pb-10">
-    <div class="grid grid-cols-1 items-start gap-x-24 gap-y-14 lg:grid-cols-2">
+  <section id="join" class="mx-auto max-w-300 px-6 pt-20 pb-10 md:pt-34">
+    <div class="grid grid-cols-1 items-start gap-x-24 gap-y-10 md:gap-y-14 lg:grid-cols-2">
       <!-- The offer. -->
       <div class="lp-reveal flex flex-col gap-6">
-        <span class="lp-eyebrow">join the challenge</span>
-        <h2 class="lp-h2-lg">book your <span class="serif-accent">slot</span></h2>
+        <div class="flex flex-col gap-3 md:gap-4">
+          <span class="lp-eyebrow">join the challenge</span>
+          <h2 class="lp-h2-lg">book your <span class="serif-accent">slot</span></h2>
+        </div>
 
-        <div class="mt-2 flex flex-col gap-1.5">
-          <div class="flex flex-wrap items-baseline gap-3">
-            <span class="text-[52px] font-medium tracking-[-0.03em]">{{ price ?? 'Price to be announced' }}</span>
+        <!-- A tight line height on the figure: at the default its box ran 26px
+             taller than the glyphs, which pushed the heading away and left the
+             two lines under it looking stranded. Not quite `none`, for the
+             "to be announced" fallback that wraps. -->
+        <div class="mt-2 flex flex-col gap-3">
+          <div class="flex flex-wrap items-baseline gap-x-3 gap-y-2">
+            <span class="text-[44px] leading-[1.05] font-medium tracking-[-0.03em] sm:text-[52px]">{{ price ?? 'Price to be announced' }}</span>
             <span v-if="price && weeks" class="text-[14px] text-lp-soft">for the full {{ weeks }} weeks</span>
           </div>
-          <span v-if="perWeek" class="text-[15px] text-lp-soft">
+          <span v-if="perWeek" class="text-[15px] leading-normal text-lp-soft">
             That's about <b class="font-semibold text-lp-ink">{{ perWeek }} a week</b> for your
             program, coaching, check-ins and community.
           </span>
@@ -260,16 +266,18 @@ const inputClass = (name: FieldName) => [
           </div>
         </dl>
 
+        <!-- One row per step on a phone: three columns there left each card
+             about 100px wide, and a three-word step broke over three lines. -->
         <div class="flex flex-col gap-3">
           <span class="text-[13px] font-semibold">What happens next</span>
-          <ol class="m-0 grid list-none grid-cols-3 gap-2 p-0">
+          <ol class="m-0 grid list-none grid-cols-1 gap-2 p-0 sm:grid-cols-3">
             <li
               v-for="(step, i) in NEXT_STEPS"
               :key="step"
-              class="flex flex-col gap-2 rounded-2xl border border-lp-edge bg-white p-3.5"
+              class="flex items-center gap-3 rounded-2xl border border-lp-edge bg-white px-4 py-3.5 sm:flex-col sm:items-start sm:gap-2 sm:p-3.5"
             >
-              <span class="text-[12px] font-bold text-lp-accent">{{ String(i + 1).padStart(2, '0') }}</span>
-              <span class="text-[13px] leading-[1.45]">{{ step }}</span>
+              <span class="text-[12px] font-bold text-lp-accent tabular-nums">{{ String(i + 1).padStart(2, '0') }}</span>
+              <span class="text-[14px] leading-[1.45] sm:text-[13px]">{{ step }}</span>
             </li>
           </ol>
         </div>
@@ -402,7 +410,7 @@ const inputClass = (name: FieldName) => [
 
         <div v-else role="status" class="flex flex-col gap-4.5 py-4">
           <span class="lp-eyebrow">almost there</span>
-          <h3 class="m-0 text-[34px] font-medium tracking-[-0.02em]">
+          <h3 class="m-0 text-[30px] leading-[1.1] font-medium tracking-[-0.02em] sm:text-[34px]">
             one last step<template v-if="form.firstName.trim()">, <span class="serif-accent">{{ form.firstName.trim() }}</span></template>.
           </h3>
           <p class="m-0 text-[15px] leading-[1.65] text-lp-soft">

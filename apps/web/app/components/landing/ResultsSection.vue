@@ -18,23 +18,27 @@ useAutoScroll(scroller, { paused, speed: 24 })
 </script>
 
 <template>
-  <section id="results" class="pt-30 pb-10">
+  <section id="results" class="pt-20 pb-6 md:pt-30 md:pb-10">
+    <!-- The button stays beside the heading on a phone, drawn as a round icon
+         button with its word kept for screen readers, rather than wrapping
+         under the copy as a second pill that looks like a call to action. -->
     <div
-      class="lp-reveal mx-auto mb-10 flex max-w-300 flex-wrap items-end justify-between gap-6 px-6"
+      class="lp-reveal mx-auto mb-6 flex max-w-300 items-end justify-between gap-4 px-6 md:mb-10 md:gap-6"
     >
-      <div class="flex flex-col gap-3.5">
+      <div class="flex min-w-0 flex-col gap-3 md:gap-3.5">
         <h2 class="lp-h2">real <span class="serif-accent">results</span></h2>
-        <span class="max-w-105 text-[15px] text-lp-soft">
+        <span class="max-w-105 text-[15px] leading-normal text-pretty text-lp-soft">
           Transformations from women who have trained with Coach Dayo.
         </span>
       </div>
       <button
         type="button"
         :aria-pressed="paused"
-        class="inline-flex h-11 cursor-pointer items-center gap-2 rounded-full border border-lp-ink bg-transparent px-4.5 text-[14px] font-semibold text-lp-ink transition-[transform,background-color,color] duration-300 hover:-translate-y-0.5 hover:bg-lp-ink-hover hover:text-lp-paper"
+        class="inline-flex size-11 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-full border border-lp-ink bg-transparent text-[14px] font-semibold text-lp-ink transition-[transform,background-color,color] duration-300 hover:-translate-y-0.5 hover:bg-lp-ink-hover hover:text-lp-paper sm:w-auto sm:px-4.5"
         @click="paused = !paused"
       >
-        {{ paused ? '▶ play' : '❚❚ pause' }}
+        <span aria-hidden="true">{{ paused ? '▶' : '❚❚' }}</span>
+        <span class="max-sm:sr-only">{{ paused ? 'play' : 'pause' }}</span>
       </button>
     </div>
 
@@ -49,7 +53,7 @@ useAutoScroll(scroller, { paused, speed: 24 })
         <article
           v-for="r in RESULTS"
           :key="r.before"
-          class="flex w-85 shrink-0 flex-col gap-3.5 rounded-3xl border border-lp-edge bg-white p-3.5"
+          class="flex w-[min(340px,calc(100vw-80px))] shrink-0 flex-col gap-3.5 rounded-3xl border border-lp-edge bg-white p-3 sm:p-3.5"
         >
           <!-- Card text and labels hidden for now; only the photos show. -->
           <!--
@@ -58,8 +62,10 @@ useAutoScroll(scroller, { paused, speed: 24 })
             <span class="text-[13px] text-lp-soft">{{ r.detail }}</span>
           </div>
           -->
-          <div class="grid h-70 grid-cols-2 gap-1.5">
-            <div class="relative overflow-hidden rounded-2xl bg-lp-lilac-100">
+          <!-- Each slot keeps the photos' own 352×640 shape, so a card narrowed
+               to fit a phone crops nothing more than the full-size one. -->
+          <div class="grid grid-cols-2 gap-1.5">
+            <div class="relative aspect-11/20 overflow-hidden rounded-2xl bg-lp-lilac-100">
               <img
                 :src="r.before"
                 alt="Client's before photo"
@@ -71,7 +77,7 @@ useAutoScroll(scroller, { paused, speed: 24 })
               >
               <!-- <span class="lp-chip absolute top-3 left-3 bg-white/85 px-2.5 py-1.25" aria-hidden="true">before</span> -->
             </div>
-            <div class="relative overflow-hidden rounded-2xl bg-lp-lilac-250">
+            <div class="relative aspect-11/20 overflow-hidden rounded-2xl bg-lp-lilac-250">
               <img
                 :src="r.after"
                 alt="Client's after photo"

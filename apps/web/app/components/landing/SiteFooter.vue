@@ -15,27 +15,40 @@ const year = new Date().getFullYear()
 
 const linkAttrs = (href: string) =>
   /^https?:/.test(href) ? { target: '_blank', rel: 'noopener noreferrer' } : {}
+
+/**
+ * A label in pieces with a `<wbr>` between them: an email address splits after
+ * its "@", so in a narrow column it wraps there rather than mid-name.
+ */
+const breakable = (label: string) => {
+  const at = label.indexOf('@')
+  return at < 0 ? [label] : [label.slice(0, at + 1), label.slice(at + 1)]
+}
 </script>
 
 <template>
-  <footer class="mt-34 rounded-t-[36px] bg-lp-ink pb-22 text-lp-paper md:pb-0">
-    <div class="mx-auto flex max-w-300 flex-col gap-18 px-6 pt-22 pb-8">
+  <!-- The bottom padding on a phone is the booking bar's height plus the home
+       indicator's inset, which the bar itself sits above. -->
+  <footer class="mt-20 rounded-t-[28px] bg-lp-ink pb-[calc(88px+env(safe-area-inset-bottom))] text-lp-paper md:mt-34 md:rounded-t-[36px] md:pb-0">
+    <div class="mx-auto flex max-w-300 flex-col gap-12 px-6 pt-14 pb-8 md:gap-18 md:pt-22">
       <div class="flex flex-wrap items-end justify-between gap-8">
         <h2
           class="m-0 max-w-180 text-[clamp(40px,5.4vw,80px)] leading-none font-medium tracking-[-0.04em]"
         >
           ready when <span class="serif-accent">you are.</span>
         </h2>
-        <div class="flex flex-wrap gap-3">
-          <CtaButton :href="REGISTER_ANCHOR" variant="paper">book a slot ↗</CtaButton>
-          <CtaButton href="#top" variant="outline-light">back to top ↑</CtaButton>
+        <div class="flex w-full flex-wrap gap-3 sm:w-auto">
+          <CtaButton :href="REGISTER_ANCHOR" variant="paper" class="flex-auto sm:flex-none">book a slot ↗</CtaButton>
+          <CtaButton href="#top" variant="outline-light" class="flex-auto sm:flex-none">back to top ↑</CtaButton>
         </div>
       </div>
 
+      <!-- Two columns on a phone, the brand across both, so the link lists sit
+           side by side instead of in one long stack. -->
       <div
-        class="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-10 border-t border-[rgba(247,244,252,0.14)] pt-12"
+        class="grid grid-cols-2 gap-x-6 gap-y-10 border-t border-[rgba(247,244,252,0.14)] pt-10 sm:grid-cols-[repeat(auto-fit,minmax(180px,1fr))] sm:gap-10 md:pt-12"
       >
-        <div class="flex flex-col gap-3.5">
+        <div class="col-span-2 flex flex-col gap-3.5 sm:col-span-1">
           <BrandLogo :size="56" mono label="DP Fitness" />
           <span class="max-w-60 text-[14px] leading-[1.6] text-lp-on-ink-soft">{{ FOOTER_BLURB }}</span>
         </div>
@@ -51,9 +64,9 @@ const linkAttrs = (href: string) =>
             :key="link.href"
             :href="link.href"
             v-bind="linkAttrs(link.href)"
-            class="lp-ul self-start break-all text-lp-paper transition-colors hover:text-lp-on-ink-hover"
+            class="lp-ul self-start text-lp-paper transition-colors wrap-anywhere hover:text-lp-on-ink-hover"
           >
-            {{ link.label }}
+            <template v-for="(part, i) in breakable(link.label)" :key="i"><wbr v-if="i">{{ part }}</template>
           </a>
         </nav>
         <!-- Dropped entirely until a handle is configured, rather than

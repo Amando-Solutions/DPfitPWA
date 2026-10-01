@@ -3,9 +3,9 @@
  * The plum strip above the header, counting down to whatever happens next.
  *
  * Reads the active cohort's pre-order window and start date:
- *   pre-order upcoming → "enrolment opens in"    → preorder.startsAt
- *   pre-order open     → "enrolment closes in"   → preorder.endsAt
- *   otherwise          → "the challenge starts in" → cohort start
+ *   before the pre-order → "pre-order starts in"     → preorder.startsAt
+ *   during the pre-order → "pre-order ends in"       → preorder.endsAt
+ *   after it             → "the challenge starts in" → cohort start
  * and disappears once there is nothing left to count to, or no cohort at all.
  *
  * The clock only runs in the browser. The server renders "--" in each cell so
@@ -31,8 +31,8 @@ const target = computed(() => {
   if (preorder) {
     const opens = Date.parse(preorder.startsAt)
     const closes = Date.parse(preorder.endsAt)
-    if (at < opens) return { label: 'enrolment opens in', at: opens }
-    if (at < closes) return { label: 'enrolment closes in', at: closes }
+    if (at < opens) return { label: 'pre-order starts in', at: opens }
+    if (at < closes) return { label: 'pre-order ends in', at: closes }
   }
   const starts = Date.parse(c.startsAt)
   if (Number.isFinite(starts) && at < starts) {
@@ -60,7 +60,7 @@ const cells = computed(() => {
 <template>
   <div
     v-if="target"
-    class="flex flex-wrap items-center justify-center gap-x-[18px] gap-y-2.5 bg-lp-ink px-5 py-2.5 text-[13px] text-lp-paper"
+    class="flex flex-wrap items-center justify-center gap-x-4.5 gap-y-2 bg-lp-ink px-4 py-2.5 text-[13px] text-lp-paper sm:px-5"
   >
     <span class="opacity-80">{{ target.label }}</span>
     <!-- `timer` is announced politely and only by a screen reader that asks:
@@ -69,7 +69,7 @@ const cells = computed(() => {
       <span
         v-for="cell in cells"
         :key="cell.unit"
-        class="flex items-baseline gap-1 rounded-full bg-white/10 px-3 py-1.5"
+        class="flex items-baseline gap-1 rounded-full bg-white/10 px-2.5 py-1 sm:px-3 sm:py-1.5"
       >
         <b class="text-[15px] font-semibold">{{ cell.value }}</b>
         <span class="text-[11px] opacity-75">{{ cell.unit }}</span>

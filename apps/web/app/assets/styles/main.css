@@ -134,7 +134,10 @@
    Interaction recipes from the design reference
    ========================================================================== */
 
-/* Underline that draws itself in from the left on hover. */
+/* Underline that draws itself in from the left on hover. The hovers here are
+   all behind `(hover: hover)`, as Tailwind's own `hover:` is: a tap on a phone
+   would otherwise leave the card lifted or the link underlined until the next
+   tap somewhere else. */
 @utility lp-ul {
   background-image: linear-gradient(currentColor, currentColor);
   background-size: 0 1px;
@@ -143,16 +146,20 @@
   transition:
     background-size 0.45s cubic-bezier(0.2, 0.7, 0.2, 1),
     color 0.3s;
-  &:hover {
-    background-size: 100% 1px;
+  @media (hover: hover) {
+    &:hover {
+      background-size: 100% 1px;
+    }
   }
 }
 
 /* Cards that rise on hover; the week numerals fill in as they do. */
 @utility lp-lift {
   transition: transform 0.6s cubic-bezier(0.2, 0.7, 0.2, 1);
-  &:hover {
-    transform: translateY(-8px);
+  @media (hover: hover) {
+    &:hover {
+      transform: translateY(-8px);
+    }
   }
 }
 
@@ -161,11 +168,13 @@
     color: transparent;
     transition: color 0.6s cubic-bezier(0.2, 0.7, 0.2, 1);
   }
-  .lp-lift:hover .lp-wknum {
-    color: var(--lp-ink);
-  }
-  .lp-lift:hover .lp-wknum.is-light {
-    color: var(--lp-paper);
+  @media (hover: hover) {
+    .lp-lift:hover .lp-wknum {
+      color: var(--lp-ink);
+    }
+    .lp-lift:hover .lp-wknum.is-light {
+      color: var(--lp-paper);
+    }
   }
 
   /* The results strip: a scroller `useAutoScroll` drifts back and forth. No
@@ -184,10 +193,18 @@
     cursor: grabbing;
     user-select: none;
   }
+  /* Inset by the page gutter, so the first card lines up with the heading
+     above it and the last one doesn't end flush against the screen edge. */
   .lp-marquee {
     display: flex;
     gap: 20px;
     width: max-content;
+    padding-inline: 24px;
+  }
+  @media (width < 40rem) {
+    .lp-marquee {
+      gap: 14px;
+    }
   }
 
   .lp-hero-in {
