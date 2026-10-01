@@ -24,21 +24,27 @@ rules_version = '2';
 // for the account's most recent sign-in, so every rule built on it refuses an
 // older device outright. See `signIns` below.
 //
+// And once a cohort is over — archived, or past its last day — its members
+// write nothing more to it. See `cohortRunning`.
+//
 // WHAT THESE RULES CANNOT DO
 //
 // Rules validate shape, ownership and transitions. They cannot re-derive a
-// value from data they do not have. Specifically, nothing here can check that a
-// session's `setsDone` matches the sets the member actually logged, so
-// `qualifies` — and the reward points that follow from it — is asserted by the
-// client and merely shape-checked here. A determined member could inflate their
-// own totals.
+// value from data they do not have — and they have no time zones, so they
+// cannot say what day it is for a member in New York.
 //
-// The fix is to move the four writes that mint points (`saveSession`,
-// `saveCheckIn`, `awardBadge`, `redeemAccessCode`) behind Callable Functions
-// and deny those paths to clients outright. `FirestoreDataSource` is shaped so
-// each becomes a one-line `httpsCallable`. Until then the exposure is bounded
-// to a member cheating on their own leaderboard position, which is worth
-// knowing about and is not worth blocking launch over.
+// So the writes that are locked to a day or a week are not made here at all.
+// A session, a check-in and a progress photo are written by Callable Functions
+// (`logSession`, `submitCheckIn`, `logPhoto` in `apps/functions`), which read
+// the server's clock and the member's stored region, and the rules below deny
+// those paths to clients outright. The region itself (`members/{uid}.region`)
+// is written only by `setRegion`, which is what keeps a change forward-only.
+//
+// Still client-written: `awardBadge`, `redeemAccessCode`, and the member's own
+// `stats`, which nothing below locks. A determined member could inflate their
+// own totals that way. Moving those behind functions too closes it; until then
+// the exposure is bounded to a member cheating on their own leaderboard
+// position, which is worth knowing about and is not worth blocking launch over.
 // =============================================================================
 
 service cloud.firestore {
@@ -179,6 +185,49 @@ service cloud.firestore {
 
     function inCohort(cohortId) {
       return signedIn() && me().cohortId == cohortId;
+    }
+
+    /**
+     * Whether the cohort is still running: not archived, and not past the last
+     * day its `endDate` names.
+     *
+     * Once it is over a member can still read, because the ended screen shows
+     * their totals, and can write nothing the cohort holds: no message,
+     * reaction, typing marker, board row, profile change, badge, read marker or
+     * workout state. The member app stops trying the moment it knows. These
+     * are for when it does not: a message queued offline and replayed after
+     * the end, a build from before this, or the SDK driven by hand.
+     *
+     * `endDate` is a day, read on the cohort's calendar, and the cohort runs
+     * to the end of it (`cohortOver` in the member app and the functions).
+     * Rules have no time zones, so this closes 24 hours after the stored
+     * instant: exactly the midnight after the last day when the console stores
+     * midnight in the cohort's zone, as it does for `startDate`, and never
+     * before the app closes for any other time on that day. No usable
+     * `endDate` is no end on the calendar; archiving still closes it. A
+     * missing cohort document says nothing either way, which is how the app
+     * reads it too.
+     *
+     * One `get`, billed as a read, on every write it guards. `storage.rules`
+     * restates this for uploads; keep the two in step.
+     */
+    function cohortRunning(cohortId) {
+      let cohort = get(/databases/$(database)/documents/cohorts/$(cohortId));
+      return cohort == null || cohortStillOn(cohort.data);
+    }
+
+    /**
+     * The test itself, on a cohort document that exists.
+     *
+     * `endDate` is read twice on purpose: `get` with a default for the type
+     * check, then the field itself for the sum. Binding the `get` to a name
+     * instead types that name as possibly `null`, and the compiler refuses
+     * `null + duration` even behind the `is timestamp` check that rules it out.
+     */
+    function cohortStillOn(cohort) {
+      return cohort.get('status', '') != 'archived'
+        && !(cohort.get('endDate', null) is timestamp
+             && request.time >= cohort.endDate + duration.value(1, 'd'));
     }
 
     /** Which fields a write is touching, whether it creates or updates. */
@@ -448,8 +497,14 @@ service cloud.firestore {
         // see it yet. A row may also keep the name it already has: that is how
         // `deleteSession` writes, merging only the count, and it must not fail
         // on a row whose name went stale before this rule existed.
+        //
+        // A row stops moving once the cohort is over. A *first* row does not
+        // wait on that: redemption writes it, and somebody redeeming a code
+        // for a cohort that has since ended belongs on the screen that says
+        // so, not on a refusal at the door that cannot say why.
         allow create, update: if isCoach() || (
           isSelf(memberId)
+          && (resource == null || cohortRunning(cohortId))
           && request.resource.data.keys().hasOnly(
                ['name', 'avatarUrl', 'sessions', 'updatedAt'])
           && (
@@ -460,7 +515,7 @@ service cloud.firestore {
                 && request.resource.data.get('name', null) == resource.data.get('name', null))
           )
         );
-        allow delete: if isCoach() || isSelf(memberId);
+        allow delete: if isCoach() || (isSelf(memberId) && cohortRunning(cohortId));
       }
 
       // --- Threads -------------------------------------------------------
@@ -513,6 +568,7 @@ service cloud.firestore {
 
           allow create: if inCohort(cohortId)
             && myThread()
+            && cohortRunning(cohortId)
             && request.resource.data.authorUid == request.auth.uid
             // Posted under the member's own name. The edit rule below never lets
             // `authorName` move, so this is the only check it needs.
@@ -559,7 +615,7 @@ service cloud.firestore {
           // The coach's exemption is the one already here: coach tooling runs
           // on the Admin SDK, which bypasses all of this anyway.
           allow update: if isCoach() || (
-            inCohort(cohortId) && myThread()
+            inCohort(cohortId) && myThread() && cohortRunning(cohortId)
             && (
               (changed().hasOnly(['reactionCounts', 'reactors', 'reactedAt'])
                 && movesOnlyOwnReactor())
@@ -578,14 +634,15 @@ service cloud.firestore {
           );
 
           allow delete: if isCoach() || (
-            inCohort(cohortId) && resource.data.authorUid == request.auth.uid
+            inCohort(cohortId) && cohortRunning(cohortId)
+            && resource.data.authorUid == request.auth.uid
           );
 
           // Who reacted, one document per reactor, keyed by uid so a member can
           // only ever move their own.
           match /reactions/{reactorId} {
             allow read: if isCoach() || inCohort(cohortId);
-            allow write: if isSelf(reactorId) && inCohort(cohortId);
+            allow write: if isSelf(reactorId) && inCohort(cohortId) && cohortRunning(cohortId);
           }
         }
 
@@ -606,10 +663,13 @@ service cloud.firestore {
             isSelf(typistId)
             && inCohort(cohortId)
             && myThread()
+            && cohortRunning(cohortId)
             && request.resource.data.keys().hasOnly(['name', 'at'])
             && request.resource.data.name == shownName(me(), 'Someone')
           );
 
+          // Not held to `cohortRunning`: clearing a marker written just before
+          // the end is the one thread write worth letting through after it.
           allow delete: if isCoach() || (isSelf(typistId) && inCohort(cohortId));
         }
       }
@@ -634,12 +694,16 @@ service cloud.firestore {
         // Points cannot be conjured at sign-up.
         && request.resource.data.stats.points == 0
         && request.resource.data.stats.sessionsQualified == 0
+        // Nor a region, whose floor only `setRegion` can stamp.
+        && !('region' in request.resource.data)
         // The cohort has to be the one the code actually belongs to.
         && request.resource.data.cohortId == get(
              /databases/$(database)/documents/accessCodes/$(request.resource.data.accessCode)
            ).data.cohortId;
 
       allow update: if isSelf(uid)
+        // Nothing about a member moves once their cohort is over.
+        && cohortRunning(resource.data.cohortId)
         // Immutable once set: these define who the member is and what they
         // paid for, and a self-service change to any of them is an attack.
         // `email` among them, because it is what `keepsMemberEmail` holds the
@@ -654,6 +718,10 @@ service cloud.firestore {
         && request.resource.data.joinedAt == resource.data.joinedAt
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.programId == resource.data.programId
+        // Where the member's days turn over. `setRegion` writes it, with the
+        // floor that stops a switch west reopening a day; a member who could
+        // write it could set the floor back and log a day twice.
+        && request.resource.data.get('region', null) == resource.data.get('region', null)
         // The one status move a member makes for themselves is finishing
         // setup, in `completeSetup`. Writing `onboarding` back would reopen the
         // two fields locked below; every other move is the console's.
@@ -677,22 +745,35 @@ service cloud.firestore {
       allow delete: if isCoach();
 
       // Everything below a member belongs to that member alone. One rule
-      // rather than eight: sessions, photos, badges, the active session,
-      // notification read state and lifecycle events all share the same
-      // answer, and listing them separately invites one to drift.
+      // rather than eight: badges, the active session, notification read state
+      // and lifecycle events all share the same answer, and listing them
+      // separately invites one to drift.
       //
-      // Check-ins are carved out by name rather than overridden below, because
-      // rules are additive: a narrower block cannot take away what this one
-      // grants, so this one has to not grant it.
+      // Sessions, check-ins and photos are carved out of the write by name
+      // rather than overridden below, because rules are additive: a narrower
+      // block cannot take away what this one grants, so this one has to not
+      // grant it. All three are filed on a day or a week, and the day is the
+      // server's: the functions in `apps/functions/src/member-writes.ts` write
+      // them on the Admin SDK. A member reads them, and nothing more — a logged
+      // session and a sent check-in stay as they are.
+      //
+      // All of it closes with the cohort, but for one delete: releasing a push
+      // device is sign-out tidying up after itself, and refusing it would only
+      // leave a token behind to push an ended app to.
       match /{collection}/{docId} {
-        allow read, write: if isSelf(uid) && collection != 'checkIns';
+        allow read: if isSelf(uid);
+        allow create, update: if isSelf(uid)
+          && !(collection in ['checkIns', 'sessions', 'photos'])
+          && cohortRunning(me().cohortId);
+        allow delete: if isSelf(uid)
+          && !(collection in ['checkIns', 'sessions', 'photos'])
+          && (collection == 'pushDevices' || cohortRunning(me().cohortId));
       }
 
-      // A week's check-in is sent once and stays as sent. The week is the
-      // document id, so a second submission for the same week is an update,
-      // and there is no update — nor a delete to clear the way for one.
-      match /checkIns/{weekId} {
-        allow read, create: if isSelf(uid);
+      // A progress photo is the one of the three a member may take back: it
+      // is their image, and deleting it reopens nothing the day-lock guards.
+      match /photos/{photoId} {
+        allow delete: if isSelf(uid) && cohortRunning(me().cohortId);
       }
     }
   }

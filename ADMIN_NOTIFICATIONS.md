@@ -1,7 +1,7 @@
 # Admin console handover
 
-The admin console is a separate app and doesn't live in this repo. It writes
-the data the member app (`apps/pwa`) runs on: access codes, cohorts, the
+The admin console is [`apps/admin`](apps/admin), a Vite and React app in this
+workspace. It writes the data the member app (`apps/pwa`) runs on: access codes, cohorts, the
 training plan, announcements, and the coach's side of chat. This document is
 the contract between the two apps. It covers what the console has to build,
 which documents and fields it writes, and the mistakes that break the member
@@ -84,7 +84,7 @@ Functions or API routes holding a service account, for the right-hand column:
 | List, revoke or delete codes | ✓ | |
 | Read registrations and unmatched sales | ✓ | |
 | Mark an unmatched sale resolved, or record a resent email | | ✓ Client writes are refused. |
-| Create and edit cohorts, the live call and the leaderboard switch | ✓ | |
+| Create and edit cohorts, live calls and the leaderboard switch | ✓ | |
 | Write programs, weeks, days and guides | ✓ | |
 | Upload program hero images | | ✓ Storage refuses client writes under `programs/`. |
 | Write announcements and notifications | ✓ | |
@@ -278,7 +278,10 @@ To resolve one:
 
 **Paid registrations whose email failed.** These are `registrations/{reference}`
 documents with `paymentStatus == 'paid'` and `emailed == false`. The code in
-`code` exists and is valid, but the email carrying it didn't send. List them
+`code` exists and is valid, but the email carrying it didn't send. A pre-order
+sale holds its code until the pre-order ends, and has `emailed: null` and
+`codeHeld: true` meanwhile, so it stays out of this list until the release has
+tried to send it three times and given up. List them
 and let the admin resend or copy the code. Client writes to `registrations` are
 refused, so setting `emailed` after a resend also goes through the Admin SDK.
 
@@ -291,15 +294,17 @@ started checkout and didn't pay, which is common and not an error.
 
 ### Which cohort paid sales go into
 
-This isn't a console setting. The landing site issues every paid seat into
-the cohort named by `NUXT_REGISTRATION_COHORT_ID` (default `cohort-01`), with
-a redemption window of `NUXT_REGISTRATION_CODE_TTL_DAYS` (default 30). Both are
-environment variables on `apps/web`. Opening sales for a new cohort means
-changing the variable and redeploying the landing site.
+The website queries Firestore for exactly one cohort whose `status` is `active`.
+It reads that cohort's `registration` map (`amountMinor`, `currency`,
+`codeTtlDays`) and linked published program. Missing fields use the corresponding
+environment fallback; Firestore values always win. If no cohort is active,
+`NUXT_REGISTRATION_COHORT_ID` may name an existing non-archived cohort. Archive the previous cohort before activating the next;
+multiple active cohorts are treated as ambiguous, not selected arbitrarily.
 
-The cohort must exist and have a program first. Otherwise every sale fails to
-get a code: the webhook answers 500, and the task has to be replayed from
-Zapier once the cohort is fixed.
+Registrations snapshot the selected cohort and offer. Webhooks fulfil that saved
+cohort and check its saved price, so changing the active cohort does not move
+pending purchases. Environment values are temporary fallbacks, with no hardcoded defaults.
+See [Firestore setup](FIREBASE.md#active-cohort-and-registration).
 
 ---
 
@@ -470,13 +475,13 @@ apps without a reload.
 | Field | Type | Read by | Notes |
 |---|---|---|---|
 | `name` | string | Member app (chat), `createAccessCode` | For example `Cohort 01`. Copied onto codes as `cohortName`. |
-| `status` | `'draft'` \| `'active'` \| `'archived'` | `createAccessCode` | Codes can't be issued for an `archived` cohort. The member app doesn't read it. |
-| `startDate`, `endDate` | Timestamp | Scripts | The member app's calendar comes from the program's weeks, not these. The seed and migration scripts place week 1 on `startDate`. |
-| `durationWeeks` | number | | |
-| `timezone` | string | Scripts, and you | An IANA zone such as `Africa/Lagos`. Build live-call times in it. |
+| `status` | `'draft'` \| `'active'` \| `'archived'` | Website, member app (watched), rules, functions | Website selects the active cohort. `archived` ends the cohort at once for its members; see [Closing a cohort](#closing-a-cohort). Codes cannot be issued for archived cohorts. |
+| `startDate`, `endDate` | Timestamp | Member app (watched), rules, functions, scripts | Each names a **day** in the cohort's `timezone`; store midnight at the start of it. Training opens on `startDate`. The cohort runs to the end of `endDate` and closes at the midnight after it. The calendar itself comes from the program's weeks; the seed and migration scripts place week 1 on `startDate`. |
+| `durationWeeks` | number | Website | Displayed directly from Firestore. |
+| `registration` | map | Website | `amountMinor`, `currency`, `codeTtlDays`; see Firestore setup. |
+| `timezone` | string | Scripts, live call reminders, and you | An IANA zone such as `Africa/Lagos`. Build live-call times in it; reminders go out on the call's day in it. |
 | `coach` | map | Member app, watched | `{ uid, name, title, avatarUrl }`. See below. |
 | `programId`, `programName`, `programVersion` | string, string, number, or `null` each | `createAccessCode`; member app as a fallback | Must be set before codes can be issued. |
-| `liveCall` | map or `null` | Member app, watched | See below. |
 | `leaderboardVisible` | boolean | Member app, watched | See below. |
 | `leaderboardRevealWeek` | number | Member app, watched | See below. |
 | `memberCount` | number | Nothing | See below. |
@@ -497,26 +502,38 @@ chat.
 - Renaming the coach here doesn't rename past messages, which keep the
   `authorName` they were sent with.
 
-### The weekly live call
+### Live calls
 
-`liveCall` is `{ startsAt, durationMinutes, joinUrl }`. The member app shows a
-card on Home on the day of the call, and the join button works from `startsAt`
-for `durationMinutes`. The call repeats every 7 days from `startsAt` until it
-is cleared. The essentials are below; the full detail is in
-[FIREBASE.md → The weekly live call](FIREBASE.md#the-weekly-live-call).
+A call is one document in the top-level `liveCalls` collection, not a field on
+the cohort. Each is a one-off: a weekly call is one document per week. The
+member app shows a card on Home on the day of the call, and the join button
+works from `startsAt` for `durationMinutes`. The full detail is in
+[FIREBASE.md → Live calls](FIREBASE.md#live-calls).
 
-- **`startsAt` must be a Timestamp built in the cohort's `timezone`,** not the
-  admin's browser zone. `new Date('2026-09-16T21:00')` means 9 PM wherever the
+| Field | Type | Notes |
+|---|---|---|
+| `title` | string | 2–100 characters, such as "Weekly live call". |
+| `cohortId`, `cohortName` | string | The one cohort it is for. |
+| `startsAt` | Timestamp | The instant it starts. |
+| `durationMinutes` | integer | 5–480. |
+| `joinUrl` | string | An `https://` link. |
+| update audit fields | | `updatedAt`, `updatedByUid`, `updatedByEmail`. |
+
+- **`startsAt` must be built in the cohort's `timezone`,** not the admin's
+  browser zone. `new Date('2026-09-16T21:00')` means 9 PM wherever the
   admin's laptop is. Use `fromZonedTime(input, cohort.timezone)` from
   `date-fns-tz`, or an explicit offset such as `+01:00` for Lagos.
-- **There is no card unless both `startsAt` and `joinUrl` are set.**
-- `joinUrl` must start with `https://`. `durationMinutes` must be 1–1440;
-  anything else reads as 60.
-- Set it once; any occurrence works. To skip a week, move `startsAt` to the
-  occurrence after it. To stop the calls, set `joinUrl` to `null`.
-- Keep all three keys present, set to `null` when empty. No rule checks the
-  shape, so validate before writing.
-- It keeps repeating after the cohort's `endDate` until the admin clears it.
+- **Write only the fields above.** The rule refuses any other key.
+- **Don't write a notification for a call.** Members are told on the day, in
+  the cohort's zone, by the `remindLiveCalls` function: a "Live call today"
+  line in the inbox at 8 AM (or an hour before a call that starts earlier),
+  pushed to members who have push on. Nothing is sent when the call is
+  scheduled. A notification from the console as well would reach members twice.
+- To move a call, change `startsAt`. Moved to another day before it happens,
+  the reminder goes out on the new day. To cancel one, delete it; if that is
+  on the day, delete its reminder too (below).
+- Its reminder is `cohorts/{cohortId}/notifications/live-call-{callId}-{date}`.
+  Deleting a call doesn't remove a reminder that has already gone out.
 
 ### The leaderboard switch
 
@@ -544,7 +561,6 @@ field from an Admin SDK trigger on member create and delete.
 2. Create the cohort with:
    - `status: 'draft'`
    - `coach`, `timezone`, and `programId`, `programName` and `programVersion`
-   - `liveCall: { startsAt: null, durationMinutes: 60, joinUrl: null }`
    - `leaderboardVisible: false` and a `leaderboardRevealWeek`
    - `memberCount: 0` and `archivedAt: null`
    - the audit fields
@@ -552,8 +568,44 @@ field from an Admin SDK trigger on member create and delete.
    when it opens.
 4. If paid sales should go into it, change the landing site's cohort variable
    (section 2).
-5. To close it, set `status: 'archived'` and `archivedAt`. That stops new codes
-   being issued. Existing members keep their access.
+5. To close it early, set `status: 'archived'` and `archivedAt`. Otherwise it
+   closes on its own at the end of `endDate`. See below.
+
+### Closing a cohort
+
+A cohort is over when either is true:
+
+- `status` is `'archived'`, from the moment it is written, or
+- its last day has passed: the cohort runs to the end of the day `endDate`
+  falls on, in the cohort's `timezone`, and closes at the midnight after it.
+
+From then its members get one screen, "Your cohort has ended", with their
+totals and a sign-out button. Training, check-ins, photos, chat, reactions,
+the board and profile edits are all closed. That is enforced three times: the
+member app refuses the write, the four member functions refuse with
+`cohort-ended`, and `firestore.rules` refuses the rest. That includes a message
+queued on a phone that was offline when the cohort ended. Members can still sign
+in, read their totals and sign out.
+
+Both signals are watched, so an open app changes screen as soon as either
+lands: an archive within a second or two, and the end date at the cohort's
+midnight. Both can be undone: un-archive the cohort, or move `endDate` later,
+and members go back into the app.
+
+- **Store `endDate` as midnight at the start of the last day, in the cohort's
+  `timezone`.** Build it with `fromZonedTime('2026-11-08T00:00', cohort.timezone)`
+  or an explicit offset such as `+01:00` for Lagos, the same as `startDate`. The
+  app reads it as a day, so any time on the last day keeps members in until
+  midnight. The rules have no time zones and close 24 hours after the stored
+  instant, which matches only when it is midnight. A later time leaves the
+  rules open past the app's close by that many hours, and the app is still
+  closed.
+- New codes cannot be issued for an archived cohort. A code that is already out
+  still redeems, and the member lands on the ended screen. Revoke it if it
+  shouldn't.
+- Coach and admin writes are not affected, but nothing reaches a phone. A
+  notification or coach message posted to an ended cohort is never pushed, and
+  `remindLiveCalls` sends no reminder for a call left on its schedule.
 
 ---
 
@@ -840,10 +892,11 @@ async function publishAnnouncement(db, cohortId, admin, card) {
 - **`pinned` and `publishedAt` must both be present.** The app's query orders
   by both, and Firestore leaves out any document missing an `orderBy` field.
   The notification is simply never delivered, with no error.
-- **Use auto-generated ids, and never start an id with `chat-`.** Read markers
-  for mentions, replies and reactions are stored as `chat-{messageId}` and
-  `chat-{messageId}-reactions` in the same collection, so a colliding id would
-  share their read state.
+- **Use auto-generated ids, and never start an id with `chat-` or
+  `live-call-`.** Read markers for mentions, replies and reactions are stored
+  as `chat-{messageId}` and `chat-{messageId}-reactions` in the same
+  collection, so a colliding id would share their read state. `live-call-` ids
+  are the live call reminders (section 4).
 
 ### Behaviour to expect
 
@@ -1109,9 +1162,9 @@ The rules and indexes live in this repo:
 | `firestore.indexes.json` | both databases |
 
 There is one rules document per database, and whoever deploys last replaces
-the whole of it. The console repo shouldn't keep or deploy its own copies. Any
-rule or index the console needs is a change to these files, made in this repo
-and applied to both Firestore rules files.
+the whole of it. `apps/admin` keeps no copies of its own and deploys none. Any
+rule or index the console needs is a change to these files, applied to both
+Firestore rules files.
 
 ### `firestore.rules.proposed` is out of date. Don't deploy it
 
@@ -1267,8 +1320,8 @@ The console shouldn't promise these, because the member app doesn't do them:
 **Cohorts and programs**
 
 - [ ] `coach.uid` matches the Auth uid the coach uses in the console.
-- [ ] Live-call times are built in the cohort's `timezone`, and all three
-      `liveCall` keys are always present.
+- [ ] Live calls are `liveCalls` documents with `startsAt` built in the
+      cohort's `timezone`, and the console writes no notification for them.
 - [ ] Every program has a `rewards` block, and badge ids stay within the fixed
       list.
 - [ ] Week and day dates are `YYYY-MM-DD` strings, and day ids repeat across
@@ -1284,7 +1337,8 @@ The console shouldn't promise these, because the member app doesn't do them:
 - [ ] Each notification has `type`, `title`, `body`, `icon`, `pinned` (always
       set) and `publishedAt` (a Timestamp), plus `createdAt`, `createdByUid`
       and `createdByEmail`.
-- [ ] Notification ids are auto-generated and never start with `chat-`.
+- [ ] Notification ids are auto-generated and never start with `chat-` or
+      `live-call-`.
 - [ ] Test notifications go to a staging cohort. Every notification document is
       pushed to the phones of the cohort's members who have push on.
 
@@ -1304,8 +1358,7 @@ The console shouldn't promise these, because the member app doesn't do them:
 
 - [ ] `firestore.rules.proposed` is not deployed. Admin branches are added to
       `firestore.rules` and `firestore.staging.rules` instead.
-- [ ] The console's own composite indexes are added to this repo's
-      `firestore.indexes.json`, and the console repo doesn't deploy rules or
-      indexes.
+- [ ] The console's composite indexes are in `firestore.indexes.json`, and
+      nothing under `apps/admin` deploys rules or indexes.
 - [ ] Rules and indexes are deployed, and indexes have finished building,
       before the feature that needs them is released.

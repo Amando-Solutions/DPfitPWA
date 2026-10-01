@@ -1,7 +1,7 @@
 import type { Timestamp } from 'firebase/firestore'
 
-import type { DateKey, ProgramWeek, TrainingWeek, WorkoutDay } from '~/data/types'
-import { dateKey } from '~/lib/time'
+import type { Cohort, DateKey, ProgramWeek, TrainingWeek, WorkoutDay } from '~/data/types'
+import { COHORT_ZONE_FALLBACK, canonicalZone, dateKeyIn } from '~/lib/time'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -32,6 +32,12 @@ export const daysBetween = (from: DateKey, to: DateKey): number => {
   return Math.round((utc(to) - utc(from)) / DAY_MS)
 }
 
+/** The date `days` after `key`. On the key, so a clock change cannot skew it. */
+export const addDays = (key: DateKey, days: number): DateKey => {
+  const [y, m, d] = key.split('-').map(Number)
+  return new Date(Date.UTC(y ?? 0, (m ?? 1) - 1, (d ?? 1) + days)).toISOString().slice(0, 10)
+}
+
 /**
  * The week a date falls in.
  *
@@ -49,16 +55,18 @@ export const weekAt = <W extends ProgramWeek>(weeks: W[], day: DateKey): W | nul
 }
 
 /**
- * Which challenge week an instant falls into, 1-based.
+ * Which challenge week an instant falls into, 1-based: the Cohort Clock.
  *
- * The one place a `weekNumber` is decided, for the clock and for every writer
- * that stamps one on a session, check-in or photo — so "this week" on screen
- * and the week a log is filed under cannot disagree. `1` when no weeks are
- * authored, which is also where a program that has not been scheduled yet
- * would put everybody.
+ * Read on the cohort's calendar, `cohortZone`, never the device's: everybody
+ * is in the same week at the same instant, wherever they are, so a member in
+ * New York at 8 PM on Sunday is already in the week Lagos started at midnight.
+ * The `logSession`, `submitCheckIn` and `logPhoto` functions file entries by
+ * the same rule (`cohortWeekAt` in `apps/functions/src/calendar.ts`), so "this
+ * week" on screen and the week a log is filed under cannot disagree. `1` when
+ * no weeks are authored.
  */
-export const weekOf = (weeks: ProgramWeek[], at: Timestamp | Date): number =>
-  weekAt(weeks, dateKey(at))?.weekNumber ?? 1
+export const weekOf = (weeks: ProgramWeek[], at: Timestamp | Date, cohortZone: string): number =>
+  weekAt(weeks, dateKeyIn(at, cohortZone))?.weekNumber ?? 1
 
 /**
  * The week whose day a session was for. `weekNumber` on a session written
@@ -66,17 +74,6 @@ export const weekOf = (weeks: ProgramWeek[], at: Timestamp | Date): number =>
  */
 export const planWeekOf = (session: { planWeek?: number; weekNumber: number }): number =>
   session.planWeek ?? session.weekNumber
-
-/**
- * The `planWeek` to file a session under: the one asked for, if it is a week
- * the calendar has reached, else the week it was logged in.
- *
- * Resolved in the data source rather than trusted from the caller. Nothing
- * pays out on it, but a session stamped for a week that has not started would
- * mark a future day done and quietly take it off the plan.
- */
-export const resolvePlanWeek = (asked: number | undefined, loggedIn: number): number =>
-  Number.isInteger(asked) && asked! >= 1 && asked! <= loggedIn ? asked! : loggedIn
 
 /** The training days that count toward a week's quota, in date order. */
 export const planDaysOf = (week: TrainingWeek | null): WorkoutDay[] =>
@@ -102,7 +99,10 @@ export const finalDayOf = (weeks: TrainingWeek[]): PlanDayRef | null => {
 }
 
 export interface ChallengeClock {
-  /** Today, as the key every date in the schedule is compared against. */
+  /**
+   * Today in the cohort's zone. What the week is read from — not what opens a
+   * training day, which is the member's own day (`store.todayKey`).
+   */
   today: DateKey
   /** 1-based day of the challenge, clamped to the schedule. */
   dayInChallenge: number
@@ -128,18 +128,27 @@ const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max)
 
 /**
- * Where the challenge is today, read off the dated weeks.
+ * Where the challenge is today, read off the dated weeks: the Cohort Clock.
  *
  * The cohort's calendar, not the member's: everybody on the program is in the
  * same week on the same date, so a member who joins in week 3 starts in week 3.
  * The single source of truth for "Week 3 · Overload".
  *
+ * `now` is the trusted clock and `cohortZone` the cohort's own zone (WAT). It
+ * used to read the day in the device's zone, which put a member abroad in a
+ * different week from the one their entries were filed under, and let anybody
+ * move their week by changing the phone's time zone.
+ *
  * An empty schedule reads as week 1 of nothing — zero totals, no title — rather
  * than a plausible six weeks, because a length the coach never authored would
  * be wrong silently.
  */
-export const challengeClock = (weeks: ProgramWeek[], now: Date = new Date()): ChallengeClock => {
-  const today = dateKey(now)
+export const challengeClock = (
+  weeks: ProgramWeek[],
+  now: Date,
+  cohortZone: string,
+): ChallengeClock => {
+  const today = dateKeyIn(now, cohortZone)
   const current = weekAt(weeks, today)
   const first = weeks[0]
   const last = weeks[weeks.length - 1]
@@ -176,4 +185,31 @@ export const challengeClock = (weeks: ProgramWeek[], now: Date = new Date()): Ch
       : `Week ${current.weekNumber}`,
     complete: today > last.endDate,
   }
+}
+
+/**
+ * Whether a cohort is over: archived, or past the last day its `endDate` names.
+ *
+ * `endDate` is read as a day on the cohort's calendar, the way `startDate` is
+ * (see `trainingOpensOn` in the store): the cohort runs to the end of that day
+ * and closes at the midnight after it, in its own zone, on the trusted clock.
+ * An instant would close it at whatever time of day the console happened to
+ * store, and a date picker stores the *start* of the day, which would cost
+ * members their last one. No usable `endDate` is no end on the calendar;
+ * archiving still closes it.
+ *
+ * Mirrors `cohortOver` in `apps/functions/src/calendar.ts`, which refuses the
+ * day-locked writes by the same rule. `firestore.rules` holds every other
+ * write to it.
+ */
+export const cohortOver = (
+  cohort: Pick<Cohort, 'status' | 'endDate' | 'timezone'> | null,
+  now: Date,
+): boolean => {
+  if (!cohort) return false
+  if (cohort.status === 'archived') return true
+  const end = cohort.endDate
+  if (typeof end?.toDate !== 'function') return false
+  const zone = canonicalZone(cohort.timezone) ?? COHORT_ZONE_FALLBACK
+  return dateKeyIn(now, zone) > dateKeyIn(end.toDate(), zone)
 }

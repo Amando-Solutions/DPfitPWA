@@ -32,7 +32,7 @@ import {
   type MentionCandidate,
 } from '~/lib/chat'
 import { storage } from '~/lib/storage'
-import { formatTime, trustedNow } from '~/lib/time'
+import { dateKeyIn, deviceZone, formatTime, pastDayLabel, trustedNow } from '~/lib/time'
 
 const props = withDefaults(
   defineProps<{
@@ -1335,9 +1335,14 @@ const restorePlace = async () => {
   unreadCount.value = unread.length
   seenIndex.value = index
 
-  // After the band exists in the DOM, since it is what gets scrolled to.
+  // After the band exists in the DOM, since it is what gets scrolled to. Or
+  // the day band sitting over it, when the unread run opens a new day: landed
+  // on the unread band, the peek above it would be half of that day's label.
   await nextTick()
-  const target = scroller.value?.querySelector<HTMLElement>('[data-unread-band]')
+  const band = scroller.value?.querySelector<HTMLElement>('[data-unread-band]')
+  const dayAbove = band?.previousElementSibling
+  const target =
+    dayAbove instanceof HTMLElement && dayAbove.hasAttribute('data-day-band') ? dayAbove : band
   if (!target) {
     await openAtEnd()
     return
@@ -1359,6 +1364,7 @@ onBeforeUnmount(() => {
   if (flashTimer) clearTimeout(flashTimer)
   if (holdTimer) clearTimeout(holdTimer)
   if (seenSaveTimer) clearTimeout(seenSaveTimer)
+  clearInterval(todayTimer)
   // The debounce above may have been mid-wait. Leaving the screen is exactly
   // when the marker has to be on disk.
   saveSeen()
@@ -1590,6 +1596,22 @@ const quoteShape = (m: ChatMessageView, startsRun: boolean) => {
   return m.isSelf ? 'rounded-[8px] rounded-tr-none' : 'rounded-[8px] rounded-tl-none'
 }
 
+/** The zone the thread's days and times are read in. See `deviceZone`. */
+const zone = deviceZone()
+
+/**
+ * Today, as a key, kept current while the screen is open.
+ *
+ * So a thread left open over midnight moves its "Today" to "Yesterday" without
+ * waiting for someone to speak. Checked once a minute rather than timed to
+ * midnight: a phone asleep at midnight wakes to a timer that fires late anyway,
+ * and setting a ref to the string it already holds re-renders nothing.
+ */
+const today = ref(dateKeyIn(trustedNow(), zone))
+const todayTimer = setInterval(() => {
+  today.value = dateKeyIn(trustedNow(), zone)
+}, 60_000)
+
 /**
  * The log, with each message's attachments split once and its place in a run
  * worked out once.
@@ -1613,16 +1635,25 @@ const quoteShape = (m: ChatMessageView, startsRun: boolean) => {
  * is still uploading would be a claim that is not true yet. A message that
  * *failed* never shares a run — see `continuesRun` — so it has the line to
  * itself.
+ *
+ * A new day ends a run too, however close the two messages are: 11:58 PM and
+ * 12:01 AM have a day band between them, and a run cannot straddle that. The
+ * first message of each day carries the band's label, and the same zone reads
+ * both the day and every bubble's time so the two cannot disagree — see
+ * `deviceZone`.
  */
 const rows = computed(() => {
   /** Whether the run being walked has anything in it still sending. */
   let runSending = false
+  const days = props.messages.map((m) => dateKeyIn(m.sentAt, zone))
 
   return props.messages.map((m, index) => {
     const attachments = m.attachments ?? []
     const next = props.messages[index + 1]
-    const startsRun = !continuesRun(m, props.messages[index - 1])
-    const endsRun = !next || !continuesRun(next, m)
+    const day = days[index]!
+    const startsDay = day !== days[index - 1]
+    const startsRun = startsDay || !continuesRun(m, props.messages[index - 1])
+    const endsRun = !next || days[index + 1] !== day || !continuesRun(next, m)
     const delivery: ChatDelivery = m.isSelf ? (m.delivery ?? 'sent') : 'sent'
     if (startsRun) runSending = false
     if (delivery === 'sending') runSending = true
@@ -1649,12 +1680,14 @@ const rows = computed(() => {
        */
       status: m.isSelf && endsRun ? (runSending ? 'sending' : delivery) : null,
       first: index === 0,
+      /** The day band drawn above this message, or empty for all but a day's first. */
+      dayLabel: startsDay ? pastDayLabel(day, today.value) : '',
       /** This message opens the unread run, so the band is drawn above it. */
       startsUnread: index === unreadFrom.value,
       shape: bubbleShape(m, startsRun),
       quoteShape: quoteShape(m, startsRun),
       variant: bubbleVariant(m),
-      time: formatTime(m.sentAt),
+      time: formatTime(m.sentAt, zone),
       authorLabel: m.isCoach ? 'Coach' : m.authorName,
       /**
        * Somebody else has answered this member. Colours the quote, which is
@@ -1795,6 +1828,7 @@ const TOOL =
               startsRun,
               endsRun,
               first,
+              dayLabel,
               mentionsMe,
               repliesToMe,
               runs,
@@ -1806,6 +1840,28 @@ const TOOL =
             } in rows"
             :key="m.id"
           >
+            <!--
+              Which day the messages below were sent on. Not a `[data-message]`
+              row, for the reason the unread band below isn't one. Above that
+              band when both fall on one message: the day is the context the
+              unread run sits in, not the other way round. Its margin stands in
+              for the run gap on the message below it.
+            -->
+            <div
+              v-if="dayLabel"
+              data-day-band
+              class="flex justify-center"
+              :class="first ? 'mb-3' : 'my-3'"
+              role="separator"
+              :aria-label="dayLabel"
+            >
+              <span
+                class="rounded-pill bg-fill-subtle px-3 py-1 text-[11.5px] font-medium text-muted"
+              >
+                {{ dayLabel }}
+              </span>
+            </div>
+
             <!--
               Where the member came in. Deliberately not a `[data-message]` row:
               the read marker walks the message rows by index, and a band
@@ -1830,7 +1886,7 @@ const TOOL =
             <div
               :data-message="m.id"
               class="relative -mx-5 flex touch-pan-y px-5 select-none lg:mx-0 lg:px-0"
-              :class="[m.isSelf && 'justify-end', startsRun && !first && 'mt-3.5']"
+              :class="[m.isSelf && 'justify-end', startsRun && !first && !dayLabel && 'mt-3.5']"
               @pointerdown="startPress($event, m.id)"
               @pointermove="movePress"
               @pointerup="endPress($event, m.id)"

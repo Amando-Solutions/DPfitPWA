@@ -1,12 +1,13 @@
 # DP Fitness
 
-A Bun workspace holding the two things DP Fitness ships and the design system
-they are both built from.
+A Bun workspace holding the two things DP Fitness ships, the admin console and
+Cloud Functions behind them, and the design system the two are built from.
 
 ```
 apps/
   pwa/        the member-facing PWA — the 6-week challenge itself   → :3000
   web/        the public landing site people arrive on              → :3001
+  admin/      the admin console — cohorts, programs, codes, chat    → :5173
   functions/  Cloud Functions — the one writer of access codes
 packages/
   theme/      @dpfit/theme — the design system, as a Nuxt layer
@@ -30,13 +31,16 @@ bun install          # installs every workspace
 
 bun run dev:web      # the landing site  → http://localhost:3001
 bun run dev:pwa      # the member app    → http://localhost:3000
+bun run dev:admin    # the admin console → http://localhost:5173
 ```
 
-Both apps read a local `.env`, and both ship an example to copy:
+Each app reads a local env file and ships an example to copy. The console is a
+Vite app, so its file is `.env.local`:
 
 ```bash
 cp apps/pwa/.env.example apps/pwa/.env
 cp apps/web/.env.example apps/web/.env
+cp apps/admin/.env.example apps/admin/.env.local
 ```
 
 The landing site's is much shorter and only one thing needs it: the registration
@@ -45,10 +49,10 @@ and therefore needs a Firebase service account. Every other word on that page re
 
 | Script | What it does |
 | --- | --- |
-| `bun run dev:web` / `dev:pwa` | Dev server for one app |
-| `bun run build` | Build both apps |
-| `bun run build:web` / `build:pwa` | Build one |
-| `bun run typecheck` | `vue-tsc` across both apps |
+| `bun run dev:web` / `dev:pwa` / `dev:admin` | Dev server for one app |
+| `bun run build` | Build every app |
+| `bun run build:web` / `build:pwa` / `build:admin` | Build one |
+| `bun run typecheck` | `vue-tsc` for the two Nuxt apps, `tsc` for the console and the functions |
 | `bun run rules:diff` | Whether the staging Firestore rules still match production |
 | `bun run deploy:rules` | Publish Firestore and Storage rules |
 | `bun run deploy:functions` | Build and publish `apps/functions` — read "Deploying the function" in `FIREBASE.md` first |
@@ -108,8 +112,8 @@ white lockup.
 ## Firebase
 
 Firestore rules, indexes, Storage rules and the emulator config stay at the root
-because they belong to the project rather than to either app: both read the same
-database. `firebase.json` is the only file that reaches into an app, and only to
+because they belong to the project rather than to any one app: every app reads
+the same database. The admin console keeps no rules of its own. `firebase.json` is the only file that reaches into an app, and only to
 name the PWA's build output.
 
 See [FIREBASE.md](FIREBASE.md) for the data model and the rules.
@@ -118,3 +122,5 @@ See [FIREBASE.md](FIREBASE.md) for the data model and the rules.
 
 - [`apps/pwa/README.md`](apps/pwa/README.md) — how the member app is put together
 - [`apps/web/README.md`](apps/web/README.md) — how the landing page is put together
+- [`apps/admin/README.md`](apps/admin/README.md) — setting up and running the admin console
+- [`ADMIN_NOTIFICATIONS.md`](ADMIN_NOTIFICATIONS.md) — what the console writes, and the contract it keeps with the member app

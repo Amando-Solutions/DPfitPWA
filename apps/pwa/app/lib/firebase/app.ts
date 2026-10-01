@@ -20,6 +20,7 @@ import {
   persistentMultipleTabManager,
   type Firestore,
 } from 'firebase/firestore'
+import { getFunctions, type Functions } from 'firebase/functions'
 import { getStorage, type FirebaseStorage } from 'firebase/storage'
 
 export interface FirebaseWebConfig {
@@ -149,6 +150,21 @@ export const firebaseDb = (): Firestore => {
 // `storageBucket` comes from the same config block, so the bucket follows the
 // environment for the same reason and by the same route as everything else.
 export const firebaseStorage = (): FirebaseStorage => getStorage(require_())
+
+/**
+ * The project's Cloud Functions, in the region they are deployed to — beside the
+ * databases, in `africa-south1`. Has to match `REGION` in
+ * `apps/functions/src/callers.ts`.
+ */
+export const firebaseFunctions = (): Functions => getFunctions(require_(), 'africa-south1')
+
+/**
+ * The database a function should write to, by the name the functions take:
+ * one deployment serves both, so each call says which. See `databaseId` above.
+ * Passed through as configured, never mapped: a name the functions do not know
+ * is refused there, rather than quietly becoming `(default)` here.
+ */
+export const firebaseDatabaseName = (): string => databaseId || '(default)'
 
 let restored: Promise<void> | null = null
 

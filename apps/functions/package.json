@@ -10,7 +10,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "serve": "bun run build && firebase emulators:start --only functions,firestore,auth"
+    "serve": "bun run build && firebase emulators:start --only functions,firestore,auth",
+    "test": "bun test tests"
   },
   "dependencies": {
     "firebase-admin": "^14.3.0",

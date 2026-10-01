@@ -17,7 +17,7 @@
 //
 // Three things follow, and each one is a deliberate loss:
 //
-//   1. The price lives in the Selar dashboard, not in `NUXT_PUBLIC_PRICE`.
+//   1. The price lives in the Selar dashboard, not in `cohorts/{id}.registration`.
 //      That value is now what the page advertises and what a sale is
 //      checked against — not what is charged. Keeping the two agreeing is a
 //      person's job, so `describeAmount` exists to make a mismatch loud in the
@@ -34,6 +34,7 @@
 // string, which is enough to keep the form-then-pay flow the site already has.
 // =============================================================================
 import { createHash, timingSafeEqual } from 'node:crypto'
+import { currencyScale } from '../../app/data/challenge'
 
 /** Raised with a message safe to log, never one safe to show a buyer. */
 export class SelarError extends Error {}
@@ -235,18 +236,19 @@ const SYMBOLS: Record<string, string> = { '₦': 'NGN', $: 'USD', '£': 'GBP', '
  * cleanly returns nulls rather than a guess: a wrong amount recorded against a
  * paid seat is worse than no amount at all.
  */
-const parseAmount = (raw: string | null): { minor: number | null; currency: string | null } => {
+const parseAmount = (raw: string | null, currencyHint: string | null): { minor: number | null; currency: string | null } => {
   if (!raw) return { minor: null, currency: null }
 
   const code = raw.match(/\b([A-Z]{3})\b/)?.[1] ?? null
   const symbol = Object.keys(SYMBOLS).find((s) => raw.includes(s))
-  const currency = code ?? (symbol ? SYMBOLS[symbol]! : null)
+  const currency = code ?? (symbol ? SYMBOLS[symbol]! : currencyHint?.toUpperCase() ?? null)
 
   const digits = raw.replace(/[^\d.,-]/g, '').replace(/,/g, '')
   const value = Number.parseFloat(digits)
   if (!Number.isFinite(value) || value < 0) return { minor: null, currency }
 
-  return { minor: Math.round(value * 100), currency }
+  if (currency && !/^[A-Z]{3}$/.test(currency)) return { minor: null, currency: null }
+  return { minor: Math.round(value * (currency ? currencyScale(currency) : 100)), currency }
 }
 
 /**
@@ -266,6 +268,7 @@ export const parseSaleEvent = (payload: unknown): SaleEvent | null => {
 
   const amount = parseAmount(
     field(flat, 'amount', 'amountPaid', 'total', 'totalAmount', 'price', 'value', 'grossAmount'),
+    field(flat, 'currency', 'currencyCode'),
   )
 
   const product = field(
@@ -301,7 +304,7 @@ export const parseSaleEvent = (payload: unknown): SaleEvent | null => {
       'orderId',
     ),
     amountMinor: amount.minor,
-    currency: amount.currency ?? field(flat, 'currency', 'currencyCode'),
+    currency: amount.currency,
     product,
     paidAt: field(flat, 'paidAt', 'date', 'createdAt', 'transactionDate', 'purchaseDate'),
     channel: field(flat, 'channel', 'paymentMethod', 'paymentChannel', 'gateway'),
@@ -353,11 +356,11 @@ export const describeAmount = (
   if (sale.currency.toUpperCase() !== expectedCurrency.toUpperCase()) {
     return {
       matches: null,
-      note: `paid ${sale.amountMinor / 100} ${sale.currency}, priced in ${expectedCurrency}`,
+      note: `paid ${sale.amountMinor / currencyScale(sale.currency)} ${sale.currency}, priced in ${expectedCurrency}`,
     }
   }
   return {
     matches: sale.amountMinor >= expectedMinor,
-    note: `paid ${sale.amountMinor / 100} ${sale.currency}, expected ${expectedMinor / 100} ${expectedCurrency}`,
+    note: `paid ${sale.amountMinor / currencyScale(sale.currency)} ${sale.currency}, expected ${expectedMinor / currencyScale(expectedCurrency)} ${expectedCurrency}`,
   }
 }

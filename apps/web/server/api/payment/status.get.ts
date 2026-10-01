@@ -18,6 +18,7 @@
 // redirect carries nothing. The query parameter is a fallback for the day that
 // changes, and for anyone testing by hand.
 // =============================================================================
+import { cohortFallbacks, cohortOffer, momentLabel } from '../../utils/cohort'
 import { firestore } from '../../utils/firebase'
 
 export default defineEventHandler(async (event) => {
@@ -33,7 +34,25 @@ export default defineEventHandler(async (event) => {
   const snap = await firestore().doc(`registrations/${reference}`).get()
   if (!snap.exists) return { ok: true, state: 'unknown' as const, emailed: false }
 
-  const data = snap.data() as { code?: string | null; emailed?: boolean }
+  const data = snap.data() as {
+    code?: string | null
+    emailed?: boolean
+    codeHeld?: boolean
+    reservationEmailed?: boolean
+    cohortId?: string
+  }
+
+  // A pre-order sale: the seat exists and its code is held until the window
+  // closes. `emailed` is the reservation email, and is counted as sent while
+  // it is still being attempted, so the page does not flash an apology.
+  if (data.code && data.codeHeld === true) {
+    let codesOn: string | null = null
+    try {
+      const offer = await cohortOffer(firestore(), data.cohortId ?? '', cohortFallbacks())
+      if (offer.preorder) codesOn = momentLabel(offer.preorder.endsAt, offer.timezone)
+    } catch { /* The date is a nicety; the reservation stands without it. */ }
+    return { ok: true, state: 'reserved' as const, emailed: data.reservationEmailed !== false, codesOn }
+  }
 
   // `code`, not `paymentStatus`. It is the field fulfilment sets last and the
   // one it treats as the lock, so it is the only one that means a seat really

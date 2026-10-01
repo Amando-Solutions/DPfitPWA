@@ -1,3 +1,4 @@
+import { defaultPreferences } from '~/data/preferences'
 import {
   GoogleAuthProvider,
   createUserWithEmailAndPassword,
@@ -40,6 +41,7 @@ import {
   type DocumentSnapshot,
   type QueryDocumentSnapshot,
 } from 'firebase/firestore'
+import { FunctionsError, httpsCallable } from 'firebase/functions'
 import {
   deleteObject,
   getDownloadURL,
@@ -51,7 +53,9 @@ import {
   authRestored,
   currentUser,
   firebaseAuth,
+  firebaseDatabaseName,
   firebaseDb,
+  firebaseFunctions,
   firebaseStorage,
 } from '~/lib/firebase/app'
 import {
@@ -62,11 +66,11 @@ import {
   typingIsFresh,
 } from '~/lib/chat'
 import { withShippedBadges } from '~/data/badges'
-import { daysBetween, isDateKey, resolvePlanWeek, weekOf } from '~/lib/domain/challenge'
+import { daysBetween, isDateKey } from '~/lib/domain/challenge'
 import { liveCallFrom } from '~/lib/domain/liveCall'
-import { prescribedSets } from '~/lib/domain/sets'
 import { storage as webStorage } from '~/lib/storage'
 import { trustedNow } from '~/lib/time'
+import type { RegionChoice } from '~/lib/domain/region'
 import type { ProcessedImage } from '~/lib/image'
 import {
   DataSourceError,
@@ -102,6 +106,7 @@ import type {
   LeaderboardEntryDoc,
   Member,
   MemberDoc,
+  MemberRegion,
   MemberPreferences,
   MemberProfile,
   MemberStats,
@@ -297,10 +302,16 @@ const withId = <T>(snap: QueryDocumentSnapshot<DocumentData>): T =>
  *
  * Shared by `getCohort` and `watchCohort`, so the boot read and the listener
  * cannot disagree about whether the board is on.
+ *
+ * An archived cohort comes back as itself rather than as `null`: "this cohort
+ * is over" and "there is no cohort document" want different screens, and a
+ * `null` for both left an ended cohort's app running with pieces missing. A
+ * draft, or any status this app does not know, is still no cohort.
  */
 const cohortFrom = (snap: DocumentSnapshot<DocumentData>, liveCalls: LiveCall[]): Cohort | null => {
   if (!snap.exists()) return null
   const data = snap.data() as Partial<CohortDoc>
+  if (data.status !== 'active' && data.status !== 'archived') return null
   return {
     ...(data as CohortDoc),
     id: snap.id,
@@ -310,6 +321,19 @@ const cohortFrom = (snap: DocumentSnapshot<DocumentData>, liveCalls: LiveCall[])
       typeof data.leaderboardRevealWeek === 'number' ? data.leaderboardRevealWeek : 1,
   }
 }
+
+/**
+ * A member reads a thread from the moment they joined, and nothing before it.
+ *
+ * Cohort members join over days — the login window between a pre-order
+ * closing and training opening — and what the early arrivals said before
+ * somebody was there is not theirs to scroll back through. On the query rather
+ * than filtered after, so the 200-message window is 200 messages they can see.
+ * One range on the field the thread already orders by, so the automatic
+ * single-field index serves it. Nothing without a join date is filtered.
+ */
+const sinceJoined = (member: Member) =>
+  member.joinedAt ? [where('sentAt', '>=', member.joinedAt)] : []
 
 /**
  * The cohort's scheduled calls, complete ones only. A handful of documents per
@@ -515,14 +539,6 @@ const initialProfile = (user: User, whatsapp = ''): MemberProfile => ({
   whatsapp,
 })
 
-const defaultPreferences = (): MemberPreferences => ({
-  units: 'kg',
-  heightUnits: 'cm',
-  workoutReminders: true,
-  coachMessages: true,
-  weeklyCheckInReminder: true,
-})
-
 const emptyStats = (): MemberStats => ({
   sessionsLogged: 0,
   sessionsQualified: 0,
@@ -549,13 +565,13 @@ const emptyStats = (): MemberStats => ({
  * in the same batch as the document it summarises, so the two can never
  * disagree.
  *
- * **The trust boundary is real but not yet closed.** These writes run as client
- * transactions, guarded by rules that check ownership and shape. Rules cannot
- * re-derive `qualifies` from a set count, so a determined member could still
- * write a session claiming more sets than they did. Moving `saveSession`,
- * `saveCheckIn`, `awardBadge` and `redeemAccessCode` behind Callable Functions
- * closes it, and each is shaped to become a one-line `httpsCallable` when it
- * does. See the header of `firestore.rules`.
+ * **The day-locked writes are the server's.** A session, a check-in and a
+ * progress photo are filed on a day or a week, and the day came off the phone
+ * until these moved behind Callable Functions (`logSession`, `submitCheckIn`,
+ * `logPhoto`, and `setRegion` for the zone they read). The rules now refuse
+ * those writes from a browser. What is left client-side — `awardBadge`,
+ * `redeemAccessCode`, the member's own `stats` — is the boundary still open:
+ * see the header of `firestore.rules`.
  */
 export class FirestoreDataSource implements DataSource {
   private memberCache: Member | null = null
@@ -589,6 +605,9 @@ export class FirestoreDataSource implements DataSource {
    * keystroke is never swallowed by a limit left over from the last message.
    */
   private readonly typingWrittenAt = new Map<string, number>()
+
+  /** The store's answer to whether the member's cohort is over. Open until it gives one. */
+  private cohortOver: () => boolean = () => false
 
   // =========================================================================
   // Auth — email and password, and Google
@@ -1182,7 +1201,25 @@ export class FirestoreDataSource implements DataSource {
     }
   }
 
+  refuseWritesWhen(over: () => boolean): void {
+    this.cohortOver = over
+  }
+
+  /**
+   * The first line of every member write. See `refuseWritesWhen`.
+   *
+   * Thrown before anything reaches the SDK, because past that point the write
+   * is out of this app's hands: Firestore queues it on disk and replays it on
+   * the next connection, and only the rules can stop it then.
+   */
+  private refuseIfOver() {
+    if (this.cohortOver()) {
+      throw new DataSourceError('Your cohort has ended, so training and chat are closed.', 'cohort-ended')
+    }
+  }
+
   async updateMember(patch: Partial<MemberDoc>): Promise<Member> {
+    this.refuseIfOver()
     const member = await this.requireMember()
     await updateDoc(doc(firebaseDb(), 'members', member.id), {
       ...patch,
@@ -1221,6 +1258,16 @@ export class FirestoreDataSource implements DataSource {
     return member
   }
 
+  async setRegion(choice: RegionChoice): Promise<Member> {
+    const member = await this.requireMember()
+    const { region } = await this.call<{
+      region: { id: MemberRegion['id']; timezone: string; floor: string | null; sinceMs: number }
+    }>('setRegion', { region: choice })
+    const { sinceMs, ...stored } = region
+    this.memberCache = { ...member, region: { ...stored, since: Timestamp.fromMillis(sinceMs) } }
+    return this.memberCache
+  }
+
   // =========================================================================
   // Authored content — `programs/{id}` and `cohorts/{id}`
   //
@@ -1256,11 +1303,15 @@ export class FirestoreDataSource implements DataSource {
   /** The cohort document, defaulted. See `cohortFrom`. */
   async getCohort(): Promise<Cohort | null> {
     const member = await this.requireMember()
-    const [cohort, calls] = await Promise.all([
-      getDoc(doc(firebaseDb(), 'cohorts', member.cohortId)),
-      getDocs(liveCallsQuery(member.cohortId)),
-    ])
-    return cohortFrom(cohort, liveCallsFrom(calls.docs))
+    const cohortDoc = await getDoc(doc(firebaseDb(), 'cohorts', member.cohortId))
+
+    // Only a running cohort has calls worth reading. Missing and draft come
+    // back `null`, archived as itself with none; `cohortFrom` decides which.
+    if (cohortDoc.get('status') !== 'active') return cohortFrom(cohortDoc, [])
+
+    const calls = await getDocs(liveCallsQuery(member.cohortId))
+
+    return cohortFrom(cohortDoc, liveCallsFrom(calls.docs))
   }
 
   /**
@@ -1278,7 +1329,10 @@ export class FirestoreDataSource implements DataSource {
     let cohortSnap: DocumentSnapshot<DocumentData> | null = null
     let calls: LiveCall[] | null = null
     const deliver = () => {
-      if (!stopped && cohortSnap && calls) onCohort(cohortFrom(cohortSnap, calls))
+      if (stopped || !cohortSnap) return
+      // Removal/archive must reach the UI even before live calls answer.
+      if (cohortSnap.get('status') !== 'active') onCohort(cohortFrom(cohortSnap, []))
+      else if (calls) onCohort(cohortFrom(cohortSnap, calls))
     }
     const fail = (error: unknown) => {
       if (!stopped) onError?.(error)
@@ -1345,6 +1399,7 @@ export class FirestoreDataSource implements DataSource {
     image: ProcessedImage,
     folder: 'proof' | 'progress' | 'chat',
   ): Promise<StoredImage> {
+    this.refuseIfOver()
     const member = await this.requireMember()
     // Chat images are readable by their thread; the other two are the member's
     // alone. The path is what the storage rules key off, so it decides both.
@@ -1370,6 +1425,7 @@ export class FirestoreDataSource implements DataSource {
   }
 
   async uploadAttachment(file: PendingFile): Promise<ChatAttachment> {
+    this.refuseIfOver()
     const member = await this.requireMember()
     const path = `chat/${member.cohortId}/${member.id}/${uid()}`
 
@@ -1406,90 +1462,34 @@ export class FirestoreDataSource implements DataSource {
   }
 
   async saveSession(log: SessionInput): Promise<SessionLog> {
-    const member = await this.requireMember()
-    const program = await this.program()
-
-    // Judged against what the plan asked for, so sets the member added
-    // themselves can only ever help, and sets they removed still count. The
-    // fallback covers a session made entirely of added sets, which has no
-    // prescription to measure against.
-    const setsPrescribed = log.exercises.reduce((n, e) => n + prescribedSets(e), 0)
-    const denominator = setsPrescribed || log.setsTotal
-    const qualifies =
-      denominator > 0 && (log.setsDone / denominator) * 100 >= program.qualifyingSetPercent
-
-    const rewardPoints = qualifies ? program.rewards.values.workout : 0
-    const weekNumber = weekOf(await this.weeks(), log.completedAt)
-    const record: Omit<SessionLog, 'id'> = {
-      ...log,
-      weekNumber,
-      planWeek: resolvePlanWeek(log.planWeek, weekNumber),
-      qualifies,
-      rewardPoints,
-      // The program that actually decided the two fields above, not whatever
-      // the member document says — which for a member whose code carried no
-      // `programId` is the empty string. See `program()`.
-      programId: program.id,
-      programVersion: program.version ?? member.programVersion,
-      createdAt: Timestamp.now(),
-    }
-
-    const db = firebaseDb()
-    const ref = doc(collection(db, 'members', member.id, 'sessions'))
-    const batch = writeBatch(db)
-    batch.set(ref, record)
-    // The counters and the log they summarise land together, so the board can
-    // never show a total the sessions behind it do not support.
-    batch.update(doc(db, 'members', member.id), {
-      'stats.sessionsLogged': increment(1),
-      'stats.sessionsQualified': increment(qualifies ? 1 : 0),
-      'stats.points': increment(rewardPoints),
-      'stats.lastSessionAt': record.completedAt,
-      updatedAt: serverTimestamp(),
+    // Only the member's own work goes up. The day it is filed on, the week, the
+    // time, the totals and whether it qualifies are the function's to decide.
+    const decided = await this.call<
+      Omit<SessionLog, 'completedAt' | 'createdAt' | 'durationSeconds' | 'proofPhoto' | 'note' | 'exercises' | 'dayId'>
+        & { completedAtMs: number }
+    >('logSession', {
+      session: {
+        dayId: log.dayId,
+        planWeek: log.planWeek,
+        durationSeconds: log.durationSeconds,
+        note: log.note,
+        proofPhoto: log.proofPhoto,
+        exercises: log.exercises,
+      },
     })
-    if (qualifies) {
-      batch.set(
-        this.leaderboardRef(member.cohortId, member.id),
-        {
-          name: member.profile.displayName || 'Member',
-          avatarUrl: member.profile.avatarUrl || '',
-          sessions: increment(1),
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true },
-      )
-    }
-    await batch.commit()
-
+    const { completedAtMs, ...fields } = decided
+    const completedAt = Timestamp.fromMillis(completedAtMs)
     this.memberCache = null
-    return { id: ref.id, ...record }
-  }
-
-  async deleteSession(id: string): Promise<void> {
-    const member = await this.requireMember()
-    const db = firebaseDb()
-    const ref = doc(db, 'members', member.id, 'sessions', id)
-    const snap = await getDoc(ref)
-    if (!snap.exists()) return
-    const session = snap.data() as SessionLog
-
-    const batch = writeBatch(db)
-    batch.delete(ref)
-    batch.update(doc(db, 'members', member.id), {
-      'stats.sessionsLogged': increment(-1),
-      'stats.sessionsQualified': increment(session.qualifies ? -1 : 0),
-      'stats.points': increment(-session.rewardPoints),
-      updatedAt: serverTimestamp(),
-    })
-    if (session.qualifies) {
-      batch.set(
-        this.leaderboardRef(member.cohortId, member.id),
-        { sessions: increment(-1), updatedAt: serverTimestamp() },
-        { merge: true },
-      )
+    return {
+      ...fields,
+      dayId: log.dayId,
+      durationSeconds: log.durationSeconds,
+      proofPhoto: log.proofPhoto,
+      note: log.note,
+      exercises: log.exercises,
+      completedAt,
+      createdAt: completedAt,
     }
-    await batch.commit()
-    this.memberCache = null
   }
 
   async getActiveSession(): Promise<ActiveSessionDoc | null> {
@@ -1501,6 +1501,7 @@ export class FirestoreDataSource implements DataSource {
   }
 
   async setActiveSession(session: ActiveSessionInput | null): Promise<void> {
+    this.refuseIfOver()
     const member = await this.requireMember()
     const ref = doc(firebaseDb(), 'members', member.id, 'state', ACTIVE_SESSION_ID)
     if (session === null) await deleteDoc(ref)
@@ -1522,45 +1523,17 @@ export class FirestoreDataSource implements DataSource {
   }
 
   async saveCheckIn(input: CheckInInput): Promise<CheckIn> {
-    const member = await this.requireMember()
-    const program = await this.program()
-    const submittedAt = Timestamp.now()
-    const weekNumber = weekOf(await this.weeks(), submittedAt)
-
-    const record = {
-      ...input,
-      weekNumber,
-      submittedAt,
-      rewardPoints: program.rewards.values.checkIn,
-    }
-
-    const db = firebaseDb()
-    // The week is the document id, so one check-in per week is enforced by the
-    // key rather than by a query. A sent check-in is final, and the rules
-    // refuse the overwrite regardless. The read is here for the refusal: a
-    // member who already sent this week, from this device or another, gets the
-    // sentence rather than a raw `permission-denied`. Inside the transaction
-    // because two devices can both find the week empty in the same moment.
-    const id = `week-${weekNumber}`
-    const ref = doc(db, 'members', member.id, 'checkIns', id)
-
-    await runTransaction(db, async (tx) => {
-      if ((await tx.get(ref)).exists()) {
-        throw new DataSourceError(
-          `Your week ${weekNumber} check-in is already in.`,
-          'check-in-submitted',
-        )
-      }
-      tx.set(ref, record)
-      tx.update(doc(db, 'members', member.id), {
-        'stats.checkInsSubmitted': increment(1),
-        'stats.points': increment(record.rewardPoints),
-        updatedAt: serverTimestamp(),
-      })
-    })
-
+    // The week is the Cohort Clock's on the server's time. One per week: the
+    // week is the document id, and a second is refused with
+    // `check-in-submitted`, which `call` carries through.
+    const { submittedAtMs, ...decided } = await this.call<{
+      id: string
+      weekNumber: number
+      submittedAtMs: number
+      rewardPoints: number
+    }>('submitCheckIn', { checkIn: input })
     this.memberCache = null
-    return { id, ...record }
+    return { ...input, ...decided, submittedAt: Timestamp.fromMillis(submittedAtMs) }
   }
 
   // =========================================================================
@@ -1578,40 +1551,22 @@ export class FirestoreDataSource implements DataSource {
   }
 
   async savePhoto(input: PhotoInput): Promise<ProgressPhoto> {
-    const member = await this.requireMember()
-    const program = await this.program()
-    // The trusted clock, the one a session's `completedAt` is stamped on: Final
-    // Photo Proof asks whether this came after the block's last session, and
-    // two clocks would let a phone set a few hours slow answer that wrongly.
-    const takenAt = Timestamp.fromDate(trustedNow())
-
-    // Upload first: a document pointing at a file that failed to upload renders
-    // as a broken tile, whereas an orphaned upload is only wasted bytes.
+    // Upload first: the function files a photo that is already in the bucket,
+    // and an orphaned upload is only wasted bytes. `logPhoto` stamps `takenAt`
+    // on the server's clock — the one a session's `completedAt` is stamped on,
+    // which Final Photo Proof compares it against.
     const image = await this.uploadImage(input.image, 'progress')
-
-    const record = {
-      pose: input.pose,
-      weekNumber: weekOf(await this.weeks(), takenAt),
-      image,
-      takenAt,
-    }
-
-    const db = firebaseDb()
-    const ref = doc(collection(db, 'members', member.id, 'photos'))
-    const batch = writeBatch(db)
-    batch.set(ref, record)
-    batch.update(doc(db, 'members', member.id), {
-      'stats.photosUploaded': increment(1),
-      'stats.points': increment(program.rewards.values.progressPhoto),
-      updatedAt: serverTimestamp(),
-    })
-    await batch.commit()
-
+    const { takenAtMs, ...decided } = await this.call<{
+      id: string
+      weekNumber: number
+      takenAtMs: number
+    }>('logPhoto', { pose: input.pose, image })
     this.memberCache = null
-    return { id: ref.id, ...record }
+    return { ...decided, pose: input.pose, image, takenAt: Timestamp.fromMillis(takenAtMs) }
   }
 
   async deletePhoto(id: string): Promise<void> {
+    this.refuseIfOver()
     const member = await this.requireMember()
     const program = await this.program()
     const db = firebaseDb()
@@ -1768,6 +1723,7 @@ export class FirestoreDataSource implements DataSource {
   }
 
   async markNotificationRead(id: string): Promise<void> {
+    this.refuseIfOver()
     const member = await this.requireMember()
     await setDoc(
       doc(firebaseDb(), 'members', member.id, 'notificationState', id),
@@ -1778,6 +1734,7 @@ export class FirestoreDataSource implements DataSource {
 
   async markNotificationsRead(ids: string[]): Promise<void> {
     if (!ids.length) return
+    this.refuseIfOver()
     const member = await this.requireMember()
     const db = firebaseDb()
     const batch = writeBatch(db)
@@ -1799,6 +1756,7 @@ export class FirestoreDataSource implements DataSource {
   // nobody else's" for everything down there covers these too.
   // =========================================================================
   async registerPushDevice(input: PushDeviceInput): Promise<void> {
+    this.refuseIfOver()
     const user = await this.requireUser()
     const device: PushDeviceDoc = {
       token: input.token,
@@ -1868,8 +1826,8 @@ export class FirestoreDataSource implements DataSource {
    * takes the 200 at the far end and still hands them back oldest first,
    * which is the order the screen draws in.
    */
-  private threadQuery(ref: CollectionReference<DocumentData>) {
-    return query(ref, orderBy('sentAt', 'asc'), limitToLast(200))
+  private threadQuery(ref: CollectionReference<DocumentData>, member: Member) {
+    return query(ref, ...sinceJoined(member), orderBy('sentAt', 'asc'), limitToLast(200))
   }
 
   /**
@@ -1907,7 +1865,7 @@ export class FirestoreDataSource implements DataSource {
   async listMessages(threadId: ThreadId): Promise<ChatMessageView[]> {
     const member = await this.requireMember()
     const ref = await this.messagesRef(threadId)
-    const snap = await getDocs(this.threadQuery(ref))
+    const snap = await getDocs(this.threadQuery(ref, member))
 
     await this.cacheMyReactions(snap.docs, member.id)
 
@@ -1971,7 +1929,7 @@ export class FirestoreDataSource implements DataSource {
     }
 
     const stop = onSnapshot(
-      this.threadQuery(ref),
+      this.threadQuery(ref, member),
       { includeMetadataChanges: true },
       async (snap) => {
         if (stopped) return
@@ -2050,12 +2008,15 @@ export class FirestoreDataSource implements DataSource {
     onMessage: (message: Message | null) => void,
     onError?: (error: unknown) => void,
   ): Promise<Unsubscribe> {
+    const member = await this.requireMember()
     const ref = await this.messagesRef(threadId)
 
     let stopped = false
 
+    // Filtered like the thread, or a message from before they joined would
+    // light a dot for something the thread will not show them.
     const stop = onSnapshot(
-      query(ref, orderBy('sentAt', 'desc'), limit(1)),
+      query(ref, ...sinceJoined(member), orderBy('sentAt', 'desc'), limit(1)),
       (snap) => {
         if (stopped) return
         const [newest] = snap.docs
@@ -2080,6 +2041,7 @@ export class FirestoreDataSource implements DataSource {
     mentions: ChatMention[] = [],
     outgoing?: OutgoingMessage,
   ): Promise<ChatMessageView> {
+    this.refuseIfOver()
     const member = await this.requireMember()
     const ref = await this.messagesRef(threadId)
 
@@ -2120,6 +2082,9 @@ export class FirestoreDataSource implements DataSource {
    * reach the composer, which is in the middle of a keystroke.
    */
   async setTyping(threadId: ThreadId, typing: boolean): Promise<void> {
+    // Stopping still goes through once the cohort is over, so a marker written
+    // just before the end does not hang in the thread. Starting does not.
+    if (typing && this.cohortOver()) return
     try {
       const member = await this.requireMember()
       const ref = doc(await this.typingRef(threadId), member.id)
@@ -2233,6 +2198,7 @@ export class FirestoreDataSource implements DataSource {
     text: string,
     mentions: ChatMention[] = [],
   ): Promise<ChatMessageView> {
+    this.refuseIfOver()
     const member = await this.requireMember()
     const messages = await this.messagesRef(threadId)
     const messageRef = doc(messages, messageId)
@@ -2287,6 +2253,7 @@ export class FirestoreDataSource implements DataSource {
     messageId: string,
     emoji: string,
   ): Promise<ChatReaction[]> {
+    this.refuseIfOver()
     const member = await this.requireMember()
     const messages = await this.messagesRef(threadId)
     const messageRef = doc(messages, messageId)
@@ -2401,6 +2368,7 @@ export class FirestoreDataSource implements DataSource {
   }
 
   async awardBadge(id: string): Promise<void> {
+    this.refuseIfOver()
     const member = await this.requireMember()
     const program = await this.program()
     const def = program.rewards.badges.find((b) => b.id === id)
@@ -2571,6 +2539,44 @@ export class FirestoreDataSource implements DataSource {
   // =========================================================================
   // internals
   // =========================================================================
+
+  /**
+   * One of the member-write functions, on this database.
+   *
+   * The function's refusal is already a sentence a member can read — "That
+   * session opens on Monday 12 Oct." — so it is passed through as the message.
+   * A call that never reached the function says so instead, because the
+   * callable SDK's own word for that is "internal".
+   */
+  private async call<T>(name: string, data: Record<string, unknown>): Promise<T> {
+    // Every one of these is a member write, so this covers all four.
+    this.refuseIfOver()
+    await this.requireUser()
+    try {
+      const run = httpsCallable<Record<string, unknown>, T>(firebaseFunctions(), name)
+      return (await run({ ...data, database: firebaseDatabaseName() })).data
+    } catch (cause) {
+      if (!(cause instanceof FunctionsError)) throw cause
+      const reason = (cause.details as { reason?: string } | undefined)?.reason
+      if (reason === 'check-in-submitted') {
+        throw new DataSourceError(cause.message, 'check-in-submitted')
+      }
+      if (reason === 'cohort-ended') {
+        throw new DataSourceError(cause.message, 'cohort-ended')
+      }
+      if (cause.code === 'functions/unauthenticated') {
+        throw new DataSourceError(cause.message, 'unauthenticated')
+      }
+      if (['functions/internal', 'functions/unavailable', 'functions/deadline-exceeded'].includes(cause.code)) {
+        throw new DataSourceError(
+          'Couldn’t reach DP Fitness. Check your connection and try again.',
+          'unknown',
+        )
+      }
+      throw new DataSourceError(cause.message, 'unknown')
+    }
+  }
+
   private leaderboardRef(cohortId: string, memberId: string) {
     return doc(firebaseDb(), 'cohorts', cohortId, 'leaderboard', memberId)
   }

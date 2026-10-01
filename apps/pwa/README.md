@@ -1,6 +1,6 @@
 # DP Fitness · Recomp Challenge, member PWA
 
-Member-facing Nuxt PWA for the DP Fitness 6-week recomp challenge.
+Member-facing Nuxt PWA for DP Fitness cohorts.
 Design source: [Figma, DP Fitness](https://www.figma.com/design/B931SXWG53I3zKWa2MS9pY/DP-Fitness?node-id=301-2).
 
 The palette, type ramp and control recipes come from `@dpfit/theme` in
@@ -17,11 +17,11 @@ dependencies are installed once at the root and the scripts are run through it.
 
 ```bash
 bun install              # from the repo root
-cp apps/pwa/.env.example apps/pwa/.env   # optional; the defaults already work
+cp apps/pwa/.env.example apps/pwa/.env   # configure Firebase before starting
 bun run dev:pwa          # http://localhost:3000
 ```
 
-Demo access code: **DP-RECOMP-01**
+Access codes must be issued in Firestore for a real cohort.
 
 Other scripts: `bun run build:pwa`, and from inside `apps/pwa`,
 `bun run preview` and `bun run generate`.
@@ -32,13 +32,13 @@ Other scripts: `bun run build:pwa`, and from inside `apps/pwa`,
 ## How the app is put together
 
 ```
-data/program.ts        authored program content (plan, guides, badges, ranks, inbox)
+Firestore              cohort, program, guides, badges, ranks and member data
         ↓
 lib/datasource/        the ONE contract every screen reads and writes through
   types.ts               DataSource interface: async, maps 1:1 onto REST routes
-  local.ts               localStorage implementation (default)
-  http.ts                HTTP implementation, ready for the backend
-  index.ts               picks one from env
+  firestore.ts           runtime Firestore implementation
+  local.ts / http.ts      isolated development implementations
+  index.ts               constructs FirestoreDataSource
         ↓
 lib/domain/            pure logic: challenge clock, nutrition maths, reward rules
         ↓
@@ -51,26 +51,21 @@ Two rules keep this honest:
 
 1. **No component touches storage or `$fetch`.** Everything goes through
    `useAppStore()`, which goes through `DataSource`.
-2. **Program content and member data are separate.** `data/program.ts` is what
-   the coach authors; everything the member creates lives behind the data source.
+2. **Program content and member data are separate.** Both come from Firestore;
+   `data/program.ts` contains fixtures and seed input, never runtime content.
 
-### Swapping localStorage for an API
+### Firestore is the runtime data source
 
-Implement the backend against the routes named in
-[`lib/datasource/types.ts`](lib/datasource/types.ts): `POST /session`, `GET /me`,
-`GET|POST /me/sessions`, `/me/check-ins`, `/me/photos`, `/notifications`,
-`/threads/:id/messages`, `/threads/:id/messages/:id/reactions`, `/me/badges`,
-`/cohort/leaderboard`, `/me/settings`, then set:
+The PWA always uses Firebase Auth and Firestore. Configure the Firebase connection
+values in `.env.example`. Missing configuration is an error; it never falls back
+to mock content or an HTTP service. `LocalDataSource` and `HttpDataSource` are
+isolated development implementations, not selectable runtime modes.
 
-```bash
-NUXT_PUBLIC_USE_MOCK_DATA=false
-NUXT_PUBLIC_API_BASE=https://api.example.com
-```
+Cohort identity comes from the member document. Active cohort metadata is loaded
+and watched from that document's `cohortId`; the live name takes precedence over
+old access-code/member copies. See [Firestore setup](../../FIREBASE.md).
 
-`HttpDataSource` is already written against that contract. No page, component or
-composable changes.
-
-### What is persisted
+### Historical local fixture storage (not used at runtime)
 
 | Key | Contents |
 | --- | --- |
@@ -110,6 +105,16 @@ device clock, which means `trustedNow()` stays a synchronous read and the app
 still works offline on the last known offset. `plugins/clock.client.ts` re-syncs
 on launch and on return to the foreground, and rolls the date over at midnight.
 
+Nor is the day read in the phone's time zone, which its owner can change just as
+easily. A day opens at midnight in the member's **region** — picked at setup,
+changeable from Profile, stored as an IANA zone on `members/{uid}.region` — and
+the week is the **Cohort Clock**'s, in the cohort's zone (WAT). What the app
+works out only draws the screens: sessions, check-ins and photos are written by
+Cloud Functions that decide the day again on the server's clock, and the rules
+refuse them from the browser. So logging needs a connection; a workout finished
+offline stays in progress until it can be sent. See
+[FIREBASE.md → Days and regions](../../FIREBASE.md#days-and-regions).
+
 `store.trainingLocked` is true only when nothing is open at all — every day the
 week has reached is logged, or the plan schedules none today. `startSession`
 refuses on a day still ahead, so a deep link into `/train/<id>` cannot walk
@@ -126,13 +131,23 @@ once-a-day rule of its own.
 | --- | --- |
 | Signed out | `/onboarding`, `/access-code` (make an account), `/sign-in` (use one) |
 | Signed in, no member | `/access-code`, which redeems for that session |
-| Member, setup unfinished | the four `/setup/*` steps |
+| Member, setup unfinished | the four `/setup/*` steps: about you, region, body metrics, activity & goal |
 | Member, setup done | the app; intro screens bounce to `/home` |
+| Cohort over: archived, or past the last day of its `endDate` | `/cohort-ended` and nothing else, whatever the member's status |
+
+A cohort that is over is strict, not cosmetic. The data source refuses every
+member write from the moment the gate turns (`refuseWritesWhen`), the four
+member-write functions refuse with `cohort-ended`, and `firestore.rules` and
+`storage.rules` refuse the rest — which is what stops a message queued offline
+before the end from landing after it. Reads stay open, so the ended screen can
+show the member's totals, and so does signing out. Nothing more is pushed to the
+cohort, and live-call reminders for it stop.
 
 `/` has no screen of its own: it redirects straight to whichever of those the
 member belongs on.
 
-Derived, never stored: the current week and day come from `joinedAt`; each
+Derived, never stored: the current week comes from the dated weeks on the
+Cohort Clock and the day from the member's region; each
 training day's status comes from what has been logged this week; fuel targets
 come from the profile (Mifflin-St Jeor → activity multiplier → goal multiplier);
 RP, rank, streak and badges come from the log.
@@ -145,17 +160,15 @@ streak alive or reaches the leaderboard if it cleared **80% of its prescribed
 sets**. Anything below that still saves in full and still reaches the coach, it
 just earns nothing. The rules live in
 [`lib/domain/rewards.ts`](lib/domain/rewards.ts); the numbers they read
-(`rewardValues`, `badgeTargets`, `ranks`) are program content in
-[`data/program.ts`](data/program.ts). The two elite badge thresholds are a share
+(`rewardValues`, `badgeTargets`, `ranks`) are program content in Firestore. The two elite badge thresholds are a share
 of `challenge.sessionsPerWeek × totalWeeks`, so a 3-day/week cohort is no easier
 than a 4-day one without a spec change.
 
 The leaderboard ranks the cohort on qualifying sessions logged — not RP, weight
 or results — ties broken alphabetically. It is the one reward that cannot be
 answered from the member's own record, so it comes from
-`DataSource.listLeaderboard()` and refreshes on load. In mock mode
-`LocalDataSource` pads the member's real row with a stand-in cohort; the HTTP
-source returns real counts only.
+`DataSource.listLeaderboard()` and refreshes on load from the Firestore cohort
+leaderboard projection. Runtime screens never use the stand-in fixture cohort.
 
 ## Layout model
 
@@ -181,8 +194,6 @@ All configuration is public (bundled into the client), so never put secrets in a
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `NUXT_PUBLIC_USE_MOCK_DATA` | `true` | `true` keeps everything on-device via localStorage. `false` reads from `NUXT_PUBLIC_API_BASE`. |
-| `NUXT_PUBLIC_API_BASE` | *(empty)* | Backend origin, used only when mock data is off. |
 | `NUXT_PUBLIC_APP_ENV` | `development` | Free-form label for the running environment. |
 | `NUXT_PUBLIC_FIREBASE_VAPID_KEY` | *(empty)* | Public Web Push key. Empty hides the push switch on Profile. See [FIREBASE.md → Push notifications](../../FIREBASE.md#push-notifications). |
 

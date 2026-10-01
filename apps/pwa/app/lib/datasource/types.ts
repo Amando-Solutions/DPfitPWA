@@ -32,6 +32,7 @@ import type {
   TrainingWeek,
   TypingPeer,
 } from '~/data/types'
+import type { RegionChoice } from '~/lib/domain/region'
 import type { ProcessedImage } from '~/lib/image'
 
 /**
@@ -227,11 +228,38 @@ export interface DataSource {
   redeemAccessCode(code: string): Promise<Member>
 
   getMember(): Promise<Member | null>
+
+  /**
+   * Refuse every member write while `over` answers true.
+   *
+   * The store calls this once, with its own answer to whether the member's
+   * cohort is over, so the data source shuts at the same moment the screens
+   * do. A refusal is a `cohort-ended` error thrown before anything is sent,
+   * which covers what the ended screen cannot: a chat page mid-send, the
+   * outbox flushing on reconnect, a badge catching up after a load.
+   *
+   * Reads stay open, since the ended screen shows the member's totals, and so
+   * does everything that only signs out: the device claim, sign-out itself,
+   * and releasing a push device. `firestore.rules` and the functions refuse
+   * the same writes on the server; this is what keeps the app from trying.
+   */
+  refuseWritesWhen(over: () => boolean): void
+
   updateMember(patch: Partial<MemberDoc>): Promise<Member>
   saveProfile(patch: Partial<MemberProfile>): Promise<Member>
 
   /** Ends onboarding: `status` becomes `active` and a lifecycle event is written. */
   completeSetup(): Promise<Member>
+
+  /**
+   * Where the member's days turn over, from now on: `members/{uid}.region`.
+   *
+   * Never written with the rest of the member document. The server stamps the
+   * floor that keeps the change forward-only — see `MemberRegion.floor` — so
+   * the Firestore implementation calls the `setRegion` function, and the rules
+   * refuse the field from a client. Resolves to the member as stored.
+   */
+  setRegion(choice: RegionChoice): Promise<Member>
 
   // =========================================================================
   // Authored content — the program and the cohort
@@ -274,10 +302,14 @@ export interface DataSource {
   /**
    * The member's cohort: the coach, the live call, whether the board is on.
    *
-   * `null` when the document is missing rather than a throw, because every one
+   * `null` when the document is missing or still a draft rather than a throw, because every one
    * of those has a defined "not set" rendering — no call card, no board, the
-   * member's own `cohortName` in the chat header — and a cohort that has not
+   * generic cohort chat title — and a cohort that has not
    * been written yet should not take the app down.
+   *
+   * An archived cohort is not `null`: it comes back as itself, `status:
+   * 'archived'` and no calls. The member is past the end of it, and the app
+   * shows them that instead of the training screens. See `MemberGate`.
    */
   getCohort(): Promise<Cohort | null>
 
@@ -332,8 +364,17 @@ export interface DataSource {
 
   // --- Workout logging ------------------- `members/{uid}/sessions/{id}` ----
   listSessions(): Promise<SessionLog[]>
+  /**
+   * Log a finished workout, against the day-lock.
+   *
+   * Against Firestore this is the `logSession` function, which decides the day
+   * on the server's clock in the member's stored region and refuses a day that
+   * is not open or already logged, with the reason as the message. It reads
+   * only the member's own work off `log` — the day, its week, the sets, the
+   * note, the proof — and decides the rest itself. There is no delete: a
+   * logged day stays logged.
+   */
   saveSession(log: SessionInput): Promise<SessionLog>
-  deleteSession(id: string): Promise<void>
 
   // --- Active session -------------- `members/{uid}/state/activeSession` ----
   getActiveSession(): Promise<ActiveSessionDoc | null>
@@ -344,12 +385,14 @@ export interface DataSource {
   /**
    * One a week, and final once sent. A second submission for a week that
    * already has one is refused with `check-in-submitted` — it does not
-   * overwrite, and it does not pay out twice.
+   * overwrite, and it does not pay out twice. The week is the Cohort Clock's,
+   * decided by the `submitCheckIn` function on the server's clock.
    */
   saveCheckIn(input: CheckInInput): Promise<CheckIn>
 
   // --- Progress photos ------------------- `members/{uid}/photos/{id}` -----
   listPhotos(): Promise<ProgressPhoto[]>
+  /** Uploads, then files it through the `logPhoto` function, which dates it. */
   savePhoto(input: PhotoInput): Promise<ProgressPhoto>
   deletePhoto(id: string): Promise<void>
 
@@ -694,11 +737,15 @@ export type SessionInput = Omit<
   SessionLogDoc,
   | 'createdAt'
   | 'weekNumber'
+  | 'dayKey'
   | 'qualifies'
   | 'rewardPoints'
   | 'programId'
   | 'programVersion'
->
+> & {
+  /** Required here, unlike on old documents: the day-lock needs to know which week's day. */
+  planWeek: number
+}
 
 export type ActiveSessionInput = Omit<ActiveSessionDoc, 'updatedAt'>
 
@@ -752,6 +799,8 @@ export class DataSourceError extends Error {
       | 'provider-disabled'
       /** This address already has an account, and the way in is signing in. */
       | 'account-exists'
+      /** The member's cohort is over, so nothing more is written. See `refuseWritesWhen`. */
+      | 'cohort-ended'
       | 'unknown' = 'unknown',
   ) {
     super(message)

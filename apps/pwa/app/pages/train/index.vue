@@ -19,15 +19,15 @@ const store = useAppStore()
  */
 const shownWeek = computed(() => {
   const n = Number(route.query.week)
-  return store.weeks.value.some((w) => w.weekNumber === n) ? n : store.clock.value.week
+  return store.weeks.value.some((w) => w.weekNumber === n) ? n : store.planWeekNumber.value
 })
 
-const onCurrentWeek = computed(() => shownWeek.value === store.clock.value.week)
+const onCurrentWeek = computed(() => shownWeek.value === store.planWeekNumber.value)
 
 // `replace`, so flicking through the weeks does not become a trail of history
 // entries the back button has to walk through before it leaves the screen.
 const showWeek = (n: number) =>
-  router.replace({ query: n === store.clock.value.week ? {} : { week: String(n) } })
+  router.replace({ query: n === store.planWeekNumber.value ? {} : { week: String(n) } })
 
 const shownDays = computed(() => store.weekDays(shownWeek.value))
 
@@ -40,7 +40,7 @@ const otherWeekNote = computed(() => {
   if (onCurrentWeek.value) return ''
   const week = store.weeks.value.find((w) => w.weekNumber === shownWeek.value)
   if (!week) return ''
-  return shownWeek.value < store.clock.value.week
+  return shownWeek.value < store.planWeekNumber.value
     ? `Week ${week.weekNumber} is behind you. Anything you didn’t log is still open.`
     : `Week ${week.weekNumber} starts ${scheduleDateLabel(week.startDate)}. Read ahead; nothing logs until then.`
 })
@@ -55,7 +55,7 @@ const resumeHref = computed(() => {
   const active = resumable.value
   const week = store.activeSessionWeek.value
   if (!active) return '/train'
-  return week !== null && week !== store.clock.value.week
+  return week !== null && week !== store.planWeekNumber.value
     ? `/train/${active.dayId}?week=${week}`
     : `/train/${active.dayId}`
 })
@@ -87,10 +87,11 @@ const owedCount = computed(() =>
 const nextUpNote = computed(() => {
   const next = store.nextUp.value
   if (!next) return ''
-  return `Day ${next.dayNumber} opens ${nightsLabel(next.opensInNights ?? 1, store.now.value)}.`
+  return `Day ${next.dayNumber} opens ${nightsLabel(next.opensInNights ?? 1, store.todayKey.value)}.`
 })
 
 const title = computed(() => {
+  if (store.beforeStart.value) return `Training opens ${store.trainingOpensLabel.value}`
   if (!store.trainingLocked.value) {
     if (!owed.value.length) return 'Today’s session'
     if (scheduledToday.value?.canStart) return `Today, plus ${owedCount.value} to catch up`
@@ -104,6 +105,9 @@ const title = computed(() => {
 })
 
 const subtitle = computed(() => {
+  if (store.beforeStart.value) {
+    return 'Every session is here to read ahead. Nothing logs until training opens.'
+  }
   if (store.trainingLocked.value) {
     return 'Days open as the week reaches them. Nothing is waiting on you today.'
   }
@@ -124,6 +128,9 @@ const subtitle = computed(() => {
  * one. Each branch names the reason and, where there is one, the date it lifts.
  */
 const lockedNote = computed(() => {
+  if (store.beforeStart.value) {
+    return 'Until then, set up your profile, say hello in the group chat and take your first progress photo.'
+  }
   if (store.weekComplete.value) return 'Every session this week is logged. Well played.'
   if (store.sessionToday.value) {
     return `Nothing left behind you. ${nextUpNote.value}`
@@ -133,11 +140,13 @@ const lockedNote = computed(() => {
 })
 
 const lockedIcon = computed(() => {
+  if (store.beforeStart.value) return 'lock'
   if (store.sessionToday.value || store.weekComplete.value) return 'check'
   return restDay.value ? 'moon' : 'lock'
 })
 
 const lockedHeading = computed(() => {
+  if (store.beforeStart.value) return 'The cohort has not started'
   if (store.sessionToday.value) return `${store.sessionToday.value.label} is in the log`
   if (store.weekComplete.value) return 'That is the week done'
   return restDay.value ? 'Rest day' : 'Nothing to log today'
@@ -176,7 +185,7 @@ const rows = computed(() =>
         // A later week's days by date: a list mixing "Monday" with "next
         // Tuesday" for days side by side reads as a mistake.
         text: onCurrentWeek.value
-          ? `Opens ${nightsLabel(day.opensInNights ?? 1, store.now.value)}`
+          ? `Opens ${nightsLabel(day.opensInNights ?? 1, store.todayKey.value)}`
           : `Opens ${scheduleDateLabel(day.date)}`,
         cls: CHIP_QUIET,
       },
@@ -197,7 +206,7 @@ const rows = computed(() =>
  */
 const todayMarkerAt = computed(() => {
   const week = store.currentWeek.value
-  const today = store.clock.value.today
+  const today = store.todayKey.value
   if (!onCurrentWeek.value || !week || !rows.value.length) return null
   if (today < week.startDate || today > week.endDate) return null
   if (rows.value.some(({ day }) => day.opensInNights === 0)) return null
@@ -205,7 +214,7 @@ const todayMarkerAt = computed(() => {
   return ahead === -1 ? rows.value.length : ahead
 })
 
-const todayLabel = computed(() => scheduleDateLabel(store.clock.value.today))
+const todayLabel = computed(() => scheduleDateLabel(store.todayKey.value))
 
 /** The rows with the marker spliced in, so the template walks one list in date order. */
 const items = computed(() => {
@@ -241,7 +250,7 @@ const items = computed(() => {
         <strong>Pick up where you left off</strong>
         <small>
           {{ store.getDay(resumable.dayId, store.activeSessionWeek.value ?? undefined)?.label ?? 'Session in progress' }}<template
-            v-if="store.activeSessionWeek.value !== store.clock.value.week"
+            v-if="store.activeSessionWeek.value !== store.planWeekNumber.value"
           > · Week {{ store.activeSessionWeek.value }}</template>
         </small>
       </span>
@@ -272,11 +281,11 @@ const items = computed(() => {
         Week {{ week.weekNumber }}
         <!-- Marks the calendar's week, so it can be found again from any other. -->
         <span
-          v-if="week.weekNumber === store.clock.value.week"
+          v-if="week.weekNumber === store.planWeekNumber.value"
           class="absolute top-1 right-1.5 size-1.5 rounded-pill bg-primary"
           aria-hidden="true"
         />
-        <span v-if="week.weekNumber === store.clock.value.week" class="sr-only">(this week)</span>
+        <span v-if="week.weekNumber === store.planWeekNumber.value" class="sr-only">(this week)</span>
       </button>
     </nav>
 

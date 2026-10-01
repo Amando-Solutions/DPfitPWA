@@ -15,6 +15,7 @@ import {
 } from './types'
 import { TYPING_REFRESH_MS, typingIsFresh } from '~/lib/chat'
 import { trustedNow } from '~/lib/time'
+import type { RegionChoice } from '~/lib/domain/region'
 import type { ProcessedImage } from '~/lib/image'
 import type {
   ActiveSessionDoc,
@@ -228,6 +229,9 @@ export class HttpDataSource implements DataSource {
     return this.get<Member | null>('/me')
   }
 
+  /** The service refuses writes for a cohort that is over; nothing to do here. */
+  refuseWritesWhen(_over: () => boolean) {}
+
   updateMember(patch: Partial<MemberDoc>) {
     return this.send<Member>('/me', 'PATCH', patch)
   }
@@ -238,6 +242,10 @@ export class HttpDataSource implements DataSource {
 
   completeSetup() {
     return this.send<Member>('/me/setup-complete', 'POST')
+  }
+
+  setRegion(choice: RegionChoice) {
+    return this.send<Member>('/me/region', 'PUT', choice)
   }
 
   // --- Authored content ----------------------------------------------------
@@ -297,10 +305,6 @@ export class HttpDataSource implements DataSource {
 
   saveSession(log: SessionInput) {
     return this.send<SessionLog>('/me/sessions', 'POST', log)
-  }
-
-  async deleteSession(id: string) {
-    await this.send(`/me/sessions/${id}`, 'DELETE')
   }
 
   getActiveSession() {

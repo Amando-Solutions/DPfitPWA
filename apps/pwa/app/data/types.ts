@@ -199,6 +199,9 @@ export interface RegistrationDoc {
    */
   timezone: string
   cohortId: string
+  cohortName?: string
+  /** Resolved at checkout, so later configuration changes do not alter the purchase. */
+  codeTtlDays?: number
   source: RegistrationSource
   paymentStatus: RegistrationPaymentStatus
   /** Which checkout took the money. `undefined` on documents from before Selar. */
@@ -221,8 +224,30 @@ export interface RegistrationDoc {
   /** From the sale notification: 'card', 'bank_transfer', … when it says. */
   paymentChannel: string | null
   paidAt: Timestamp | null
-  /** Whether the access-code email went out. False is worth being able to find. */
-  emailed: boolean
+  /**
+   * Whether the access-code email went out. False is worth being able to find:
+   * `paymentStatus == 'paid'` and `emailed == false` is the queue of seats
+   * somebody has to send by hand. `null` while a pre-order holds the code,
+   * because a held code is not owed yet.
+   */
+  emailed: boolean | null
+  /**
+   * A pre-order sale whose code is minted and not yet sent. Set at payment,
+   * cleared by the release once the code is emailed (or once it turns out the
+   * code was revoked or redeemed in the meantime). Absent on sales made
+   * outside a pre-order.
+   */
+  codeHeld?: boolean
+  /** Whether the "slot reserved" email went, for a held sale. */
+  reservationEmailed?: boolean
+  /** When the held code was emailed. */
+  releasedAt?: Timestamp
+  /** Release attempts that reached the email. The third failure hands it to a person. */
+  releaseAttempts?: number
+  /** Held by a release run while it sends. Expires on its own if the run dies. */
+  releaseLeaseUntil?: Timestamp
+  /** Why a held code was settled without being sent. */
+  releaseNote?: string
   createdAt: Timestamp
   updatedAt: Timestamp
 }
@@ -270,6 +295,30 @@ export interface LiveCall {
 export interface CohortDoc extends Audited {
   name: string
   status: 'draft' | 'active' | 'archived'
+  /** Public website offer. Missing fields may use configured environment fallbacks. */
+  registration?: {
+    amountMinor: number
+    currency: string
+    codeTtlDays: number
+    /**
+     * The pre-order: the only window the landing site sells seats in. A sale
+     * inside it gets its code minted and held, and a "slot reserved" email;
+     * the held codes are emailed when it ends. Both ends or neither — a cohort
+     * with no window anywhere is not on sale. The end must be on or before
+     * `startDate`, and the time between the two is the login window: members
+     * can sign in, set up, chat and take their first photo, and log nothing.
+     *
+     * Either end can be moved at any time. Nothing is scheduled against them;
+     * every read takes them as they stand.
+     */
+    preorderStartsAt?: Timestamp
+    preorderEndsAt?: Timestamp
+  }
+  /**
+   * When training opens. The member app logs nothing before this date, on the
+   * cohort's own calendar, whatever the program's days are dated — so moving
+   * the start means moving those dates with it.
+   */
   startDate: Timestamp
   /**
    * Stored rather than derived from `startDate + durationWeeks`, because
@@ -615,6 +664,45 @@ export interface MemberStats {
   lastSessionAt: Timestamp | null
 }
 
+/** One of `REGIONS` in `lib/domain/region`. */
+export type RegionId =
+  | 'west-africa'
+  | 'uk-ireland'
+  | 'us-eastern'
+  | 'us-central'
+  | 'us-pacific'
+  | 'other-africa'
+  | 'europe'
+  | 'other'
+
+/**
+ * Where the member's days turn over: `members/{uid}.region`.
+ *
+ * The day-lock reads this, never the phone. A training day opens at midnight in
+ * `timezone`, on the server's clock, so a member in New York is not handed
+ * Monday's session at 7 PM on Sunday because it is already Monday in Lagos —
+ * and winding the phone's zone back does not hand them a day twice.
+ *
+ * Written only by the `setRegion` function; `firestore.rules` refuses it from a
+ * client. That is what keeps a change one-way: see `floor`.
+ */
+export interface MemberRegion {
+  id: RegionId
+  /**
+   * The IANA zone behind the option, e.g. `America/New_York`. Stored rather
+   * than the label so daylight saving moves the member's midnight on its own.
+   */
+  timezone: string
+  /** When this region took effect. The server's time. */
+  since: Timestamp
+  /**
+   * The member's day when they switched, read under the zone they left. Their
+   * day never reads earlier than this, so switching west cannot reopen a day
+   * that was already under way, and flipping back and forth only moves forward.
+   */
+  floor: DateKey | null
+}
+
 export type MemberStatus = 'onboarding' | 'active' | 'paused' | 'completed'
 
 export interface MemberDoc extends UpdatedBy {
@@ -650,6 +738,12 @@ export interface MemberDoc extends UpdatedBy {
   accessCode: string
   /** When the challenge clock starts for this member. */
   joinedAt: Timestamp
+  /**
+   * Absent until the member picks one at setup, and on every membership from
+   * before regions existed. Absent reads as the cohort's own zone — WAT — which
+   * is what everybody was on before.
+   */
+  region?: MemberRegion
   profile: MemberProfile
   prefs: MemberPreferences
   stats: MemberStats
@@ -750,6 +844,12 @@ export interface StoredImage {
   bytes: number
 }
 
+/**
+ * Written by the `logSession` function, never by the member app: the rules
+ * refuse a session from a client. The id is stable — `w{planWeek}-{dayId}`, or
+ * `{dayKey}-{dayId}` for the finisher — so a day cannot be logged twice even by
+ * two finishes racing. Sessions from before have random ids.
+ */
 export interface SessionLogDoc {
   /** The `days` document this session was logged against. Shared across weeks. */
   dayId: string
@@ -771,6 +871,15 @@ export interface SessionLogDoc {
    * own week. Read it through `planWeekOf`.
    */
   planWeek?: number
+  /**
+   * The member's calendar day it was logged on, in their region at the time.
+   *
+   * Fixed at write, which is what makes a region change forward-only: a day
+   * already spent is never re-read under a new zone. `weekNumber` is the Cohort
+   * Clock's week and can be the next one — at 8 PM Sunday in New York it is
+   * already Monday in Lagos. Absent on sessions written before regions.
+   */
+  dayKey?: DateKey
   completedAt: Timestamp
   durationSeconds: number
   volumeKg: number
@@ -828,8 +937,9 @@ export type ActiveSession = WithId<ActiveSessionDoc>
 // --- Check-ins ----------------------- `members/{uid}/checkIns/week-{n}` -----
 //
 // The document id is the week (`week-3`), so one check-in per week is enforced
-// by the key. Once sent it is final: the rules allow the create and nothing
-// after it.
+// by the key. The week is the Cohort Clock's, in the cohort's zone, decided by
+// the `submitCheckIn` function when it writes; the rules allow a member no write
+// here at all, so once sent it is final.
 
 export type TrainingFeel = 'too-easy' | 'just-right' | 'too-hard'
 
@@ -851,6 +961,10 @@ export interface CheckInDoc {
 export type CheckIn = WithId<CheckInDoc>
 
 // --- Progress photos ---------------------- `members/{uid}/photos/{photoId}` -
+//
+// Filed by the `logPhoto` function, which stamps `takenAt` and the Cohort
+// Clock's `weekNumber`. The member uploads the image and may delete a photo;
+// only the function creates one.
 
 export type PhotoPose = 'front' | 'side' | 'back'
 
@@ -1187,11 +1301,20 @@ export interface SignInDoc {
  *                 member who redeemed weeks ago would be asked for a code they
  *                 no longer have, and told it was already used when they typed
  *                 it. This state asks them to retry instead.
+ *
+ * And one after them:
+ *
+ *   `ended`       a member whose cohort is over: archived, or past the last day
+ *                 its `endDate` names (see `cohortOver`). So the app is too:
+ *                 `/cohort-ended` in place of every screen, whatever the
+ *                 member's own status, and every write refused. Followed live,
+ *                 so either reaches an app that is already open.
  */
 export type MemberGate =
   | 'needs-auth'
   | 'needs-code'
   | 'unknown'
+  | 'ended'
   | 'needs-setup'
   | 'ready'
   | 'paused'

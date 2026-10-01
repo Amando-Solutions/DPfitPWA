@@ -7,7 +7,7 @@ import { TabsContent, TabsIndicator, TabsList, TabsRoot, TabsTrigger } from 'rek
 import type { SetType } from '~/data/types'
 import { toDisplayWeight, unitLabel } from '~/lib/domain/nutrition'
 import { setRows, setTypeOf } from '~/lib/domain/sets'
-import { formatDate, formatTime } from '~/lib/time'
+import { formatActivityTime } from '~/lib/time'
 
 const route = useRoute()
 const router = useRouter()
@@ -235,9 +235,11 @@ const TRIGGER =
                 <h2 class="m-0 font-display text-[17px] font-black text-ink">
                   {{ log.dayNumber ? `Day ${log.dayNumber}: ${log.label}` : log.label }}
                 </h2>
+                <!-- In WAT, and labelled so: the week beside it is the Cohort
+                     Clock's, and a date converted to the member's zone could
+                     name a day that week does not contain. -->
                 <p class="mt-0.5 mb-0 text-[12.5px] text-muted">
-                  Week {{ log.weekNumber }} · {{ formatDate(log.completedAt) }},
-                  {{ formatTime(log.completedAt) }}
+                  Week {{ log.weekNumber }} · {{ formatActivityTime(log.completedAt, store.cohortZone.value) }}
                 </p>
               </header>
 

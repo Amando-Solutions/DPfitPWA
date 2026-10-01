@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { LiveCallToday } from '~/lib/domain/liveCall'
-import { formatTime, trustedNow } from '~/lib/time'
+import { formatTime, trustedNow, zoneLabel } from '~/lib/time'
 
 const props = defineProps<{ call: LiveCallToday }>()
 
@@ -42,18 +42,44 @@ watch(
 onMounted(store.tick)
 onBeforeUnmount(stop)
 
-const TIME: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit' }
+/*
+  Times here are a courtesy conversion. The slot itself is one instant for the
+  whole cohort and never moves; what changes is only how it is written for this
+  viewer — in their stored region, not the phone's zone, so a member whose
+  phone is still on home time after a flight sees the time where they said
+  they would be. Where that differs from the cohort's, the WAT slot is printed
+  beside it, so "2:00 PM" is never mistaken for the time the coach announced.
+*/
+const zone = computed(() => store.memberZone.value)
+const cohortZone = computed(() => store.cohortZone.value)
 
-/** "9:00 – 10:00 PM", in the member's own zone. */
+/** "2:00 – 3:00 PM", in the member's region. */
 const span = computed(() =>
-  new Intl.DateTimeFormat(undefined, TIME).formatRange(props.call.startsAt, props.call.endsAt),
+  new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: zone.value,
+  }).formatRange(props.call.startsAt, props.call.endsAt),
 )
 
-const detail = computed(() =>
-  props.call.phase === 'ended'
-    ? `Ended at ${formatTime(props.call.endsAt)}. Same time next week.`
-    : span.value,
+/** "7:00 PM WAT" — the slot as the cohort has it. */
+const anchor = computed(
+  () => `${formatTime(props.call.startsAt, cohortZone.value)} ${zoneLabel(cohortZone.value, props.call.startsAt)}`,
 )
+
+/** Whether the member's clock reads the same as the cohort's at the call. */
+const sameClock = computed(
+  () => formatTime(props.call.startsAt, zone.value) === formatTime(props.call.startsAt, cohortZone.value),
+)
+
+const detail = computed(() => {
+  if (props.call.phase === 'ended') {
+    return `Ended at ${formatTime(props.call.endsAt, zone.value)}. Same time next week.`
+  }
+  return sameClock.value
+    ? `${span.value} ${zoneLabel(zone.value, props.call.startsAt)}`
+    : `${span.value} your time · ${anchor.value}`
+})
 </script>
 
 <template>
@@ -96,7 +122,7 @@ const detail = computed(() =>
     <!-- No `to` at all while it is shut. A disabled link is still a link to a
          keyboard, and the URL is not somewhere to be before the call starts. -->
     <AppButton v-else size="md" disabled>
-      {{ call.phase === 'upcoming' ? `Opens at ${formatTime(call.startsAt)}` : 'Call ended' }}
+      {{ call.phase === 'upcoming' ? `Opens at ${formatTime(call.startsAt, zone)}` : 'Call ended' }}
     </AppButton>
   </div>
 </template>

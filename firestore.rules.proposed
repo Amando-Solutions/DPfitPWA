@@ -1,32 +1,22 @@
 rules_version = '2';
 
+// LOCAL MERGED CANDIDATE — NOT DEPLOYED.
+// Built from staging ruleset 96307f9a-438a-4b22-87c9-98acb6499ebd.
+// Review docs/firestore-rules-merged-candidate.md before any deployment.
+
 // =============================================================================
-// DP Fitness — Firestore security rules  (PROPOSAL — not deployed)
+// DP Fitness — Firestore security rules
 //
-// This file merges two rulesets that currently exist separately and both target
-// the same slot: `firestore.rules` on project `recomp-48b7b`. There is only one
-// rules document per database, so the member PWA's rules and the admin
-// console's rules cannot be deployed independently — whoever deploys last wins
-// the whole file. This is the union.
+// The app talks to Firestore directly from the browser, so these rules are the
+// only thing standing between a member and everyone else's data. Read them as
+// the real access-control policy, not as a formality.
 //
-// Review, then replace `firestore.rules` with it. Nothing deploys from here.
-//
-// WHO THIS FILE SERVES
-//
-//   Members  — the PWA, talking to Firestore directly from the browser. They
-//              read and write their own documents and nothing else, plus three
-//              shared projections under their cohort.
-//   Admins   — the console. Authors programs, cohorts and access codes, reads
-//              member data for support, and moves members through the pause /
-//              resume lifecycle.
-//
-// TWO PRINCIPLES, UNCHANGED
+// Two principles run through the whole file:
 //
 //   1. A member reads their own documents and writes their own documents.
-//      Everything under `members/{uid}` is gated on `uid == request.auth.uid`.
-//      Admins get read access for support, and write access only to the
-//      lifecycle fields; bulk coach tooling belongs on the Admin SDK, which
-//      bypasses rules entirely.
+//      Everything under `members/{uid}` is gated on `uid == request.auth.uid`,
+//      with no exceptions, including for the coach — coach tooling belongs on
+//      the Admin SDK, which bypasses rules entirely.
 //
 //   2. Anything shared with the cohort is a projection, never the source.
 //      The leaderboard reads `cohorts/{id}/leaderboard`, which holds a name, an
@@ -34,61 +24,40 @@ rules_version = '2';
 //      carry email addresses, body weight, injuries and allergies, and no
 //      feature is worth handing that to forty-seven strangers.
 //
-// WHAT CHANGED FROM THE ADMIN RULESET  (each is marked [MERGE] below)
-//
-//   - Member access restored on every path the client touches. Under the admin
-//     ruleset alone, sign-up, redemption, sessions, check-ins, photos, badges,
-//     chat and the leaderboard were all denied.
-//   - `hasOnly()` allow-lists widened to the fields the client actually reads:
-//     `issuedToEmail`, `programId`/`programVersion` on codes; `endDate` and
-//     `coach` on cohorts; `rewards` on programs; `heroImage` on workout days.
-//     A rule that reads a field the document does not have does not evaluate to
-//     false — it errors, and an errored rule is a denied write. Every omission
-//     above was a silent `permission-denied` several layers below anything that
-//     could name the missing field.
-//   - `claimedByMemberId` renamed to `claimedByUid`, which is what the client
-//     writes and reads. See `AccessCodeClaim` in `app/data/types.ts`.
-//   - Member lifecycle events live at `members/{uid}/lifecycleEvents`, not
-//     `members/{uid}/events`, and the type union includes `member.joined` and
-//     `member.completed`, which the client emits.
-//   - Admin identity accepts either the `dpfitAdmin` or the `coach` claim; the
-//     two rulesets each used one. Converge on `dpfitAdmin` and delete the alias
-//     once claims are re-minted. Nothing client-side reads either claim.
-//   - Member-authored timestamps are NOT pinned to `request.time`. The client
-//     writes `Timestamp.now()` inside a transaction, so `== request.time` would
-//     deny every redemption. Admin-authored documents keep the pin.
+// And a member is signed in on one device at a time. `signedIn()` is true only
+// for the account's most recent sign-in, so every rule built on it refuses an
+// older device outright. See `signIns` below.
 //
 // WHAT THESE RULES CANNOT DO
 //
 // Rules validate shape, ownership and transitions. They cannot re-derive a
-// value from data they do not have. Nothing here can check that a session's
-// `setsDone` matches the sets the member actually logged, so `qualifies` — and
-// the reward points that follow from it — is asserted by the client and merely
-// shape-checked here. A determined member could inflate their own totals.
+// value from data they do not have — and they have no time zones, so they
+// cannot say what day it is for a member in New York.
 //
-// The fix is to move the four writes that mint points (`saveSession`,
-// `saveCheckIn`, `awardBadge`, `redeemAccessCode`) behind Callable Functions
-// and deny those paths to clients outright. `FirestoreDataSource` is shaped so
-// each becomes a one-line `httpsCallable`. Until then the exposure is bounded
-// to a member cheating on their own leaderboard position, which is worth
-// knowing about and is not worth blocking launch over.
+// So the writes that are locked to a day or a week are not made here at all.
+// A session, a check-in and a progress photo are written by Callable Functions
+// (`logSession`, `submitCheckIn`, `logPhoto` in `apps/functions`), which read
+// the server's clock and the member's stored region, and the rules below deny
+// those paths to clients outright. The region itself (`members/{uid}.region`)
+// is written only by `setRegion`, which is what keeps a change forward-only.
 //
-// `cohorts.memberCount` has the same shape of problem from the other side: no
-// client may write a cohort, so the counter needs an Admin SDK trigger. It is
-// pinned to 0 at create here and otherwise left alone.
+// Still client-written: `awardBadge`, `redeemAccessCode`, and the member's own
+// `stats`, which nothing below locks. A determined member could inflate their
+// own totals that way. Moving those behind functions too closes it; until then
+// the exposure is bounded to a member cheating on their own leaderboard
+// position, which is worth knowing about and is not worth blocking launch over.
 // =============================================================================
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- Identity ----------------------------------------------------------
+    // --- Helpers -----------------------------------------------------------
     /**
      * Whether the caller's token comes from the account's latest sign-in.
      *
-     * A member is signed in on one device at a time. `auth_time` is when the
-     * device signed in, and a refreshed token keeps it, so it names the
-     * sign-in rather than the token. `signIns/{uid}` holds the latest. One
-     * `get`, billed as a read.
+     * `auth_time` is when the device signed in, and a refreshed token keeps
+     * it, so it names the sign-in rather than the token. `signIns/{uid}` holds
+     * the latest. One `get`, billed as a read.
      */
     function onLatestSignIn() {
       let latest = get(/databases/$(database)/documents/signIns/$(request.auth.uid));
@@ -149,11 +118,10 @@ service cloud.firestore {
      * So a Google sign-in counts when Firebase has verified the account's
      * address — as it has for a Gmail member signing in with their own Google
      * account, and has not for an account made with a password under somebody
-     * else's address — or when the membership was made before password sign-up
-     * existed. Those have no `joinedWith`: every membership since records the
-     * sign-in it was made under, and nothing can remove it. They need the
-     * exemption because Firebase only takes Google's word for Gmail addresses,
-     * so a member who joined with Google on a work address was never verified.
+     * else's address — or for a fieldless legacy membership created before the
+     * compatibility cutoff. The cutoff matters because the current PWA omits
+     * `joinedWith`: accepting every missing value forever would let a new
+     * password member link an unverified Google identity and keep using it.
      *
      * Before there is a membership, a Google sign-in needs the verified address:
      * otherwise a linked Google account could redeem the code itself.
@@ -161,7 +129,10 @@ service cloud.firestore {
     function trustsSignIn(member) {
       return request.auth.token.firebase.sign_in_provider != 'google.com'
         || request.auth.token.get('email_verified', false) == true
-        || (member != null && !('joinedWith' in member.data));
+        || (member != null
+            && !('joinedWith' in member.data)
+            && member.data.get('createdAt', timestamp.date(1970, 1, 1))
+                 < timestamp.date(2026, 9, 20));
     }
 
     /**
@@ -203,16 +174,24 @@ service cloud.firestore {
      * Set with the Admin SDK (`setCustomUserClaims`), never from the client,
      * which is what makes it trustworthy here. Absent for every member.
      *
-     * [MERGE] The console minted `dpfitAdmin`; the app's rules read `coach`.
-     * Both are accepted so neither side breaks on the day this lands. Pick
-     * `dpfitAdmin`, re-mint, then delete the second clause.
-     *
      * Read off the token alone, not through `signedIn()`: the console is not a
      * member's device and never claims one.
      */
+    function isCoach() {
+      return request.auth != null && request.auth.token.coach == true;
+    }
+
+    /**
+     * The single admin console identity. Kept separate from `isCoach()` so
+     * the legacy claim can be retired without changing the console contract.
+     */
     function isAdmin() {
-      return request.auth != null
-        && (request.auth.token.dpfitAdmin == true || request.auth.token.coach == true);
+      return request.auth != null && request.auth.token.dpfitAdmin == true;
+    }
+
+    /** Trusted back-office callers during the coach -> dpfitAdmin migration. */
+    function isOperator() {
+      return isCoach() || isAdmin();
     }
 
     /** The caller's member document. One `get`, billed as a read. */
@@ -229,169 +208,34 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys();
     }
 
-    /**
-     * The name a member goes by in front of the cohort, derived the way every
-     * client writer derives it: `profile.displayName || fallback`.
-     *
-     * The display name is fixed after setup (see `isValidMemberSelfUpdate`),
-     * and this is what makes that true everywhere the name is *seen*. The
-     * leaderboard row and a chat message each carry a copy, and a copy the
-     * caller chose freely would be a rename by another route.
-     */
-    function shownName(member, fallback) {
-      let name = member.get('profile', {}).get('displayName', null);
-      return name == null || name == '' ? fallback : name;
-    }
-
-    function cohortData(cohortId) {
-      return get(/databases/$(database)/documents/cohorts/$(cohortId)).data;
-    }
-
-    function programData(programId) {
-      return get(/databases/$(database)/documents/programs/$(programId)).data;
-    }
-
-    // --- Admin audit blocks ------------------------------------------------
-    // Every admin-authored document carries both. The email is denormalised
-    // beside the uid deliberately: an audit trail that needs a second lookup
-    // to read is one nobody reads.
-    function hasCreateAudit() {
-      return request.resource.data.createdAt == request.time
-        && request.resource.data.createdByUid == request.auth.uid
-        && request.resource.data.createdByEmail == request.auth.token.email;
-    }
-
-    function hasUpdateAudit() {
+    function hasOperatorUpdateAudit() {
       return request.resource.data.updatedAt == request.time
         && request.resource.data.updatedByUid == request.auth.uid
         && request.resource.data.updatedByEmail == request.auth.token.email;
     }
 
-    // =========================================================================
-    // Access codes — `accessCodes/{code}`, keyed by the code itself
-    // =========================================================================
-
-    /**
-     * [MERGE] Widened from the console's list.
-     *
-     * `issuedToEmail` is the important one: the claim rule below reads it, and
-     * a code created without it cannot be redeemed by anybody — the read errors
-     * and the write is denied with no indication of why. It may be null. It may
-     * not be absent. `redeemAccessCode` pre-flights exactly this and logs the
-     * missing field, because the raw failure is unreadable.
-     *
-     * `programId` / `programVersion` are copied onto the member at redemption
-     * (`FirestoreDataSource.redeemAccessCode`), so a code without them yields a
-     * member pointed at no program.
-     */
-    function isValidCodeCreate(codeId) {
-      return request.resource.data.keys().hasOnly([
-          'code',
-          'batchId',
-          'cohortId',
-          'cohortName',
-          'programId',
-          'programVersion',
-          'issuedToEmail',
-          'status',
-          'expiresAt',
-          'claimedByUid',
-          'claimedByName',
-          'claimedAt',
-          'revokedAt',
-          'createdAt',
-          'createdByUid',
-          'createdByEmail',
-          'updatedAt',
-          'updatedByUid',
-          'updatedByEmail'
-        ])
-        // The document id IS the code. Redemption is a single `getDoc` on it,
-        // so a mismatch makes the code unfindable.
-        && request.resource.data.code == codeId
-        && request.resource.data.code.matches('^DPF-[A-Z2-9]{4}-[A-Z2-9]{4}$')
-        && request.resource.data.batchId is string
-        && request.resource.data.batchId.size() <= 64
-        && request.resource.data.cohortId is string
-        && request.resource.data.cohortId.size() <= 128
-        && request.resource.data.cohortName is string
-        && request.resource.data.cohortName.size() <= 80
-        // Codes are only issued against a running cohort, and the denormalised
-        // name has to match the source it was copied from.
-        && cohortData(request.resource.data.cohortId).status == 'active'
-        && cohortData(request.resource.data.cohortId).name == request.resource.data.cohortName
-        // The program snapshot is the cohort's. An active cohort always has
-        // one — `isValidCohortActivate` will not let it go live without.
-        && request.resource.data.programId == cohortData(request.resource.data.cohortId).programId
-        && request.resource.data.programVersion
-             == cohortData(request.resource.data.cohortId).programVersion
-        // Null for a code handed out generically; an address binds the code to
-        // one buyer so a forwarded code cannot be redeemed by the recipient.
-        && (request.resource.data.issuedToEmail == null
-            || (request.resource.data.issuedToEmail is string
-                && request.resource.data.issuedToEmail.size() <= 254))
-        && request.resource.data.status == 'unused'
-        && request.resource.data.expiresAt is timestamp
-        && request.resource.data.expiresAt > request.time
-        // Present and null. Presence is what matters: the claim rule reads
-        // them, and reading an absent key errors.
-        && request.resource.data.claimedByUid == null
-        && request.resource.data.claimedByName == null
-        && request.resource.data.claimedAt == null
-        && request.resource.data.revokedAt == null
-        && hasCreateAudit()
-        && hasUpdateAudit();
-    }
-
-    function isValidAdminRevoke() {
+    function isValidOperatorRevoke() {
       return resource.data.status in ['unused', 'claimed']
         && changed().hasOnly([
-             'status', 'revokedAt', 'updatedAt', 'updatedByUid', 'updatedByEmail'
-           ])
+          'status', 'revokedAt', 'updatedAt', 'updatedByUid', 'updatedByEmail'
+        ])
         && request.resource.data.status == 'revoked'
         && request.resource.data.revokedAt == request.time
-        && hasUpdateAudit();
+        && hasOperatorUpdateAudit();
     }
 
     /**
-     * [MERGE] The member half of redemption, absent from the console ruleset.
+     * The name a member goes by in front of the cohort, derived the way every
+     * client writer derives it: `profile.displayName || fallback`.
      *
-     * Runs inside the same transaction as the `members/{uid}` create below —
-     * either both land or neither does.
-     *
-     * Note what is NOT checked: `claimedAt == request.time`. The client writes
-     * a single `Timestamp.now()` across both documents in the transaction, so
-     * pinning to server time would deny every redemption. The field is
-     * shape-checked and nothing more; it is a display value on the console,
-     * not a security boundary.
+     * The display name is fixed after setup (see `members` below), and this is
+     * what makes that true everywhere the name is *seen*. The leaderboard row,
+     * a chat message and a typing marker each carry a copy, and a copy the
+     * caller chose freely would be a rename by another route.
      */
-    function isValidMemberClaim() {
-      return signedIn()
-        // Only the unused -> claimed transition, and only onto yourself.
-        && resource.data.status == 'unused'
-        && request.resource.data.status == 'claimed'
-        && request.resource.data.claimedByUid == request.auth.uid
-        && request.resource.data.claimedByName is string
-        && request.resource.data.claimedAt is timestamp
-        && request.time < resource.data.expiresAt
-        // A code issued against a purchase is redeemable only by that buyer.
-        // Compared case-insensitively, and it has to be: the address reaches
-        // this rule from three different places — lowercased by the sign-up
-        // form, in whatever case the account was created with from Google, and
-        // typed by hand into the console when the code was issued. An exact
-        // match would cost a member their seat over a capital letter, and the
-        // client-side check in `redeemAccessCode` folds case the same way, so
-        // the two must agree or the transaction fails with a bare permission
-        // error after the friendly check has already passed.
-        && (resource.data.issuedToEmail == null
-            || resource.data.issuedToEmail.lower() == request.auth.token.email.lower())
-        // Nothing else moves. Without this, a claim could rewrite `cohortId`
-        // and walk into a cohort the member never paid for.
-        && changed().hasOnly([
-             'status', 'claimedByUid', 'claimedByName', 'claimedAt',
-             'updatedAt', 'updatedByUid', 'updatedByEmail'
-           ])
-        && request.resource.data.updatedByUid == request.auth.uid;
+    function shownName(member, fallback) {
+      let name = member.get('profile', {}).get('displayName', null);
+      return name == null || name == '' ? fallback : name;
     }
 
     // --- Sign-ins ----------------------------------------------------------
@@ -425,6 +269,8 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // --- Access codes ------------------------------------------------------
+    // `accessCodes/{code}` — keyed by the code itself.
     match /accessCodes/{code} {
       // `get` but never `list`. The code IS the secret, so looking one up by
       // name is the intended operation; enumerating the collection would hand
@@ -438,391 +284,484 @@ service cloud.firestore {
       // code is 40 random bits, so holding one means having been sent it.
       // Everything that *spends* a code is still signed in, below.
       allow get: if true;
-      allow list: if isAdmin();
+      allow list: if isOperator();
 
-      allow create: if isAdmin() && isValidCodeCreate(code);
-      allow update: if (isAdmin() && isValidAdminRevoke()) || isValidMemberClaim();
-
-      // Revoke, never delete: a claimed code is the only record of which seat
-      // a member holds.
+      // No client creates a code, a coach included. `apps/functions` mints
+      // every one on the Admin SDK, so the shape of a seat is decided in one
+      // place; a hand-written document is how codes that cannot be redeemed
+      // got into this collection before.
+      allow create: if false;
       allow delete: if false;
+
+      allow update: if (isOperator() && isValidOperatorRevoke()) || (
+        signedIn()
+        // Only the unused → claimed transition, and only onto yourself.
+        && resource.data.status == 'unused'
+        && request.resource.data.status == 'claimed'
+        && request.resource.data.claimedByUid == request.auth.uid
+        && request.time < resource.data.expiresAt
+        // A code issued against a purchase is redeemable only by that buyer.
+        // Compared case-insensitively, and it has to be: the address reaches
+        // this rule from three different places — lowercased by the sign-up
+        // form, in whatever case the account was created with from Google, and
+        // typed by hand into the console when the code was issued. An exact
+        // match would cost a member their seat over a capital letter, and the
+        // client-side check in `redeemAccessCode` folds case the same way, so
+        // the two must agree or the transaction fails with a bare permission
+        // error after the friendly check has already passed.
+        && (resource.data.issuedToEmail == null
+            || resource.data.issuedToEmail.lower() == request.auth.token.email.lower())
+        // Nothing else moves. Without this, a claim could rewrite `cohortId`
+        // and walk into a cohort the member never paid for.
+        //
+        // `issuedToEmail` and `issuedToWhatsapp` are absent from this list for
+        // the same reason and it matters as much: they are who the seat was
+        // sold to. A claim that could rewrite either could point somebody
+        // else's code at itself, or quietly swap the number the coach uses to
+        // reach a member. The buyer changing their own number does it on their
+        // member document, after redemption, where it belongs.
+        && changed().hasOnly([
+             'status', 'claimedByUid', 'claimedByName', 'claimedAt',
+             'updatedAt', 'updatedByUid', 'updatedByEmail'
+           ])
+        && request.resource.data.claimedByName is string
+        && request.resource.data.claimedAt is timestamp
+        && request.resource.data.updatedAt is timestamp
+        && request.resource.data.updatedByUid == request.auth.uid
+        && request.resource.data.updatedByEmail == request.auth.token.email
+        // Claim and membership are one transaction. The entitlement copied
+        // to the member has to be the entitlement this exact code grants.
+        && getAfter(
+             /databases/$(database)/documents/members/$(request.auth.uid)
+           ).data.accessCode == resource.data.code
+        && getAfter(
+             /databases/$(database)/documents/members/$(request.auth.uid)
+           ).data.cohortId == resource.data.cohortId
+        && getAfter(
+             /databases/$(database)/documents/members/$(request.auth.uid)
+           ).data.programId == resource.data.get('programId', '')
+        && getAfter(
+             /databases/$(database)/documents/members/$(request.auth.uid)
+           ).data.programVersion == resource.data.get('programVersion', 1)
+      );
     }
 
-    // =========================================================================
-    // Programs — `programs/{programId}`
-    // =========================================================================
+    // --- Registrations -----------------------------------------------------
+    // `registrations/{reference}` — one attempt to buy a seat, keyed by a
+    // reference the landing site generates before the buyer is sent to Selar.
+    //
+    // Written only by `apps/web/server/api/register.post.ts` on the Admin SDK,
+    // which bypasses these rules entirely. That is why every client write is
+    // denied here rather than shape-checked: there is no legitimate client
+    // write to allow, and a rule that permitted one would let anybody forge a
+    // registration against a code they do not hold.
+    //
+    // Nor can a member read their own. It would have to be granted by matching
+    // the address on the document, which means a rule that reads
+    // `resource.data.email` — and that rule *errors* on a code with no
+    // registration behind it, which is every code issued by hand in the
+    // console, taking redemption down with it. The one field a member actually
+    // needs is the WhatsApp number, and that reaches them a safer way: it is
+    // copied onto the access code as `issuedToWhatsapp`, which they can already
+    // read, and from there into their own profile at redemption.
+    match /registrations/{reference} {
+      allow get, list: if isOperator();
+      allow write: if false;
+    }
 
-    /**
-     * [MERGE] `rewards` added; `version == 1` relaxed.
-     *
-     * `RewardConfig` holds every point value, rank and badge target in the
-     * product — the entire scoring system's input. Excluded from the allow-list
-     * it could not be written at all.
-     *
-     * The version pin is dropped because cohorts snapshot `programVersion` and
-     * a program that can never leave version 1 makes that snapshot meaningless.
-     * Contents are validated one level deep only; rules cannot walk the nested
-     * arrays of ranks and badge definitions, so the console owns their shape.
-     */
-    function hasValidProgramFields(programId) {
-      return request.resource.data.id == programId
-        && request.resource.data.name is string
-        && request.resource.data.name.size() >= 2
-        && request.resource.data.name.size() <= 100
-        && request.resource.data.version is int
-        && request.resource.data.version >= 1
-        && request.resource.data.totalWeeks is int
-        && request.resource.data.totalWeeks >= 1
-        && request.resource.data.totalWeeks <= 52
-        && request.resource.data.totalDays == request.resource.data.totalWeeks * 7
-        && request.resource.data.sessionsPerWeek is int
-        && request.resource.data.sessionsPerWeek >= 1
-        && request.resource.data.sessionsPerWeek <= 7
+    // --- Unmatched sales ---------------------------------------------------
+    // `unmatchedSales/{id}` — money that arrived with nothing to attach it to.
+    //
+    // Selar cannot be told our reference, so a sale is matched back to a
+    // registration by the buyer's email address. Somebody who edits that
+    // address on Selar's checkout form, or who buys from the product link
+    // without ever filling in the form, produces a payment this site cannot
+    // fulfil. Rather than lose it to a log line, `api/payment/webhook` writes
+    // it here: a short queue of people who have paid and are owed a code by
+    // hand.
+    //
+    // Same shape of rule as `registrations` above, and for the same reason —
+    // the only writer is the Admin SDK, which bypasses these rules entirely,
+    // so there is no legitimate client write to allow.
+    match /unmatchedSales/{saleId} {
+      allow get, list: if isOperator();
+      allow write: if false;
+    }
+
+    // --- Programs ----------------------------------------------------------
+    // Authored content, and the thing members pay for. Members read it — not
+    // every account, since an account costs nothing and a membership costs a
+    // code; see `isMember`. Only the console writes it.
+    match /settings/platform {
+      allow read: if isOperator() || isMember();
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly([
+          'qualifyingSetPercent', 'autoIssueCodes', 'multipleCohorts', 'updatedAt', 'updatedByUid', 'updatedByEmail'
+        ])
         && request.resource.data.qualifyingSetPercent is int
         && request.resource.data.qualifyingSetPercent >= 1
         && request.resource.data.qualifyingSetPercent <= 100
-        && request.resource.data.workoutDayCount is int
-        && request.resource.data.workoutDayCount >= 0
-        && request.resource.data.workoutDayCount <= 14
-        && request.resource.data.weekThemes is list
-        && request.resource.data.weekThemes.size() == request.resource.data.totalWeeks
-        && request.resource.data.rewards is map
-        && request.resource.data.rewards.keys().hasAll([
-             'values', 'badgeTierPoints', 'badgeTargets', 'ranks', 'badges'
-           ])
-        && request.resource.data.rewards.values.keys().hasAll([
-             'workout', 'checkIn', 'progressPhoto', 'core', 'cardio'
-           ]);
+        // Read by the landing site's payment webhook (Admin SDK); absent means on.
+        && request.resource.data.get('autoIssueCodes', true) is bool
+        // Console-only: off allows one active cohort at a time. Absent means on.
+        && request.resource.data.get('multipleCohorts', true) is bool
+        && hasOperatorUpdateAudit();
+      allow delete: if false;
     }
 
-    function isValidProgramCreate(programId) {
-      return request.resource.data.keys().hasOnly([
-          'id',
-          'name',
-          'version',
-          'status',
-          'totalWeeks',
-          'totalDays',
-          'sessionsPerWeek',
-          'qualifyingSetPercent',
-          'workoutDayCount',
-          'weekThemes',
-          'rewards',
-          'publishedAt',
-          'createdAt',
-          'createdByUid',
-          'createdByEmail',
-          'updatedAt',
-          'updatedByUid',
-          'updatedByEmail'
+    // What anyone may see before they have an account: the coach's name and
+    // WhatsApp number, offered on the access-code screen when a code fails.
+    // Public on purpose; nothing here is private and it is one small document.
+    match /settings/public {
+      allow get: if true;
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly([
+          'coachName', 'coachWhatsapp', 'updatedAt', 'updatedByUid', 'updatedByEmail'
         ])
-        && hasValidProgramFields(programId)
-        && request.resource.data.status == 'draft'
-        && request.resource.data.workoutDayCount == 0
-        && request.resource.data.publishedAt == null
-        && hasCreateAudit()
-        && hasUpdateAudit();
+        && request.resource.data.coachName is string
+        && request.resource.data.coachName.size() <= 80
+        && request.resource.data.coachWhatsapp is string
+        && request.resource.data.coachWhatsapp.matches('^[+0-9 ()-]{0,30}$')
+        && hasOperatorUpdateAudit();
+      allow delete: if false;
     }
 
-    /** Draft edits: anything but status, the counter and the audit block. */
-    function isValidDraftEdit(programId) {
-      return resource.data.status == 'draft'
-        && changed().hasOnly([
-             'name', 'version', 'totalWeeks', 'totalDays', 'sessionsPerWeek',
-             'qualifyingSetPercent', 'weekThemes', 'rewards',
+    // The Workout sessions feed: one collection-group query over every member's
+    // sessions. Read-only, operators only; members still reach just their own
+    // through members/{uid}/sessions below.
+    match /{path=**}/sessions/{sessionId} {
+      allow read: if isOperator();
+    }
+
+    // The Feedback screen: every member's weekly check-in in one collection-
+    // group query. Read-only, operators only; reviews still go through
+    // members/{uid}/checkIns below.
+    match /{path=**}/checkIns/{checkInId} {
+      allow read: if isOperator();
+    }
+
+    // The shared exercise library. Not scoped to a program: "Back Squat" is the
+    // same exercise everywhere. Names are unique through exerciseLibraryNames,
+    // one doc per normalised (trimmed, single-spaced, lowercased) name, written
+    // in the same transaction as the entry it points at.
+    match /exerciseLibrary/{exerciseId} {
+      allow read: if isOperator() || isMember();
+
+      function validLibraryEntry() {
+        let entry = request.resource.data;
+        return entry.keys().hasOnly([
+            'name', 'nameKey', 'defaultType', 'videoUrl', 'muscleGroup', 'archived',
+            'createdAt', 'updatedAt', 'updatedByUid', 'updatedByEmail'
+          ])
+          && entry.name is string
+          && entry.name.size() >= 2 && entry.name.size() <= 80
+          && entry.name == entry.name.trim()
+          && !entry.name.matches('.*\\s\\s.*')
+          && entry.nameKey == entry.name.lower()
+          && entry.defaultType in [
+               'weight-reps', 'bodyweight-reps', 'weighted-bodyweight', 'assisted-bodyweight',
+               'duration', 'weight-duration', 'distance-duration', 'weight-distance'
+             ]
+          && (entry.videoUrl == null
+              || (entry.videoUrl is string
+                  && entry.videoUrl.size() <= 2048
+                  && entry.videoUrl.matches('https://.+')))
+          && entry.muscleGroup is string && entry.muscleGroup.size() <= 40
+          && entry.archived is bool
+          && getAfter(/databases/$(database)/documents/exerciseLibraryNames/$(entry.nameKey)).data.exerciseId == exerciseId
+          && hasOperatorUpdateAudit();
+      }
+
+      allow create, update: if isOperator() && validLibraryEntry();
+      // Its name reservation goes in the same write.
+      allow delete: if isOperator()
+        && !existsAfter(/databases/$(database)/documents/exerciseLibraryNames/$(resource.data.nameKey));
+    }
+
+    match /exerciseLibraryNames/{nameKey} {
+      allow read: if isOperator();
+      // Created, never reassigned: a taken name can't be handed to another entry.
+      allow create: if isOperator()
+        && request.resource.data.keys().hasOnly(['exerciseId'])
+        && getAfter(/databases/$(database)/documents/exerciseLibrary/$(request.resource.data.exerciseId)).data.nameKey == nameKey;
+      // Released only when its entry is deleted or renamed away in the same write.
+      allow delete: if isOperator()
+        && (!existsAfter(/databases/$(database)/documents/exerciseLibrary/$(resource.data.exerciseId))
+            || getAfter(/databases/$(database)/documents/exerciseLibrary/$(resource.data.exerciseId)).data.nameKey != nameKey);
+    }
+
+    // Scheduled cohort calls: one-off, dated, each for a single cohort. The PWA
+    // reads its own cohort's calls directly (a `where cohortId ==` query, which
+    // this rule can check) and shows the one on today's date.
+    match /liveCalls/{callId} {
+      allow read: if isOperator() || inCohort(resource.data.cohortId);
+      allow create, update: if isOperator()
+        && request.resource.data.keys().hasOnly([
+             'title', 'cohortId', 'cohortName', 'startsAt', 'durationMinutes', 'joinUrl',
              'updatedAt', 'updatedByUid', 'updatedByEmail'
            ])
-        && hasValidProgramFields(programId)
-        && hasUpdateAudit();
-    }
-
-    /** Moved by the workoutDays writes below, one document at a time. */
-    function isValidDraftWorkoutCountUpdate(programId) {
-      return resource.data.status == 'draft'
-        && changed().hasOnly([
-             'workoutDayCount', 'updatedAt', 'updatedByUid', 'updatedByEmail'
-           ])
-        && hasValidProgramFields(programId)
-        && (
-          request.resource.data.workoutDayCount == resource.data.workoutDayCount + 1
-          || request.resource.data.workoutDayCount == resource.data.workoutDayCount - 1
-        )
-        && hasUpdateAudit();
-    }
-
-    function isValidProgramPublish(programId) {
-      return resource.data.status == 'draft'
-        && resource.data.workoutDayCount >= 1
-        && changed().hasOnly([
-             'status', 'publishedAt', 'updatedAt', 'updatedByUid', 'updatedByEmail'
-           ])
-        && hasValidProgramFields(programId)
-        && request.resource.data.status == 'published'
-        && request.resource.data.publishedAt == request.time
-        && hasUpdateAudit();
-    }
-
-    /**
-     * [MERGE] `heroImage` added — the photograph behind each day's card on
-     * Home, authored with the day and stored in Cloud Storage.
-     */
-    function hasValidWorkoutDayFields(dayId) {
-      return request.resource.data.keys().hasOnly([
-          'id',
-          'dayNumber',
-          'label',
-          'focus',
-          'heroImage',
-          'estimatedMinutes',
-          'estimatedKcal',
-          'proofRequired',
-          'optional',
-          'exercises',
-          'createdAt',
-          'updatedAt',
-          'updatedByUid',
-          'updatedByEmail'
-        ])
-        && request.resource.data.id == dayId
-        && request.resource.data.dayNumber is int
-        && request.resource.data.dayNumber >= 1
-        && request.resource.data.dayNumber <= 14
-        && request.resource.data.label is string
-        && request.resource.data.label.size() >= 2
-        && request.resource.data.label.size() <= 100
-        && request.resource.data.focus is string
-        && request.resource.data.focus.size() >= 2
-        && request.resource.data.focus.size() <= 80
-        // Null renders the brand gradient on its own, which is a complete card.
-        && (request.resource.data.heroImage == null
-            || request.resource.data.heroImage.keys().hasOnly([
-                 'storagePath', 'downloadUrl', 'width', 'height', 'bytes'
-               ]))
-        && request.resource.data.estimatedMinutes is int
-        && request.resource.data.estimatedMinutes >= 1
-        && request.resource.data.estimatedMinutes <= 300
-        && request.resource.data.estimatedKcal is int
-        && request.resource.data.estimatedKcal >= 0
-        && request.resource.data.estimatedKcal <= 3000
-        && request.resource.data.proofRequired is bool
-        && request.resource.data.optional is bool
-        && request.resource.data.exercises is list
-        && request.resource.data.exercises.size() >= 1
-        && request.resource.data.exercises.size() <= 20
-        && request.resource.data.createdAt is timestamp
-        && hasUpdateAudit();
+        && request.resource.data.title is string
+        && request.resource.data.title.size() >= 2 && request.resource.data.title.size() <= 100
+        && request.resource.data.cohortId is string
+        && exists(/databases/$(database)/documents/cohorts/$(request.resource.data.cohortId))
+        && request.resource.data.cohortName is string && request.resource.data.cohortName.size() <= 100
+        && request.resource.data.startsAt is timestamp
+        && request.resource.data.durationMinutes is int
+        && request.resource.data.durationMinutes >= 5 && request.resource.data.durationMinutes <= 480
+        && request.resource.data.joinUrl is string
+        && request.resource.data.joinUrl.size() <= 2048
+        && request.resource.data.joinUrl.matches('https://\\S+')
+        && hasOperatorUpdateAudit();
+      allow delete: if isOperator();
     }
 
     match /programs/{programId} {
-      // [MERGE] Authored content. Members read it — the PWA loads the program
-      // and its workout days on every session — and an account without a
-      // membership does not: see `isMember`.
-      allow read: if isAdmin() || isMember();
+      allow read: if isOperator() || isMember();
 
-      allow create: if isAdmin() && isValidProgramCreate(programId);
-      allow update: if isAdmin()
+      function programIsDraft() {
+        return get(
+          /databases/$(database)/documents/programs/$(programId)
+        ).data.status == 'draft';
+      }
+
+      function programData() {
+        return get(/databases/$(database)/documents/programs/$(programId)).data;
+      }
+
+      // Live edits to a published program touch content, never structure:
+      // only the schedule revision and audit fields may change on the parent.
+      function validLiveScheduleEdit() {
+        return resource.data.status == 'published'
+          && request.resource.data.status == 'published'
+          && request.resource.data.scheduleRevision == resource.data.get('scheduleRevision', 0) + 1
+          && hasOperatorUpdateAudit()
+          && changed().hasOnly([
+               'scheduleRevision', 'updatedAt', 'updatedByUid', 'updatedByEmail'
+             ]);
+      }
+
+      function validPublish() {
+        return resource.data.status == 'draft'
+          && request.resource.data.status == 'published'
+          && request.resource.data.workoutDayCount > 0
+          && request.resource.data.weekThemesConfigured == true
+          && request.resource.data.rewardsConfigured == true
+          && request.resource.data.publishedAt == request.time
+          && hasOperatorUpdateAudit()
+          && changed().hasOnly([
+               'status', 'publishedAt', 'updatedAt',
+               'updatedByUid', 'updatedByEmail'
+             ]);
+      }
+
+      // A published version keeps its structure. Content edits to its weekly
+      // schedule go through validLiveScheduleEdit and the /weeks rule below;
+      // anything structural happens in a new draft from cloneProgramVersion.
+      allow create: if isOperator()
+        && request.resource.data.status == 'draft'
+        && request.resource.data.publishedAt == null;
+      allow update: if isOperator()
         && (
-          isValidDraftEdit(programId)
-          || isValidDraftWorkoutCountUpdate(programId)
-          || isValidProgramPublish(programId)
+          (resource.data.status == 'draft'
+            && ((request.resource.data.status == 'draft' && hasOperatorUpdateAudit())
+                || validPublish()))
+          || validLiveScheduleEdit()
         );
-      allow delete: if isAdmin()
-        && resource.data.status == 'draft'
-        && resource.data.workoutDayCount == 0;
+      allow delete: if isOperator() && resource.data.status == 'draft';
+
+      match /{sub=**} {
+        allow read: if isOperator() || isMember();
+      }
+
+      // Weeks, guides, and the flat `workoutDays` a migration leaves behind.
+      // Two segments only, so a training day below a week is not matched here:
+      // rules grant if *any* matching statement allows, and a recursive
+      // wildcard with a write would let a day around the checks below.
+      match /{collection}/{docId} {
+        allow write: if isOperator() && programIsDraft();
+      }
+
+      // A published week can be edited live, but keeps its number and the
+      // same days in the same order. Create only freezes a week that still
+      // reads the legacy flat schedule, and only within the program's length.
+      //
+      // Only console-shaped week documents (a `days` list) are writable here.
+      // The PWA's own week documents (title, dates, a nested `days`
+      // subcollection) share the `week-N` ids and must never be overwritten.
+      match /weeks/{weekId} {
+        function validLiveWeek() {
+          return isOperator()
+            && programData().status == 'published'
+            && request.resource.data.keys().hasOnly([
+                 'weekNumber', 'days', 'updatedAt', 'updatedByUid', 'updatedByEmail'
+               ])
+            && request.resource.data.weekNumber is int
+            && request.resource.data.weekNumber >= 1
+            && request.resource.data.weekNumber <= programData().totalWeeks
+            && weekId == 'week-' + string(request.resource.data.weekNumber)
+            && request.resource.data.days is list
+            && request.resource.data.days.size() > 0
+            && request.resource.data.days.size() <= 14
+            && hasOperatorUpdateAudit();
+        }
+
+        /** Rules cannot loop, so each day slot is compared by index up to 14. */
+        function sameDayAt(i) {
+          return request.resource.data.days.size() <= i
+            || (request.resource.data.days[i].id == resource.data.days[i].id
+                && request.resource.data.days[i].dayNumber == resource.data.days[i].dayNumber);
+        }
+
+        allow create: if validLiveWeek();
+        allow update: if validLiveWeek()
+          && 'days' in resource.data
+          && resource.data.days is list
+          && request.resource.data.weekNumber == resource.data.weekNumber
+          && request.resource.data.days.size() == resource.data.days.size()
+          && sameDayAt(0) && sameDayAt(1) && sameDayAt(2) && sameDayAt(3)
+          && sameDayAt(4) && sameDayAt(5) && sameDayAt(6) && sameDayAt(7)
+          && sameDayAt(8) && sameDayAt(9) && sameDayAt(10) && sameDayAt(11)
+          && sameDayAt(12) && sameDayAt(13);
+      }
+
+      /**
+       * An exercise's demo video: absent, null, or an https URL.
+       *
+       * Absent is accepted because every day authored before the field
+       * existed has none, and a rule that reads a missing key errors, which
+       * would deny an unrelated edit to that day. https only, because the app
+       * plays it inline on the How to tab and a plain http source is blocked
+       * as mixed content on an https page.
+       */
+      function validExercise(exercise) {
+        return exercise is map
+          && (!('videoUrl' in exercise)
+              || exercise.videoUrl == null
+              || (exercise.videoUrl is string
+                  && exercise.videoUrl.size() <= 2048
+                  && exercise.videoUrl.matches('https://.+')));
+      }
+
+      /** Rules cannot loop, so each slot is checked by index up to the cap. */
+      function exerciseAt(exercises, i) {
+        return exercises.size() <= i || validExercise(exercises[i]);
+      }
+
+      // A training day, with each exercise's video checked on the way in.
+      //
+      // The cap of 20 is what makes the per-index check complete: an exercise
+      // past the last slot checked would go in unchecked.
+      // A library rename or video change reaches a published day: only the
+      // exercise list may change, keeping its length, with videos checked.
+      function validLiveExerciseSync() {
+        return isOperator()
+          && programData().status == 'published'
+          && changed().hasOnly(['exercises', 'updatedAt', 'updatedByUid', 'updatedByEmail'])
+          && request.resource.data.exercises is list
+          && request.resource.data.exercises.size() == resource.data.exercises.size()
+          && request.resource.data.exercises.size() <= 20
+          && hasOperatorUpdateAudit()
+          && exerciseAt(request.resource.data.exercises, 0)
+          && exerciseAt(request.resource.data.exercises, 1)
+          && exerciseAt(request.resource.data.exercises, 2)
+          && exerciseAt(request.resource.data.exercises, 3)
+          && exerciseAt(request.resource.data.exercises, 4)
+          && exerciseAt(request.resource.data.exercises, 5)
+          && exerciseAt(request.resource.data.exercises, 6)
+          && exerciseAt(request.resource.data.exercises, 7)
+          && exerciseAt(request.resource.data.exercises, 8)
+          && exerciseAt(request.resource.data.exercises, 9)
+          && exerciseAt(request.resource.data.exercises, 10)
+          && exerciseAt(request.resource.data.exercises, 11)
+          && exerciseAt(request.resource.data.exercises, 12)
+          && exerciseAt(request.resource.data.exercises, 13)
+          && exerciseAt(request.resource.data.exercises, 14)
+          && exerciseAt(request.resource.data.exercises, 15)
+          && exerciseAt(request.resource.data.exercises, 16)
+          && exerciseAt(request.resource.data.exercises, 17)
+          && exerciseAt(request.resource.data.exercises, 18)
+          && exerciseAt(request.resource.data.exercises, 19);
+      }
 
       match /workoutDays/{dayId} {
-        allow read: if isAdmin() || isMember();
+        allow update: if validLiveExerciseSync();
+      }
 
-        allow create: if isAdmin()
-          && programData(programId).status == 'draft'
-          && hasValidWorkoutDayFields(dayId)
-          && request.resource.data.createdAt == request.time
-          && getAfter(/databases/$(database)/documents/programs/$(programId)).data.workoutDayCount
-            == programData(programId).workoutDayCount + 1;
-
-        allow update: if isAdmin()
-          && programData(programId).status == 'draft'
-          && changed().hasOnly([
-               'dayNumber', 'label', 'focus', 'heroImage', 'estimatedMinutes',
-               'estimatedKcal', 'proofRequired', 'optional', 'exercises',
-               'updatedAt', 'updatedByUid', 'updatedByEmail'
-             ])
-          && hasValidWorkoutDayFields(dayId);
-
-        allow delete: if isAdmin()
-          && programData(programId).status == 'draft'
-          && getAfter(/databases/$(database)/documents/programs/$(programId)).data.workoutDayCount
-            == programData(programId).workoutDayCount - 1;
+      match /weeks/{weekId}/days/{dayId} {
+        allow update: if validLiveExerciseSync();
+        allow create, update: if isOperator()
+          && programIsDraft()
+          && request.resource.data.exercises is list
+          && request.resource.data.exercises.size() <= 20
+          && exerciseAt(request.resource.data.exercises, 0)
+          && exerciseAt(request.resource.data.exercises, 1)
+          && exerciseAt(request.resource.data.exercises, 2)
+          && exerciseAt(request.resource.data.exercises, 3)
+          && exerciseAt(request.resource.data.exercises, 4)
+          && exerciseAt(request.resource.data.exercises, 5)
+          && exerciseAt(request.resource.data.exercises, 6)
+          && exerciseAt(request.resource.data.exercises, 7)
+          && exerciseAt(request.resource.data.exercises, 8)
+          && exerciseAt(request.resource.data.exercises, 9)
+          && exerciseAt(request.resource.data.exercises, 10)
+          && exerciseAt(request.resource.data.exercises, 11)
+          && exerciseAt(request.resource.data.exercises, 12)
+          && exerciseAt(request.resource.data.exercises, 13)
+          && exerciseAt(request.resource.data.exercises, 14)
+          && exerciseAt(request.resource.data.exercises, 15)
+          && exerciseAt(request.resource.data.exercises, 16)
+          && exerciseAt(request.resource.data.exercises, 17)
+          && exerciseAt(request.resource.data.exercises, 18)
+          && exerciseAt(request.resource.data.exercises, 19);
+        allow delete: if isOperator() && programIsDraft();
       }
     }
 
-    // =========================================================================
-    // Cohorts — `cohorts/{cohortId}`
-    // =========================================================================
-
-    /**
-     * [MERGE] `endDate` and `coach` added.
-     *
-     * `endDate` is stored rather than derived from `startDate + durationWeeks`,
-     * because "which cohorts are still running" is a range query and Firestore
-     * cannot compute one side of one. `coach` is the denormalised `CoachRef`
-     * shown on nearly every screen in the app.
-     */
-    function hasValidCohortFields() {
-      return request.resource.data.name is string
-        && request.resource.data.name.size() >= 2
-        && request.resource.data.name.size() <= 80
-        && request.resource.data.startDate is timestamp
-        && request.resource.data.endDate is timestamp
-        && request.resource.data.endDate > request.resource.data.startDate
-        && request.resource.data.durationWeeks is int
-        && request.resource.data.durationWeeks >= 1
-        && request.resource.data.durationWeeks <= 52
-        // IANA zone, e.g. `Africa/Lagos`. The day boundary every gate uses.
-        && request.resource.data.timezone is string
-        && request.resource.data.timezone.size() >= 3
-        && request.resource.data.timezone.size() <= 64
-        && request.resource.data.coach.keys().hasOnly(['uid', 'name', 'title', 'avatarUrl'])
-        && request.resource.data.coach.uid is string
-        && request.resource.data.coach.name is string;
-    }
-
-    function hasValidPublishedProgramSnapshot() {
-      return request.resource.data.programId is string
-        && request.resource.data.programId.size() >= 1
-        && request.resource.data.programId.size() <= 128
-        && request.resource.data.programName is string
-        && request.resource.data.programName.size() >= 1
-        && request.resource.data.programName.size() <= 100
-        && request.resource.data.programVersion is int
-        && request.resource.data.programVersion >= 1
-        && programData(request.resource.data.programId).status == 'published'
-        && programData(request.resource.data.programId).name == request.resource.data.programName
-        && programData(request.resource.data.programId).version
-             == request.resource.data.programVersion;
-    }
-
-    function hasNoProgramSnapshot() {
-      return request.resource.data.programId == null
-        && request.resource.data.programName == null
-        && request.resource.data.programVersion == null;
-    }
-
-    /**
-     * [MERGE] A draft may be created without a program.
-     *
-     * The console ruleset required a published program snapshot at create while
-     * also carrying `isValidCohortProgramAssignment` for cohorts whose
-     * `programId` is null — a state its own create rule made unreachable.
-     * Draft-then-assign is the flow the assignment rule was written for, so
-     * create allows either.
-     */
-    function isValidCohortCreate() {
-      return request.resource.data.keys().hasOnly([
-          'name',
-          'status',
-          'startDate',
-          'endDate',
-          'durationWeeks',
-          'timezone',
-          'memberCount',
-          'coach',
-          'programId',
-          'programName',
-          'programVersion',
-          'createdAt',
-          'createdByUid',
-          'createdByEmail',
-          'updatedAt',
-          'updatedByUid',
-          'updatedByEmail',
-          'archivedAt'
-        ])
-        && hasValidCohortFields()
-        && request.resource.data.status in ['draft', 'active']
-        // A cohort goes live with a program or not at all.
-        && (request.resource.data.status == 'draft'
-            || hasValidPublishedProgramSnapshot())
-        && (hasValidPublishedProgramSnapshot() || hasNoProgramSnapshot())
-        // Maintained by an Admin SDK trigger, not by any client. See header.
-        && request.resource.data.memberCount == 0
-        && request.resource.data.archivedAt == null
-        && hasCreateAudit()
-        && hasUpdateAudit();
-    }
-
-    function isValidCohortEdit() {
-      return resource.data.status in ['draft', 'active']
-        && changed().hasOnly([
-             'name', 'startDate', 'endDate', 'durationWeeks', 'timezone', 'coach',
-             'updatedAt', 'updatedByUid', 'updatedByEmail'
-           ])
-        && hasValidCohortFields()
-        && hasUpdateAudit();
-    }
-
-    function isValidCohortStatusUpdate() {
-      return resource.data.status in ['draft', 'active']
-        && changed().hasOnly([
-             'status', 'archivedAt', 'updatedAt', 'updatedByUid', 'updatedByEmail'
-           ])
-        && (
-          (
-            resource.data.status == 'draft'
-            && request.resource.data.status == 'active'
-            && request.resource.data.programId is string
-            && request.resource.data.archivedAt == null
-          )
-          || (
-            request.resource.data.status == 'archived'
-            && request.resource.data.archivedAt == request.time
-          )
-        )
-        && hasUpdateAudit();
-    }
-
-    /** Assign a program to a draft, or to an active cohort that has none. */
-    function isValidCohortProgramAssignment() {
-      return resource.data.status in ['draft', 'active']
-        && changed().hasOnly([
-             'programId', 'programName', 'programVersion',
-             'updatedAt', 'updatedByUid', 'updatedByEmail'
-           ])
-        && (
-          resource.data.status == 'draft'
-          || (
-            resource.data.status == 'active'
-            && (!('programId' in resource.data) || resource.data.programId == null)
-          )
-        )
-        && hasValidPublishedProgramSnapshot()
-        && hasUpdateAudit();
-    }
-
+    // --- Cohorts -----------------------------------------------------------
     match /cohorts/{cohortId} {
-      allow read: if inCohort(cohortId) || isAdmin();
+      allow read: if inCohort(cohortId) || isOperator();
 
-      allow create: if isAdmin() && isValidCohortCreate();
-      allow update: if isAdmin()
-        && (
-          isValidCohortEdit()
-          || isValidCohortStatusUpdate()
-          || isValidCohortProgramAssignment()
-        );
-      allow delete: if false;
-
-      // [MERGE] Coach-authored announcements. Read state is per member and
-      // lives under the member document, so nothing here is ever written by a
-      // client.
-      match /notifications/{notificationId} {
-        allow read: if inCohort(cohortId) || isAdmin();
-        allow write: if isAdmin();
+      function keepsActiveProgramPin() {
+        return resource.data.status != 'active'
+          || resource.data.get('programId', null) == null
+          || (
+            request.resource.data.get('programId', null) == resource.data.programId
+            && request.resource.data.get('programName', null) == resource.data.get('programName', null)
+            && request.resource.data.get('programVersion', null) == resource.data.get('programVersion', null)
+          );
       }
 
-      // [MERGE] The board projection: name, avatar, count. Deliberately the
-      // only cross-member read in the system. See the header.
+      allow create: if isOperator();
+      allow update: if isOperator()
+        && resource.data.status != 'archived'
+        && request.resource.data.status in ['draft', 'active', 'archived']
+        && keepsActiveProgramPin()
+        && hasOperatorUpdateAudit();
+      allow delete: if isOperator()
+        && resource.data.status == 'draft'
+        && resource.data.get('memberCount', 0) == 0;
+
+      // Coach-authored announcements. Read state is per member and lives on
+      // the member document, so nothing here is ever written by a client.
+      match /notifications/{notificationId} {
+        allow read: if inCohort(cohortId) || isOperator();
+        allow write: if isOperator();
+      }
+
+      // The announcement deck behind the inbox: the same trust shape as the
+      // notifications above, and a separate collection because the two are
+      // authored differently and read on different screens. Longer-form,
+      // card-shaped, and carrying a call to action the line-item inbox has no
+      // room for. Nothing a member does writes one.
+      match /announcements/{announcementId} {
+        allow read: if inCohort(cohortId) || isOperator();
+        allow write: if isOperator();
+      }
+
+      // The board projection: name, avatar, count. Deliberately the only
+      // cross-member read in the system. See the header.
       match /leaderboard/{memberId} {
-        allow read: if inCohort(cohortId) || isAdmin();
+        allow read: if inCohort(cohortId) || isOperator();
 
         // Your own row only, and it can never carry more than these four
         // fields — this is the boundary that keeps the projection a
@@ -837,8 +776,9 @@ service cloud.firestore {
         // `getAfter`, because redemption writes this row in the same
         // transaction that creates the member document, and `get` would not
         // see it yet. A row may also keep the name it already has: that is how
-        // `deleteSession` writes, merging only the count.
-        allow create, update: if isAdmin() || (
+        // `deleteSession` writes, merging only the count, and it must not fail
+        // on a row whose name went stale before this rule existed.
+        allow create, update: if isOperator() || (
           isSelf(memberId)
           && request.resource.data.keys().hasOnly(
                ['name', 'avatarUrl', 'sessions', 'updatedAt'])
@@ -850,124 +790,264 @@ service cloud.firestore {
                 && request.resource.data.get('name', null) == resource.data.get('name', null))
           )
         );
-        allow delete: if isAdmin() || isSelf(memberId);
+        allow delete: if isOperator() || isSelf(memberId);
       }
 
-      // --- Threads ---------------------------------------------------------
-      // [MERGE] `cohort` is the group thread. Every other thread id is a
-      // member uid: that member's private thread with the coach.
-      match /threads/{threadId}/messages/{messageId} {
+      // --- Threads -------------------------------------------------------
+      // `cohort` is the group thread. Every other thread id is a member uid:
+      // that member's private thread with the coach.
+      //
+      // The match is nested on the thread rather than spelled out per
+      // subcollection so `myThread()` is written once. It gates both the
+      // messages and the typing markers, and two copies of a predicate that
+      // decides who may read a private thread with their coach is two copies
+      // to keep in step.
+      match /threads/{threadId} {
         function myThread() {
           return threadId == 'cohort' || threadId == request.auth.uid;
         }
 
-        allow read: if isAdmin() || (inCohort(cohortId) && myThread());
+        function validThreadProjection() {
+          return request.resource.data.keys().hasOnly([
+              'threadId', 'cohortId', 'kind', 'memberUid', 'memberName',
+              'cohortName', 'lastMessageText', 'lastMessageAt',
+              'lastMessageAuthorUid', 'lastMessageAuthorName',
+              'lastReadByAdminAt', 'unreadForAdmin', 'updatedAt',
+              'updatedByUid', 'updatedByEmail'
+            ])
+            && request.resource.data.threadId == threadId
+            && request.resource.data.cohortId == cohortId
+            && request.resource.data.kind in ['group', 'direct']
+            && (threadId == 'cohort'
+              ? request.resource.data.kind == 'group'
+                && request.resource.data.memberUid == null
+              : request.resource.data.kind == 'direct'
+                && request.resource.data.memberUid == threadId)
+            && request.resource.data.updatedAt == request.time
+            && request.resource.data.updatedByUid == request.auth.uid
+            && request.resource.data.updatedByEmail == request.auth.token.email;
+        }
 
-        // [MERGE] The admin branch is new. The previous member ruleset pinned
-        // `isCoach == false` on every create with no exception, which left the
-        // coach unable to post into their own threads.
-        allow create: if (
-            isAdmin()
+        allow read: if isOperator() || (inCohort(cohortId) && myThread());
+        allow create, update: if isOperator() && validThreadProjection();
+        allow delete: if false;
+
+        match /messages/{messageId} {
+          /**
+           * Whether a reaction moves `reactors` and `reactedAt` the one way it
+           * may: the caller's own entry and nobody else's.
+           *
+           * Joining — no entry before, one after — is the only move that dates
+           * the message, and it has to be made under the member's own name and
+           * at `request.time`, since the entry is what the author's inbox
+           * reads out ("Tomi reacted to your message") and a name or a time the
+           * caller chose would be words put in someone else's mouth. Leaving
+           * deletes the entry and dates nothing. Every other reaction touches
+           * neither field, which is also what a build from before they existed
+           * sends. The author never joins their own message.
+           *
+           * Keyed by uid so this is one map diff rather than a walk over a list,
+           * which rules cannot do.
+           */
+          function movesOnlyOwnReactor() {
+            let uid = request.auth.uid;
+            let before = resource.data.get('reactors', {});
+            let after = request.resource.data.get('reactors', {});
+            let joined = !(uid in before) && uid in after;
+            return after is map
+              && after.diff(before).affectedKeys().hasOnly([uid])
+              && (joined
+                ? uid != resource.data.authorUid
+                  && after[uid] == {'name': shownName(me(), 'Someone'), 'at': request.time}
+                  && request.resource.data.reactedAt == request.time
+                : request.resource.data.get('reactedAt', null) == resource.data.get('reactedAt', null)
+                  && (!(uid in after) || after[uid] == before[uid]));
+          }
+
+          allow read: if isOperator() || (inCohort(cohortId) && myThread());
+
+          allow create: if (
+            isOperator()
             && request.resource.data.authorUid == request.auth.uid
+            && request.resource.data.authorName is string
+            && request.resource.data.text is string
+            && (request.resource.data.text.size() > 0
+                || ('attachments' in request.resource.data
+                    && request.resource.data.attachments is list
+                    && request.resource.data.attachments.size() > 0))
+            && request.resource.data.sentAt is timestamp
+            && request.resource.data.isCoach == true
             && request.resource.data.reactionCounts.size() == 0
+            && !('reactors' in request.resource.data)
+            && !('reactedAt' in request.resource.data)
+            && (!('addressedUids' in request.resource.data)
+                || request.resource.data.addressedUids is list)
           ) || (
             inCohort(cohortId)
             && myThread()
             && request.resource.data.authorUid == request.auth.uid
-            // Posted under the member's own name.
+            // Posted under the member's own name. The edit rule below never lets
+            // `authorName` move, so this is the only check it needs.
             && request.resource.data.authorName == shownName(me(), 'You')
             // Only the coach's messages get the coach's styling.
             && request.resource.data.isCoach == false
             // A new message starts with no reactions. Counts are only ever
-            // moved by the increment below.
+            // moved by the increment below, and who reacted only ever by
+            // `movesOnlyOwnReactor`.
             && request.resource.data.reactionCounts.size() == 0
+            && !('reactors' in request.resource.data)
+            && !('reactedAt' in request.resource.data)
+            // Who it is aimed at, which is what puts it in their inbox. A list
+            // when present; absent is still accepted, because a phone on a
+            // build from before the field existed is still sending messages.
+            //
+            // Nothing here can check it against `mentions` and `replyTo` —
+            // rules have no way to map over a list — so a member could reach
+            // somebody without writing their name. That is no more than an
+            // `@` already lets them do, and it reaches only their own cohort:
+            // nobody else's inbox queries this thread.
+            && (!('addressedUids' in request.resource.data)
+                || request.resource.data.addressedUids is list)
           );
 
-        // Nobody edits a sent message. The only writable part is the reaction
-        // tally, and only ever one emoji at a time.
-        allow update: if isAdmin() || (
-          inCohort(cohortId) && myThread()
-          && changed().hasOnly(['reactionCounts'])
-        );
+          // Two writes may touch a sent message, and nothing else may.
+          //
+          // The first is a reaction: the tally, moved one emoji at a time by
+          // anyone who can read the thread, and with it the caller's own entry
+          // in who reacted — see `movesOnlyOwnReactor`.
+          //
+          // The second is the author correcting their own words, for fifteen
+          // minutes and then never again — the window in `EDIT_WINDOW_MS`,
+          // enforced here because a limit the client alone applies is a limit
+          // anyone with the SDK can ignore. `hasOnly` on the four fields an
+          // edit owns — the words, when they changed, who they name and so who
+          // they reach — is what keeps an "edit" from being something else
+          // wearing its name: an update free to move `sentAt` could re-date a
+          // message back into a window it has left, one free to move
+          // `authorUid` could hand it to somebody else, and one free to move
+          // `reactionCounts` could invent applause. `editedAt` must be `request.time` rather than a value the
+          // caller chose, because "Edited" is a claim about *when*, and the
+          // caller is the only party with a reason to misstate it.
+          //
+          // The coach's exemption is the one already here: coach tooling runs
+          // on the Admin SDK, which bypasses all of this anyway.
+          allow update: if isOperator() || (
+            inCohort(cohortId) && myThread()
+            && (
+              (changed().hasOnly(['reactionCounts', 'reactors', 'reactedAt'])
+                && movesOnlyOwnReactor())
+              || (
+                changed().hasOnly(['text', 'editedAt', 'mentions', 'addressedUids'])
+                && resource.data.authorUid == request.auth.uid
+                && request.resource.data.editedAt == request.time
+                && request.resource.data.text is string
+                && request.resource.data.text.size() > 0
+                && request.resource.data.mentions is list
+                && (!('addressedUids' in request.resource.data)
+                    || request.resource.data.addressedUids is list)
+                && request.time < resource.data.sentAt + duration.value(15, 'm')
+              )
+            )
+          );
 
-        allow delete: if isAdmin() || (
-          inCohort(cohortId) && resource.data.authorUid == request.auth.uid
-        );
+          allow delete: if isOperator() || (
+            inCohort(cohortId) && resource.data.authorUid == request.auth.uid
+          );
 
-        // Who reacted, one document per reactor, keyed by uid so a member can
-        // only ever move their own.
-        match /reactions/{reactorId} {
-          allow read: if isAdmin() || inCohort(cohortId);
-          allow write: if isSelf(reactorId) && inCohort(cohortId);
+          // Who reacted, one document per reactor, keyed by uid so a member can
+          // only ever move their own.
+          match /reactions/{reactorId} {
+            allow read: if isOperator() || inCohort(cohortId);
+            allow write: if isSelf(reactorId) && inCohort(cohortId);
+          }
+        }
+
+        // Who has the composer open, one document per person, keyed by uid.
+        //
+        // The two fields are the whole point of the restriction: a marker that
+        // could carry arbitrary data would be a second, unmoderated way to put
+        // text in front of the cohort, written to a path nothing renders as a
+        // message and nobody would think to look at.
+        match /typing/{typistId} {
+          allow read: if isOperator() || (inCohort(cohortId) && myThread());
+
+          // Split from delete for the reason the leaderboard block is split:
+          // on a delete `request.resource` is null, so a `keys()` check on it
+          // errors and denies — which would leave a member unable to say they
+          // had stopped typing.
+          allow create, update: if isOperator() || (
+            isSelf(typistId)
+            && inCohort(cohortId)
+            && myThread()
+            && request.resource.data.keys().hasOnly(['name', 'at'])
+            && request.resource.data.name == shownName(me(), 'Someone')
+          );
+
+          allow delete: if isOperator() || (isSelf(typistId) && inCohort(cohortId));
         }
       }
     }
 
-    // =========================================================================
-    // Members — `members/{uid}`
-    // =========================================================================
-
-    /**
-     * [MERGE] Restored from the member ruleset. The console had
-     * `allow create: if false`, which makes sign-up impossible: creating the
-     * member document is half of redeeming a code, and the claim above is the
-     * other half. The two run in one transaction.
-     *
-     * The fields checked here are the ones that decide what the member is
-     * entitled to, so none of them may be self-assigned freely. Timestamps are
-     * client-clock (`Timestamp.now()`) inside the transaction and so are not
-     * pinned to `request.time`.
-     */
-    function isValidMemberCreate() {
+    // --- Members -----------------------------------------------------------
+    function isValidMemberCreate(uid) {
+      let code = getAfter(
+        /databases/$(database)/documents/accessCodes/$(request.resource.data.accessCode)
+      );
       return request.resource.data.status == 'onboarding'
         && request.resource.data.accessCode is string
         && request.resource.data.email == request.auth.token.email
-        // The sign-in it was made under, which is what `trustsSignIn` reads.
-        // Required, so no new membership can pass for one from before it.
-        && request.resource.data.joinedWith == request.auth.token.firebase.sign_in_provider
-        // Points cannot be conjured at sign-up.
+        // Older/current PWA builds omit this field. When present it must be
+        // truthful; when absent, `trustsSignIn()` still refuses a future
+        // unverified linked-Google sign-in after the compatibility cutoff.
+        && (!('joinedWith' in request.resource.data)
+            || request.resource.data.joinedWith
+                 == request.auth.token.firebase.sign_in_provider)
         && request.resource.data.stats.points == 0
         && request.resource.data.stats.sessionsQualified == 0
-        // The cohort has to be the one the code actually belongs to.
-        && request.resource.data.cohortId == get(
-             /databases/$(database)/documents/accessCodes/$(request.resource.data.accessCode)
-           ).data.cohortId;
+        // A region's floor is `setRegion`'s to stamp.
+        && !('region' in request.resource.data)
+        // The membership and claim are one transaction, including rebuilds
+        // where the code was already claimed by this uid.
+        && code.data.status == 'claimed'
+        && code.data.claimedByUid == uid
+        && request.resource.data.cohortId == code.data.cohortId
+        && request.resource.data.cohortName == code.data.cohortName
+        // New codes pin a program. Legacy codes may omit it; the PWA writes
+        // the same empty/default snapshot and resolves the cohort program when
+        // it first loads training content.
+        && request.resource.data.programId == code.data.get('programId', '')
+        && request.resource.data.programVersion
+             == code.data.get('programVersion', 1);
     }
 
-    /**
-     * Immutable once set: these define who the member is and what they paid
-     * for, and a self-service change to any of them is an attack. `email`
-     * among them, because it is what `keepsMemberEmail` holds the account to —
-     * an account that could rewrite it could follow its own email change. And
-     * `joinedWith`, whose absence is what exempts a membership from
-     * `trustsSignIn`: deleting it would buy the exemption.
-     *
-     * The one status transition a member makes for themselves is finishing
-     * setup — `completeSetup()` writes `status: 'active'`. Everything else on
-     * the lifecycle is the console's, and the pause fields are untouchable
-     * from here, so a paused member cannot resume themselves by clearing them.
-     *
-     * Display name and height are answered at setup and fixed after it — which
-     * is also why `status` may never go back to `onboarding`. Read with `get`
-     * so a document from before either field existed still takes other
-     * updates: a missing key is null on both sides.
-     */
     function isValidMemberSelfUpdate() {
-      return request.resource.data.get('email', null) == resource.data.get('email', null)
-        && request.resource.data.get('joinedWith', null) == resource.data.get('joinedWith', null)
+      return request.resource.data.get('email', null)
+             == resource.data.get('email', null)
+        && request.resource.data.get('joinedWith', null)
+             == resource.data.get('joinedWith', null)
         && request.resource.data.cohortId == resource.data.cohortId
+        && request.resource.data.get('cohortName', null)
+             == resource.data.get('cohortName', null)
         && request.resource.data.accessCode == resource.data.accessCode
         && request.resource.data.joinedAt == resource.data.joinedAt
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.programId == resource.data.programId
-        && (
-          request.resource.data.status == resource.data.status
-          || (resource.data.status == 'onboarding'
-              && request.resource.data.status == 'active')
-        )
-        && request.resource.data.previousStatus == resource.data.previousStatus
-        && request.resource.data.pauseReason == resource.data.pauseReason
-        && request.resource.data.pausedAt == resource.data.pausedAt
+        && request.resource.data.get('programVersion', null)
+             == resource.data.get('programVersion', null)
+        // Written only by `setRegion`, which stamps the floor that keeps a
+        // region change forward-only.
+        && request.resource.data.get('region', null)
+             == resource.data.get('region', null)
+        && (request.resource.data.status == resource.data.status
+            || (resource.data.status == 'onboarding'
+                && request.resource.data.status == 'active'))
+        && request.resource.data.get('previousStatus', null)
+             == resource.data.get('previousStatus', null)
+        && request.resource.data.get('pauseReason', null)
+             == resource.data.get('pauseReason', null)
+        && request.resource.data.get('pausedAt', null)
+             == resource.data.get('pausedAt', null)
+        // Display name and height are setup answers and stay fixed afterwards.
         && (resource.data.status == 'onboarding' || (
           request.resource.data.get('profile', {}).get('displayName', null)
             == resource.data.get('profile', {}).get('displayName', null)
@@ -979,64 +1059,50 @@ service cloud.firestore {
     function isValidMemberPause() {
       return resource.data.status in ['onboarding', 'active']
         && changed().hasOnly([
-             'status', 'previousStatus', 'pauseReason', 'pausedAt',
-             'updatedAt', 'updatedByUid', 'updatedByEmail'
-           ])
+          'status', 'previousStatus', 'pauseReason', 'pausedAt',
+          'updatedAt', 'updatedByUid', 'updatedByEmail'
+        ])
         && request.resource.data.status == 'paused'
         && request.resource.data.previousStatus == resource.data.status
         && request.resource.data.pauseReason is string
         && request.resource.data.pauseReason.size() >= 3
         && request.resource.data.pauseReason.size() <= 240
         && request.resource.data.pausedAt == request.time
-        && hasUpdateAudit();
+        && hasOperatorUpdateAudit();
     }
 
     function isValidMemberResume() {
       return resource.data.status == 'paused'
         && resource.data.previousStatus in ['onboarding', 'active']
         && changed().hasOnly([
-             'status', 'previousStatus', 'pauseReason', 'pausedAt',
-             'updatedAt', 'updatedByUid', 'updatedByEmail'
-           ])
+          'status', 'previousStatus', 'pauseReason', 'pausedAt',
+          'updatedAt', 'updatedByUid', 'updatedByEmail'
+        ])
         && request.resource.data.status == resource.data.previousStatus
         && request.resource.data.previousStatus == null
         && request.resource.data.pauseReason == null
         && request.resource.data.pausedAt == null
-        && hasUpdateAudit();
+        && hasOperatorUpdateAudit();
     }
 
-    /**
-     * [MERGE] `members/{uid}/lifecycleEvents/{eventId}`, not `.../events`.
-     *
-     * Three changes from the console's version: the collection name, which the
-     * client already writes to; `member.joined` and `member.completed` in the
-     * type union, which the client already emits; and `fromStatus` allowed to
-     * be null, because a member joining has no prior status to come from.
-     *
-     * `eventId` as a stored field is optional — the client uses an auto-id and
-     * does not duplicate it into the document.
-     */
-    function isValidLifecycleEvent(memberId, eventId) {
+    function isValidLifecycleEvent(uid, eventId) {
       return request.resource.data.keys().hasOnly([
-          'eventId',
-          'memberId',
-          'type',
-          'fromStatus',
-          'toStatus',
-          'reason',
-          'createdAt',
-          'createdByUid',
-          'createdByEmail'
+          'eventId', 'memberId', 'type', 'fromStatus', 'toStatus', 'reason',
+          'createdAt', 'createdByUid', 'createdByEmail'
         ])
         && (!('eventId' in request.resource.data)
             || request.resource.data.eventId == eventId)
-        && request.resource.data.memberId == memberId
+        && request.resource.data.memberId == uid
         && request.resource.data.type in [
-             'member.joined', 'member.paused', 'member.resumed', 'member.completed'
-           ]
+          'member.joined', 'member.paused', 'member.resumed', 'member.completed'
+        ]
         && (request.resource.data.fromStatus == null
-            || request.resource.data.fromStatus in ['onboarding', 'active', 'paused'])
-        && request.resource.data.toStatus in ['onboarding', 'active', 'paused', 'completed']
+            || request.resource.data.fromStatus in [
+              'onboarding', 'active', 'paused', 'completed'
+            ])
+        && request.resource.data.toStatus in [
+          'onboarding', 'active', 'paused', 'completed'
+        ]
         && request.resource.data.reason is string
         && request.resource.data.reason.size() >= 3
         && request.resource.data.reason.size() <= 240
@@ -1045,51 +1111,84 @@ service cloud.firestore {
         && request.resource.data.createdByEmail == request.auth.token.email;
     }
 
-    match /members/{uid} {
-      // [MERGE] Admin read added for support tooling. Bulk work still belongs
-      // on the Admin SDK, which bypasses rules entirely.
-      allow read: if isSelf(uid) || isAdmin();
+    function isValidSessionReview() {
+      return changed().hasOnly([
+          'reviewStatus', 'reviewNote', 'reviewedAt',
+          'reviewedByUid', 'reviewedByEmail',
+          'updatedAt', 'updatedByUid', 'updatedByEmail'
+        ])
+        && request.resource.data.reviewStatus in [
+          'approved', 'needs-attention', 'rejected'
+        ]
+        && request.resource.data.get('reviewNote', '') is string
+        && request.resource.data.get('reviewNote', '').size() <= 500
+        && request.resource.data.reviewedAt == request.time
+        && hasOperatorUpdateAudit();
+    }
 
-      allow create: if isSelf(uid) && isValidMemberCreate();
+    function isValidCheckInReview() {
+      return changed().hasOnly([
+          'reviewStatus', 'reviewNote', 'reviewedAt',
+          'reviewedByUid', 'reviewedByEmail',
+          'updatedAt', 'updatedByUid', 'updatedByEmail'
+        ])
+        && request.resource.data.reviewStatus in ['reviewed', 'needs-attention']
+        && request.resource.data.get('reviewNote', '') is string
+        && request.resource.data.get('reviewNote', '').size() <= 500
+        && request.resource.data.reviewedAt == request.time
+        && hasOperatorUpdateAudit();
+    }
+
+    match /members/{uid} {
+      // Operators can support members without gaining broad profile writes.
+      allow read: if isSelf(uid) || isOperator();
+
+      allow create: if isSelf(uid) && isValidMemberCreate(uid);
 
       allow update: if (isSelf(uid) && isValidMemberSelfUpdate())
-        || (isAdmin() && (isValidMemberPause() || isValidMemberResume()));
+        || (isOperator() && (isValidMemberPause() || isValidMemberResume()));
 
-      // Admin only. A member who could delete their own document could redeem
-      // their code again, which rebuilds it in `onboarding` and reopens the
-      // display name and height that `isValidMemberSelfUpdate` fixes. The
-      // client's `reset()` is the one writer this refuses, and nothing in the
-      // app calls it.
-      allow delete: if isAdmin();
+      // Erasure remains a server-side operation so Auth, Storage, projections,
+      // and subcollections can be removed together.
+      allow delete: if false;
 
-      // Everything below a member belongs to that member alone. One rule
-      // rather than eight: sessions, check-ins, photos, badges, the active
-      // session, notification read state and lifecycle events all share the
-      // same answer, and listing them separately invites one to drift.
+      // Operators may inspect activity for support. Only the member writes it.
+      // Check-ins and lifecycle history have stricter append-only blocks below.
+      // Sessions, check-ins and photos are filed on a day or a week, and the
+      // day is the server's: the functions in `apps/functions` write them, so
+      // no member writes them here.
       match /{collection}/{docId} {
-        allow read, write: if isSelf(uid);
+        allow read: if isOperator()
+          || (isSelf(uid)
+              && collection != 'checkIns'
+              && collection != 'lifecycleEvents');
+        allow write: if isSelf(uid)
+          && !(collection in ['checkIns', 'lifecycleEvents', 'sessions', 'photos']);
       }
 
-      // Rules are additive, so these blocks only *widen* the wildcard above.
-      // They are what the console reads for support, and nothing more: no
-      // admin write reaches a member's logged data.
+      // A week's check-in is create-once and immutable. `submitCheckIn` creates it.
+      match /checkIns/{weekId} {
+        allow read: if isSelf(uid) || isOperator();
+        allow update: if isOperator() && isValidCheckInReview();
+        allow delete: if false;
+      }
+
+      // `logSession` creates it; a logged session stays logged.
       match /sessions/{sessionId} {
-        allow read: if isAdmin();
+        allow read: if isSelf(uid) || isOperator();
+        allow update: if isOperator() && isValidSessionReview();
+        allow delete: if false;
       }
 
-      match /checkIns/{checkInId} {
-        allow read: if isAdmin();
-      }
-
+      // `logPhoto` files it; the member may still take their own image back.
       match /photos/{photoId} {
-        allow read: if isAdmin();
+        allow delete: if isSelf(uid);
       }
 
-      // Written by the member on join and completion, and by the console on
-      // pause and resume. Same shape either way; append-only for both.
+      // Status history is append-only for both member and operator.
       match /lifecycleEvents/{eventId} {
-        allow read: if isSelf(uid) || isAdmin();
-        allow create: if (isSelf(uid) || isAdmin())
+        allow read: if isSelf(uid) || isOperator();
+        allow create: if (isSelf(uid) || isOperator())
           && isValidLifecycleEvent(uid, eventId);
         allow update, delete: if false;
       }

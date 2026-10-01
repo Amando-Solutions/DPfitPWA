@@ -10,6 +10,13 @@
 // between syncs. Nothing here blocks the app: the offset is restored from the
 // last session synchronously at boot and the network sync lands whenever it
 // lands.
+//
+// The time zone is the other half, and the device's is no more trustworthy
+// than its clock. So no day is ever read in it: `dateKeyIn` takes a zone by
+// name — the cohort's for the Cohort Clock, the member's stored region for the
+// day-lock. What this clock decides is only what the screens *show*; the
+// writes that are locked to a day are decided again by the functions in
+// `apps/functions/src/member-writes.ts`, on the server's clock.
 // =============================================================================
 
 import { Timestamp } from 'firebase/firestore'
@@ -42,12 +49,140 @@ let offsetMs = 0
 let lastSyncAt = 0
 let networkBacked = false
 
-/** Local calendar day as `YYYY-MM-DD`. The rule is per calendar day, not per 24h. */
-export const dateKey = (date: Date | Timestamp): string => {
-  if (date instanceof Timestamp) return dateKey(date.toDate())
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${date.getFullYear()}-${month}-${day}`
+/**
+ * The cohort's zone when its document has none it can use. Every cohort so far
+ * runs on Lagos time, and "WAT" is what the program copy promises.
+ */
+export const COHORT_ZONE_FALLBACK = 'Africa/Lagos'
+
+/**
+ * A zone's canonical IANA name, or `null` when this browser does not know it.
+ * Free text such as "Lagos, WAT" is refused.
+ */
+export const canonicalZone = (value: unknown): string | null => {
+  if (typeof value !== 'string' || !value.trim()) return null
+  try {
+    return new Intl.DateTimeFormat('en-GB', { timeZone: value.trim() }).resolvedOptions().timeZone
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The zone this device is set to, for what is only ever *shown*.
+ *
+ * Never for deciding anything — see `dateKeyIn`. It is for the chat thread,
+ * whose bubble times are the member's own wall clock, and whose day bands have
+ * to agree with those times: a band reading "Today" over a bubble reading a
+ * time from last night would be the thread contradicting itself.
+ */
+export const deviceZone = (): string =>
+  canonicalZone(Intl.DateTimeFormat().resolvedOptions().timeZone) ?? COHORT_ZONE_FALLBACK
+
+/**
+ * One formatter per zone, kept.
+ *
+ * Building an `Intl.DateTimeFormat` is the expensive part of reading a day, and
+ * the chat thread reads one per message on every render of up to two hundred.
+ */
+const keyFormats = new Map<string, Intl.DateTimeFormat>()
+
+/**
+ * The calendar day an instant falls on in `timeZone`, as `YYYY-MM-DD`.
+ *
+ * There is deliberately no version of this without a zone. The device's own
+ * zone is its owner's to change, and a day read in it could be moved: every day
+ * the app decides anything by is the cohort's (the Cohort Clock) or the
+ * member's stored region's (the day-lock). `en-CA` because it is the locale
+ * that formats as year-month-day. An unknown zone reads as Lagos.
+ */
+export const dateKeyIn = (date: Date | Timestamp, timeZone: string): string => {
+  const at = date instanceof Timestamp ? date.toDate() : date
+  const format = (zone: string) => {
+    let formatter = keyFormats.get(zone)
+    if (!formatter) {
+      formatter = new Intl.DateTimeFormat('en-CA', {
+        year: 'numeric', month: '2-digit', day: '2-digit', timeZone: zone,
+      })
+      keyFormats.set(zone, formatter)
+    }
+    return formatter.format(at)
+  }
+  try {
+    return format(timeZone)
+  } catch {
+    return format(COHORT_ZONE_FALLBACK)
+  }
+}
+
+/** Milliseconds `timeZone` is ahead of UTC at `at`. */
+const zoneOffsetMs = (at: number, timeZone: string): number => {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric', month: 'numeric', day: 'numeric',
+    hour: 'numeric', minute: 'numeric', second: 'numeric',
+  }).formatToParts(new Date(at))
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((p) => p.type === type)?.value ?? 0)
+  const wall = Date.UTC(
+    part('year'), part('month') - 1, part('day'), part('hour'), part('minute'), part('second'),
+  )
+  return wall - Math.floor(at / 1000) * 1000
+}
+
+/**
+ * The instant `key` begins in `timeZone`: midnight there, whatever the device
+ * thinks. Two passes, because the offset at a UTC guess can differ from the
+ * offset at the real midnight when a clock change falls in between.
+ */
+export const zonedMidnight = (key: string, timeZone: string): Date => {
+  const [y, m, d] = key.split('-').map(Number)
+  const guess = Date.UTC(y ?? 0, (m ?? 1) - 1, d ?? 1)
+  try {
+    let at = guess - zoneOffsetMs(guess, timeZone)
+    at = guess - zoneOffsetMs(at, timeZone)
+    // A zone whose clocks skip midnight itself starts the day at 01:00.
+    if (dateKeyIn(new Date(at), timeZone) < key) at += 60 * 60 * 1000
+    return new Date(at)
+  } catch {
+    return zonedMidnight(key, COHORT_ZONE_FALLBACK)
+  }
+}
+
+/**
+ * The zones that are West Africa Time, which no browser locale names as such:
+ * `en-GB` and `en-US` both print "GMT+1".
+ */
+const WAT_ZONES = new Set([
+  'Africa/Lagos', 'Africa/Bangui', 'Africa/Brazzaville', 'Africa/Douala', 'Africa/Kinshasa',
+  'Africa/Libreville', 'Africa/Luanda', 'Africa/Malabo', 'Africa/Ndjamena', 'Africa/Niamey',
+  'Africa/Porto-Novo',
+])
+
+/**
+ * What to print after a time in `timeZone`: "WAT", "EDT", "BST", "GMT+3".
+ *
+ * The letters where some locale has them — `en-US` knows EDT, `en-GB` knows BST
+ * and CEST — and the offset otherwise. At `at`, because daylight saving changes
+ * the answer.
+ */
+export const zoneLabel = (timeZone: string, at: Date = trustedNow()): string => {
+  if (WAT_ZONES.has(timeZone)) return 'WAT'
+  const name = (locale: string) => {
+    try {
+      return new Intl.DateTimeFormat(locale, { timeZone, timeZoneName: 'short' })
+        .formatToParts(at)
+        .find((p) => p.type === 'timeZoneName')?.value ?? ''
+    } catch {
+      return ''
+    }
+  }
+  const lettered = (label: string) => /^[A-Z]{2,5}$/.test(label)
+  const us = name('en-US')
+  if (lettered(us)) return us
+  const gb = name('en-GB')
+  return lettered(gb) ? gb : us || gb || timeZone
 }
 
 /**
@@ -74,27 +209,43 @@ export const relativeLabel = (at: Timestamp, now: Date = trustedNow()): string =
   return formatDate(at)
 }
 
-/** "12 Aug 2026". The fallback for anything too old for a relative label. */
-export const formatDate = (at: Timestamp | Date): string =>
+/**
+ * "12 Aug 2026". The fallback for anything too old for a relative label.
+ *
+ * `timeZone` for an activity date, which is shown in the cohort's zone: the day
+ * it names has to be the day the Cohort Clock filed it under. Omitted, it is
+ * the device's, for things no week hangs on.
+ */
+export const formatDate = (at: Timestamp | Date, timeZone?: string): string =>
   (at instanceof Date ? at : at.toDate()).toLocaleDateString(undefined, {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
+    ...(timeZone && { timeZone }),
   })
 
-/** "7:30 PM". Used on chat bubbles, where the day is already established. */
-export const formatTime = (at: Timestamp | Date): string =>
+/**
+ * "7:30 PM". Used on chat bubbles, where the day is already established, and
+ * with a `timeZone` wherever the time is someone else's — a call in the
+ * member's region, an activity in the cohort's.
+ */
+export const formatTime = (at: Timestamp | Date, timeZone?: string): string =>
   (at instanceof Date ? at : at.toDate()).toLocaleTimeString(undefined, {
     hour: 'numeric',
     minute: '2-digit',
+    ...(timeZone && { timeZone }),
   })
 
-/** Midnight at the start of the day after `date`, in local time. */
-export const startOfNextDay = (date: Date): Date => {
-  const next = new Date(date)
-  next.setHours(0, 0, 0, 0)
-  next.setDate(next.getDate() + 1)
-  return next
+/**
+ * "12 Aug 2026, 7:30 PM WAT": when an activity happened, on the Cohort Clock.
+ *
+ * Never converted to the member's own zone. A session logged at 11 PM Sunday
+ * in New York was filed under Monday's week in Lagos, and a date that said
+ * Sunday beside "Week 4" would contradict the week it sits in.
+ */
+export const formatActivityTime = (at: Timestamp | Date, cohortZone: string): string => {
+  const instant = at instanceof Date ? at : at.toDate()
+  return `${formatDate(instant, cohortZone)}, ${formatTime(instant, cohortZone)} ${zoneLabel(cohortZone, instant)}`
 }
 
 /**
@@ -105,13 +256,18 @@ export const startOfNextDay = (date: Date): Date => {
  * week and "Thursday" is the form somebody can act on without counting. Seven
  * nights out names the same weekday as today, so it takes the "next" prefix to
  * keep it from reading as this morning.
+ *
+ * Counted from `from`, the member's day as a key, rather than from an instant:
+ * the weekday is the one on the member's calendar, not the device's.
  */
-export const nightsLabel = (nights: number, from: Date = trustedNow()): string => {
+export const nightsLabel = (nights: number, from: string): string => {
   if (nights <= 0) return 'today'
   if (nights === 1) return 'tomorrow'
-  const at = new Date(from)
-  at.setDate(at.getDate() + nights)
-  const weekday = at.toLocaleDateString(undefined, { weekday: 'long' })
+  const [y, m, d] = from.split('-').map(Number)
+  const weekday = new Date(Date.UTC(y ?? 0, (m ?? 1) - 1, (d ?? 1) + nights)).toLocaleDateString(
+    undefined,
+    { weekday: 'long', timeZone: 'UTC' },
+  )
   return nights >= 7 ? `next ${weekday}` : weekday
 }
 
@@ -131,6 +287,42 @@ export const scheduleDateLabel = (key: string): string => {
     weekday: 'short',
     day: 'numeric',
     month: 'short',
+  })
+}
+
+/**
+ * The band over a day's messages in a chat thread: "Today", "Yesterday",
+ * "Monday", "Tue 12 Aug", "12 Aug 2025".
+ *
+ * WhatsApp's ladder, because it is the one members already read without
+ * thinking. A weekday for the rest of the past week, since "Monday" is a day
+ * somebody remembers and a date is one they would have to work out; a date past
+ * that, with the year only once it is not this one.
+ *
+ * Both days are keys, so the zone was decided by whoever made them — see
+ * `deviceZone` for which one the thread uses. A key after `today` is a sender
+ * whose clock ran ahead of this one, and reads as today rather than as a day
+ * that has not happened yet.
+ */
+export const pastDayLabel = (key: string, today: string): string => {
+  const utc = (k: string) => {
+    const [y, m, d] = k.split('-').map(Number)
+    return Date.UTC(y ?? 0, (m ?? 1) - 1, d ?? 1)
+  }
+  const at = utc(key)
+  const days = Math.round((utc(today) - at) / 86_400_000)
+  if (days <= 0) return 'Today'
+  if (days === 1) return 'Yesterday'
+
+  // Read back in UTC, which is the zone the key was just laid out in.
+  const date = new Date(at)
+  if (days < 7) return date.toLocaleDateString(undefined, { weekday: 'long', timeZone: 'UTC' })
+  const sameYear = key.slice(0, 4) === today.slice(0, 4)
+  return date.toLocaleDateString(undefined, {
+    ...(sameYear ? { weekday: 'short' } : { year: 'numeric' }),
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'UTC',
   })
 }
 

@@ -198,12 +198,12 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onPointerDown,
       :aria-controls="open ? listboxId : undefined"
       :aria-invalid="invalid ? true : undefined"
       :aria-describedby="describedby"
-      class="flex h-11.5 w-full items-center gap-2 rounded-field border bg-field py-0 pr-3.75 pl-3.75 text-left font-body text-[15px] transition-colors focus:outline-none focus-visible:border-primary-fill focus-visible:ring-2 focus-visible:ring-primary-ring"
+      class="flex h-[52px] w-full items-center gap-2 rounded-[14px] border bg-white px-4 text-left font-landing text-[15px] transition-[border-color,box-shadow] duration-300 focus:border-lp-ink focus:shadow-[0_0_0_3px_rgba(29,22,40,0.12)] focus:outline-none"
       :class="[
-        invalid ? 'border-primary-fill' : 'border-field-edge',
+        invalid ? 'border-[#b3261e]' : 'border-lp-field-edge',
         // No `::placeholder` on a button, so the whole label greys out until
         // the field is answered.
-        selected ? 'text-ink' : 'text-[#757575]',
+        selected ? 'text-lp-ink' : 'text-[#8a8399]',
       ]"
       @click="open ? closePanel() : openPanel()"
       @keydown.down.prevent="openPanel()"
@@ -211,7 +211,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onPointerDown,
     >
       <span class="min-w-0 flex-1 truncate">{{ selected?.label ?? placeholder }}</span>
       <svg
-        class="h-1.5 w-2.5 shrink-0 text-soft transition-transform"
+        class="h-1.5 w-2.5 shrink-0 text-lp-soft transition-transform"
         :class="open ? 'rotate-180' : ''"
         viewBox="0 0 10 6"
         fill="none"
@@ -230,9 +230,9 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onPointerDown,
          height of the viewport would hide the form it belongs to. -->
     <div
       v-if="open"
-      class="absolute top-[calc(100%+0.5rem)] right-0 left-0 z-30 overflow-hidden rounded-field border border-field-edge bg-white shadow-[0_24px_40px_rgba(36,27,46,0.16)]"
+      class="absolute top-[calc(100%+0.5rem)] right-0 left-0 z-30 overflow-hidden rounded-[14px] border border-lp-field-edge bg-white font-landing shadow-[0_24px_40px_rgba(29,22,40,0.16)]"
     >
-      <div class="border-b border-field-edge p-2">
+      <div class="border-b border-lp-edge p-2">
         <input
           ref="searchBox"
           v-model="query"
@@ -246,7 +246,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onPointerDown,
           placeholder="Search a city or country"
           autocomplete="off"
           spellcheck="false"
-          class="h-9 w-full rounded-[7px] border border-transparent bg-field px-3 font-body text-[14.5px] text-ink placeholder:text-[#757575] focus:outline-none focus-visible:border-primary-fill"
+          class="h-10 w-full rounded-[10px] border border-transparent bg-lp-paper px-3 text-[14.5px] text-lp-ink placeholder:text-[#8a8399] focus:outline-none focus-visible:border-lp-ink"
           @keydown="onSearchKeydown"
         >
       </div>
@@ -266,7 +266,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onPointerDown,
           <!-- Sticky, because a list this long scrolls past the heading that
                says which continent is being read. -->
           <p
-            class="sticky top-0 bg-white px-3.75 pt-2 pb-1 font-data text-[10.5px] tracking-[0.06em] text-soft uppercase"
+            class="sticky top-0 bg-white px-4 pt-2 pb-1 text-[11px] font-semibold tracking-[0.08em] text-lp-soft uppercase"
           >
             {{ group.continent }}
           </p>
@@ -276,10 +276,10 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onPointerDown,
             :key="zone.value"
             role="option"
             :aria-selected="zone.value === modelValue"
-            class="flex scroll-mt-9 cursor-pointer items-center gap-2 px-3.75 py-2 font-body text-[14.5px] text-ink"
+            class="flex scroll-mt-9 cursor-pointer items-center gap-2 px-4 py-2 text-[14.5px] text-lp-ink"
             :class="[
-              zone.value === active ? 'bg-[rgba(147,51,234,0.07)]' : '',
-              zone.value === modelValue ? 'text-primary-fill' : '',
+              zone.value === active ? 'bg-lp-lilac-50' : '',
+              zone.value === modelValue ? 'text-lp-accent font-semibold' : '',
             ]"
             @click="choose(zone)"
             @pointermove="active = zone.value"
@@ -303,7 +303,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onPointerDown,
 
         <p
           v-if="!visible.length"
-          class="px-3.75 py-4 font-body text-[14px] text-ink-mute"
+          class="px-4 py-4 text-[14px] text-lp-soft"
           role="status"
         >
           No time zone matches “{{ query }}”.

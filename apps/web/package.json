@@ -2,14 +2,16 @@
   "name": "dp-fitness-web",
   "private": true,
   "type": "module",
-  "description": "DP Fitness · Recomp Challenge, public landing site",
+  "description": "DP Fitness \u00b7 Recomp Challenge, public landing site",
   "scripts": {
     "build": "nuxt build",
     "dev": "nuxt dev --port 3001",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
-    "typecheck": "nuxt prepare && vue-tsc -b --noEmit"
+    "typecheck": "nuxt prepare && vue-tsc -b --noEmit",
+    "test": "bun test tests",
+    "check:cohort": "bun --env-file=.env scripts/check-cohort.ts"
   },
   "dependencies": {
     "@dpfit/theme": "workspace:*",

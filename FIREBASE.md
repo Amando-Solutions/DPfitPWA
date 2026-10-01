@@ -22,16 +22,108 @@ one. Read them before changing anything in `app/lib/datasource/firestore.ts`.
 | `programs/{id}/weeks/{weekId}` | One week of the block: its number, title and dates. `week-1`, `week-2`, … — see **The schedule**. |
 | `programs/{id}/weeks/{weekId}/days/{dayId}` | One training day in that week, with the date it falls on. |
 | `programs/{id}/guides/{guideId}` | The guide library. |
-| `members/{uid}` | The member. Keyed by the Firebase Auth uid, so rules are `request.auth.uid == uid` with no lookup. |
-| `members/{uid}/sessions/{id}` | Workout logs. |
+| `members/{uid}` | The member. Keyed by the Firebase Auth uid, so rules are `request.auth.uid == uid` with no lookup. `region` is written only by `setRegion` — see **Days and regions**. |
+| `members/{uid}/sessions/{id}` | Workout logs. Written only by `logSession`. |
 | `members/{uid}/state/activeSession` | The workout in progress. A fixed id, because there is only ever one. |
-| `members/{uid}/checkIns/week-{n}` | One per week, enforced by the key. |
-| `members/{uid}/photos/{id}` | Progress photos. |
+| `members/{uid}/checkIns/week-{n}` | One per week, enforced by the key. Written only by `submitCheckIn`. |
+| `members/{uid}/photos/{id}` | Progress photos. Filed only by `logPhoto`; the member may delete one. |
 | `members/{uid}/badges/{badgeId}` | Awards, keyed so a double-award is a no-op. |
 | `members/{uid}/notificationState/{id}` | Read markers. Present means read. |
 | `members/{uid}/pushDevices/{id}` | One browser the inbox is pushed to: its FCM token and the sign-in that registered it. See **Push notifications**. |
 | `members/{uid}/lifecycleEvents/{id}` | Append-only status history. |
 | `signIns/{uid}` | The account's latest sign-in, which is the one device it is signed in on. See **One device at a time**. |
+
+## Active cohort and registration
+
+The website selects exactly one `cohorts` document with `status: "active"`.
+If none exists, `NUXT_REGISTRATION_COHORT_ID` is used to read a real,
+non-archived cohort document (draft cohorts can be sold before launch). An active
+Firestore cohort always wins. Missing fallback documents close registration;
+multiple active cohorts remain an error. Read failures do not trigger fallback. The member PWA uses `members/{uid}.cohortId` from
+Firestore, preserving paid membership rather than moving someone to another cohort.
+Its initial read and live listener both hide missing/inactive cohort metadata.
+
+**When a cohort is over.** A cohort is over when it is `archived`, or when
+the day its `endDate` falls on, in its `timezone`, has passed. It runs to the
+end of that day, the same way `startDate` names the day training opens. A member
+of a cohort that is over gets `/cohort-ended` and nothing else, and every write
+is refused three times. The app's data source refuses before anything is sent
+(`refuseWritesWhen`). The member functions refuse with `cohort-ended`.
+`firestore.rules` refuses everything else through `cohortRunning`: messages,
+reactions, typing, board rows, the member document and everything under it.
+`storage.rules` restates it for uploads and deletes, on the production bucket.
+The rules matter most for a message queued offline before the end and replayed
+after it. Reads, sign-out, releasing a push device and clearing a typing marker
+stay open. Nothing more is pushed to the cohort's members, and no more live-call
+reminders go out to it. Both signals are watched, so an open app changes screen when either
+lands. The admin contract is in
+[ADMIN_NOTIFICATIONS.md → Closing a cohort](ADMIN_NOTIFICATIONS.md#closing-a-cohort).
+
+The cohort must contain `name`, `startDate` and `endDate` (Firestore timestamps),
+`durationWeeks`, `timezone` (IANA), `programId`, and `programVersion`. Its program
+must exist, be published and match that version to open registration. The website
+reads the program name, week outline and guide metadata from the same documents
+the PWA uses; private guide bodies and workout prescriptions are not public.
+
+Set this map on the active cohort using the actual offer (values below are examples):
+
+```js
+registration: {
+  amountMinor: 3000000, // ₦30,000 in kobo
+  currency: 'NGN',
+  codeTtlDays: 30, // integer, 1–365
+  preorderStartsAt: Timestamp, // seats are sold only between these two
+  preorderEndsAt: Timestamp,   // on or before `startDate`
+}
+```
+
+**The pre-order.** The landing site sells seats only between `preorderStartsAt`
+and `preorderEndsAt`. A sale inside the window has its code minted and held
+(`registrations/{ref}.codeHeld`), and the buyer gets a "slot reserved" email.
+When the window ends, the hourly `releasePreorderCodes` function calls the
+landing site's `POST /api/preorder/release`, which asks `createAccessCode` for
+each held code again (extending its expiry to `codeTtlDays` from then) and
+emails it. From then until the cohort's `startDate` is the login window: members
+can sign in, set up their profile, chat and take their first photo, and the
+member app logs no sessions or check-ins. Every date can be moved at any time;
+nothing is scheduled against them, and each read takes them as they stand.
+Moving `startDate` means moving the program's dated weeks and days with it.
+
+Each missing/null/empty offer field falls back independently to the environment:
+
+| Firestore value | Temporary environment fallback |
+| --- | --- |
+| Active cohort document | `NUXT_REGISTRATION_COHORT_ID` (only when none is active) |
+| `registration.amountMinor` | `NUXT_PUBLIC_PRICE` (major units, converted using the resolved currency) |
+| `registration.currency` | `NUXT_PUBLIC_PRICE_CURRENCY` |
+| `registration.codeTtlDays` | `NUXT_REGISTRATION_CODE_TTL_DAYS` |
+| `registration.preorderStartsAt` | `NUXT_REGISTRATION_PREORDER_STARTS_AT` (ISO 8601) |
+| `registration.preorderEndsAt` | `NUXT_REGISTRATION_PREORDER_ENDS_AT` (ISO 8601) |
+
+There are no hardcoded cohort or offer defaults. Existing, non-empty Firestore
+values win; invalid authored values do not get hidden behind fallbacks. If neither
+source provides a valid offer, details remain visible but checkout is disabled. Selar controls the actual
+charge; keep the product's dashboard price aligned with this Firestore offer.
+`NUXT_SELAR_PRODUCT_URL` remains the checkout destination. Firebase connection
+settings, credentials and integration secrets also belong in
+environment variables; they identify/authenticate the database, not its content.
+
+Run `bun run --filter dp-fitness-web check:cohort` for a read-only check of the
+resolved cohort and offer using the configured database and fallbacks.
+
+The page is rendered per request and refreshes open tabs every minute. Checkout
+re-reads Firestore and rejects an old cohort/price with HTTP 409. It snapshots
+`cohortId`, `cohortName`, `amountMinor`, `currency` and `codeTtlDays`
+onto the registration. Webhooks validate the saved price and issue
+against that saved cohort, never the active cohort at payment time. Archived
+purchases still target the original cohort, but issuance is refused by the existing
+Cloud Function until an operator resolves them. Older registrations without a code
+lifetime read it from their own cohort's registration map, then the environment
+fallback; without either they require manual repair. They are never assigned to a new cohort automatically.
+
+The runtime PWA always uses Firestore. The old mock and HTTP implementations remain
+as isolated development fixtures; neither is selected by environment variables or
+used as a fallback. An incomplete Firebase configuration is an error.
 
 ## Three decisions worth knowing about
 
@@ -42,8 +134,8 @@ cohort, on every load. It used to be `import`ed out of `app/data/program.ts`,
 which meant every cohort on every deploy was shown the same six weeks of the
 same four sessions and the same live-call link, whatever the coach had actually
 set up, and re-tuning any of it was a release. That file is now two things and
-neither is content the app serves: what *mock mode* answers with
-(`lib/datasource/local.ts` is the only module allowed to import it), and the
+neither is content the app serves: isolated local development fixtures
+(`lib/datasource/local.ts` is the only app module allowed to import it), and the
 input to the seed script.
 
 The cost is that the documents have to exist. A program with no `weeks` renders
@@ -76,15 +168,15 @@ shape-checked server-side.
 their own leaderboard position and badge unlocks; they cannot touch anyone
 else's data, read another member's profile, or claim a code that isn't theirs.
 
-Closing it means moving the four writes that mint points behind Callable
-Functions and denying those paths to clients outright:
+Sessions, check-ins and progress photos have already moved: they are filed on a
+day or a week, and a day read off the phone could be moved by the phone's owner.
+`logSession`, `submitCheckIn` and `logPhoto` write them now, and the rules deny
+those paths to clients — see [Days and regions](#days-and-regions). Closing the
+rest means the same for what is left:
 
 - `redeemAccessCode`
-- `saveSession`
-- `saveCheckIn`
 - `awardBadge`
-
-`FirestoreDataSource` is shaped so each becomes a one-line `httpsCallable`.
+- the member's own `stats`, which the member update rule does not lock
 
 ## Answered once, at setup
 
@@ -110,7 +202,92 @@ is optional:
 
 The leaderboard row is read with `getAfter`, because redemption writes it in the
 same transaction that creates the member document, and it may also keep the name
-it already holds: `deleteSession` merges only the count.
+it already holds: `logSession` merges only the count.
+
+**The one exception is the region.** `members/{uid}.region` is asked at setup
+(its own step, after About you) and stays editable from Profile, because members
+travel: somebody based in the US flying home to Lagos for a cohort has to be able
+to move their days before the trip. It is still locked against the client — the
+create and update rules refuse the field — because only `setRegion` may write it.
+See below.
+
+## Days and regions
+
+Two clocks, and neither is the phone's.
+
+| | Zone | Decides |
+| --- | --- | --- |
+| **The Cohort Clock** | `cohorts/{id}.timezone` (`Africa/Lagos`, WAT) | Which week it is, for everybody at once. The `weekNumber` on every session, check-in and photo; the week label; guide unlocks; the check-in's week. |
+| **The member's day** | `members/{uid}.region.timezone` (the cohort's zone until they pick one) | Which training days are open. A day opens at midnight *there*, stays open until it is logged, and is locked once logged. The finisher's once-a-day rule counts on it too, and so does "before the cohort starts". |
+
+The time is the server's in both: the functions use their own clock, and the app
+uses the network-corrected one in `lib/time.ts` to draw the same answers. No day
+is ever read with `getDate()` or the device's zone — a Cloud Function runs in
+UTC, and a phone's zone is its owner's to change. `dateKeyIn` always takes a zone
+by name.
+
+### The region
+
+```ts
+region: {
+  id: 'west-africa' | 'uk-ireland' | 'us-eastern' | 'us-central'
+    | 'us-pacific' | 'other-africa' | 'europe' | 'other'
+  timezone: string     // IANA, e.g. America/New_York — not the label, so DST just works
+  since: Timestamp     // when it took effect, the server's time
+  floor: string | null // YYYY-MM-DD: the member's day when they switched, under the old zone
+}
+```
+
+The list is in two places that must agree: `REGIONS` in
+`apps/functions/src/regions.ts` (what `setRegion` accepts) and in
+`apps/pwa/app/lib/domain/region.ts` (what the picker shows). The five specific
+options carry their zone. Other Africa, Europe and Other are too broad for one,
+so the member picks a zone from that area and that zone is stored.
+
+**A change is forward-only.** Nothing already logged is re-read: every session
+carries `dayKey`, the member's day it was logged on, fixed at write. And the day
+the member is in when they switch becomes the `floor`, below which their day
+never reads again. So at 1 AM Tuesday in Lagos, switching to New York (8 PM
+Monday) keeps them on Tuesday until New York reaches it — Monday cannot be
+reopened, and flipping back and forth only ever moves the day forward. Switching
+east applies at once. `apps/functions/tests/day-lock.test.ts` walks through these.
+
+### The functions
+
+All four are callables in `africa-south1`, called by the member app with its own
+ID token, and each takes `database` like `createAccessCode`. Each checks the same
+standing the rules' `signedIn()` does — the latest sign-in, the membership's
+email, a trusted sign-in — because a function bypasses the rules.
+
+| Function | Writes | Refuses |
+| --- | --- | --- |
+| `setRegion` | `members/{uid}.region`, with the floor | an id or zone not on the list |
+| `logSession` | `members/{uid}/sessions/{id}`, the stats and the leaderboard row | a day before the cohort starts, not yet open on the member's calendar, or already logged; a second finisher on one member day |
+| `submitCheckIn` | `members/{uid}/checkIns/week-{n}`, on the Cohort Clock's week | before the cohort starts; a second for the week |
+| `logPhoto` | `members/{uid}/photos/{id}`, dated and on the Cohort Clock's week | a second photo before the cohort starts |
+
+All four also refuse a member whose cohort is over, with `failed-precondition`
+and `reason: 'cohort-ended'`. See **When a cohort is over**.
+
+Session ids are stable — `w{planWeek}-{dayId}`, or `{dayKey}-{dayId}` for the
+finisher — so two finishes of the same day racing cannot both land. Sessions from
+before have random ids and are found by query.
+
+Around a week's turn the two clocks can disagree for a few hours, on purpose. At
+8 PM Sunday in New York the Cohort Clock is in Monday's week, so a session logged
+then is filed under the new week while it catches up a day of the old one. In
+Nairobi the member's Monday opens two hours before Lagos reaches it. The app's
+plan follows the member's day (`store.currentWeek`); the label and the filing
+follow the Cohort Clock (`store.clock`).
+
+### What is shown in which zone
+
+- **Live calls** are shown in the member's region, with the WAT slot beside it
+  when the two differ. The call itself never moves.
+- **Activity times** — a session in the exercise history, a progress photo, the
+  "Logged" time on finishing — are shown in WAT and labelled "WAT", never
+  converted. A converted date could name a day outside the week it is filed
+  under.
 
 ## Indexes
 
@@ -447,6 +624,11 @@ Notifications.
 - **Housekeeping.** Tokens FCM reports as gone are deleted as they fail. The
   app rewrites its document when the token changes, and at least weekly while
   it's being opened.
+- **Not for a cohort that is over.** Both triggers read the cohort and send
+  nothing once it is archived or past its last day. The app opens on the ended
+  screen, which has no inbox and no chat. The message trigger reads the cohort
+  only when the write names, answers or is reacted to by somebody new, so a
+  plain message costs no extra read.
 
 **Setting it up (once per project)**
 
@@ -534,10 +716,28 @@ bun run deploy:functions
 `NUXT_FIREBASE_SERVICE_ACCOUNT`. Left unset, deploy asks for it. Cloud Functions
 needs the Blaze plan.
 
+`releasePreorderCodes` also needs `PREORDER_RELEASE_URLS` in the same `.env`
+and a secret, set once before the first deploy that includes it:
+
+```bash
+firebase functions:secrets:set PREORDER_RELEASE_SECRET   # same value as NUXT_PREORDER_RELEASE_SECRET
+```
+
+It runs in `europe-west1`, because Cloud Scheduler has no `africa-south1`
+location; it only makes an HTTPS call, so the region costs nothing.
+
 **Order matters:** the function first, then `apps/web`, then the rules. The
 landing site's old build writes codes itself, so the rules cannot go before it
 is replaced — and they refuse the admin console's current direct write, so it
 stops issuing codes until it calls the function.
+
+The day-lock functions (`setRegion`, `logSession`, `submitCheckIn`, `logPhoto`)
+go the same way: **functions, then the member app, then the rules.** The new app
+build cannot log anything until the functions exist. The old build writes
+sessions, check-ins and photos itself, so once the rules land an installed app
+still on it cannot log until it picks up the new build — deploy the rules after
+installed apps have had a chance to update (the service worker takes it on the
+next launch).
 
 ## What a code contains
 
@@ -606,12 +806,13 @@ programs/recomp-six-week-v1/
 
 **The week the challenge is in is a date comparison.** Today falls in the
 latest week whose `startDate` has arrived — before week 1 starts that is week 1,
-after the last week ends it stays the last. A day is today's session on its
-`date`, open to catch up on until its week ends, and shut before its date. This
-is the cohort's calendar, not the member's: a member who joins in week 3 starts
-in week 3. `weekNumber` on every session, check-in and photo is resolved against
-the same weeks, so "this week" on screen and the week a log is filed under
-cannot disagree.
+after the last week ends it stays the last. That "today" is the cohort's, in the
+cohort's zone: a member who joins in week 3 starts in week 3, and a member in New
+York is in the same week as one in Lagos at the same instant. `weekNumber` on
+every session, check-in and photo is resolved against the same weeks by the
+function that writes it, so "this week" on screen and the week a log is filed
+under cannot disagree. A day opens on its `date` *on the member's own calendar*
+and stays open until logged — see [Days and regions](#days-and-regions).
 
 What an admin has to get right, because a rule cannot check any of it:
 
@@ -775,15 +976,27 @@ Each call is a one-off. Nothing repeats: a weekly call is one document per
 week. The app reads its member's cohort with
 `where('cohortId', '==', member.cohortId)` — one equality filter, so no
 composite index — alongside the cohort document, and Home shows the call on
-the member's current calendar day, if there is one (`todaysLiveCall` in
-`lib/domain/liveCall.ts`): upcoming with a disabled button, live with a join
-button, then ended for the rest of the day. A document missing `startsAt` or an
-http(s) `joinUrl` is no call (`liveCallFrom`).
+the member's current calendar day in their stored region, if there is one
+(`todaysLiveCall` in `lib/domain/liveCall.ts`): upcoming with a disabled button,
+live with a join button, then ended for the rest of the day. Its time is shown
+in the member's region as a courtesy — "2:00 – 3:00 PM your time · 7:00 PM WAT"
+— and the slot itself is the same instant for everybody. A document missing
+`startsAt` or an http(s) `joinUrl` is no call (`liveCallFrom`).
 
 Rules: operators write, with the shape checked; a member reads only calls whose
-`cohortId` is their own cohort. Nothing else is involved — no scheduled
-function, no copy on the cohort document. The old `cohorts/{id}.liveCall` field
-is no longer read.
+`cohortId` is their own cohort. There is no copy on the cohort document. The
+old `cohorts/{id}.liveCall` field is no longer read.
+
+**Reminders.** Scheduling a call sends nothing. On the call's day, in the
+cohort's zone, `remindLiveCalls` (`apps/functions/src/live-call-reminders.ts`,
+every 15 minutes) writes a coach notification to the cohort's inbox: "Live call
+today", "Weekly live call at 7:00 PM WAT. Join from Home." It goes out at 8 AM,
+or an hour before a call that starts earlier than 9 AM, and never after the
+call has ended, or once the cohort is over. Like every notification, it is
+pushed to members who turned push on. Its id is `live-call-{callId}-{date}`, created rather than set, so it
+is sent once per call per day; a call moved to another day is announced again
+there. The admin app must not write its own notification for a call, or
+members get two.
 
 ## The leaderboard switch
 
@@ -799,9 +1012,8 @@ the "the leaderboard's live now" card shows above the board, and the week is the
 cohort's — every member is in the same week on the same date (see **The
 schedule**).
 
-Only an admin (the `coach` claim) can write either field. The admin app — a
-separate app, not in this repo — is what turns the board on and off; until it
-exists, flip the boolean in the console. The PWA watches the cohort document,
+Only an admin (the `coach` claim) can write either field. The admin console,
+`apps/admin`, is what turns the board on and off. The PWA watches the cohort document,
 so the change reaches members with the app already open.
 
 This is a visibility switch, not access control. Switched off, the session

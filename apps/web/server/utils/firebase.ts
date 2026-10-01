@@ -128,6 +128,6 @@ const firebaseApp = (): App => {
  * bundle including a staging one.
  */
 export const firestore = (): Firestore => {
-  const databaseId = useRuntimeConfig().firebaseDatabaseId?.trim()
-  return databaseId ? getFirestore(firebaseApp(), databaseId) : getFirestore(firebaseApp())
+  const databaseId = useRuntimeConfig().firebaseDatabaseId?.trim() || '(default)'
+  return getFirestore(firebaseApp(), databaseId)
 }

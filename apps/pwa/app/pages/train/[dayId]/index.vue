@@ -23,12 +23,12 @@ const day = computed(() => store.getDay(dayId.value, weekParam.value))
 
 /** A day from a week other than the one the calendar is in. Always read-only. */
 const otherWeek = computed(
-  () => !!day.value && day.value.weekNumber !== store.clock.value.week,
+  () => !!day.value && day.value.weekNumber !== store.planWeekNumber.value,
 )
 
 /** Back to the list, on the week it was opened from. */
 const trainHref = computed(() =>
-  weekParam.value && weekParam.value !== store.clock.value.week
+  weekParam.value && weekParam.value !== store.planWeekNumber.value
     ? `/train?week=${weekParam.value}`
     : '/train',
 )
@@ -110,7 +110,7 @@ const opensLabel = computed(() => {
   // A later week's day gets its date: weeks out, a weekday name is a riddle.
   return otherWeek.value && day.value.date
     ? `Opens ${scheduleDateLabel(day.value.date)}`
-    : `Opens ${nightsLabel(nights, store.now.value)}`
+    : `Opens ${nightsLabel(nights, store.todayKey.value)}`
 })
 
 /**

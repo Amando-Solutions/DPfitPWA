@@ -55,19 +55,36 @@ const retry = async () => {
 }
 
 const greeting = computed(() => {
-  // The store's clock, not the device's, so the greeting agrees with the date
-  // the rest of the app is working from.
-  const hour = store.now.value.getHours()
+  // The store's clock in the member's region, not the device's, so the greeting
+  // agrees with the day the rest of the app is working from.
+  const hour = Number(
+    new Intl.DateTimeFormat('en-GB', {
+      hour: 'numeric',
+      hourCycle: 'h23',
+      timeZone: store.memberZone.value,
+    }).format(store.now.value),
+  )
   if (hour < 12) return 'Morning'
   if (hour < 17) return 'Afternoon'
   return 'Evening'
 })
 
+const cohortSummary = computed(() => {
+  const cohort = store.cohort.value
+  if (!cohort || unread.value) return ''
+  const duration = Number.isInteger(cohort.durationWeeks) && cohort.durationWeeks > 0
+    ? `${cohort.durationWeeks} ${cohort.durationWeeks === 1 ? 'week' : 'weeks'}` : ''
+  return [cohort.name, duration].filter(Boolean).join(' · ')
+})
+
+// In the member's region: that is where the midnight it names falls. Formatted
+// in the device's zone, a Lagos midnight read in New York is the evening before.
 const nextSessionLabel = computed(() =>
   store.nextSessionAt.value.toLocaleDateString(undefined, {
     weekday: 'long',
     day: 'numeric',
     month: 'short',
+    timeZone: store.memberZone.value,
   }),
 )
 
@@ -140,11 +157,6 @@ const STAT_VALUE =
          a dozen elements each declaring themselves busy. -->
     <p v-if="loading" role="status" class="sr-only">Loading your training.</p>
 
-    <!--
-      No subtitle. It read "Day 1 of 42 · today is waiting on you", which the
-      hero card directly below already says, in larger type, with the session
-      attached to it.
-    -->
     <!-- The greeting is off the member document, so it is right from the first
          frame. The week is off the schedule, which is still arriving: an
          eyebrow reading "Week 1" and correcting itself to "Week 5" is the one
@@ -152,6 +164,7 @@ const STAT_VALUE =
     <ScreenIntro
       :eyebrow="unread ? '' : store.clock.value.label"
       :title="`${greeting}, ${store.displayName.value}`"
+      :subtitle="cohortSummary"
       class="home__intro order-0 lg:[grid-area:intro]"
     >
       <template v-if="loading" #eyebrow>
@@ -306,6 +319,7 @@ const STAT_VALUE =
           :day="store.today.value"
           :all-done="store.weekComplete.value"
           :next-label="nextSessionLabel"
+          :opens-on="store.beforeStart.value ? store.trainingOpensLabel.value : ''"
         />
       </section>
 
@@ -477,9 +491,10 @@ const STAT_VALUE =
       <!-- Held back with the photo prompts, and for the same reason: an
            unread store has no check-in on file, which is indistinguishable
            from one that is due. The card would say "Check in now" to somebody
-           who checked in on Sunday. -->
+           who checked in on Sunday. Absent before the cohort starts too:
+           check-ins open with training, and there is no week to report on. -->
       <section
-        v-if="!unread && store.prefs.value.weeklyCheckInReminder"
+        v-if="!unread && store.prefs.value.weeklyCheckInReminder && !store.beforeStart.value"
         class="home__section home__section--checkin mt-3.25 lg:mt-0 order-4"
       >
         <div :class="CARD">

@@ -1,9 +1,8 @@
 # DP Fitness · public landing site
 
-The page people arrive on. One route, thirteen sections, built from the Figma
-composition
-[`DP Fitness · Landing Page`](https://www.figma.com/design/B931SXWG53I3zKWa2MS9pY/DP-Fitness?node-id=444-2)
-(desktop frame `448:2`, with tablet and mobile artboards alongside it).
+The page people arrive on. One route, built from the "Body Recomp Challenge"
+design reference: a lavender paper page in Manrope with Instrument Serif
+italics, a plum countdown strip, and a rounded plum footer.
 
 ```bash
 bun install                       # from the repo root
@@ -13,27 +12,44 @@ bun run dev:web                   # http://localhost:3001
 
 Everything on the page renders without a `.env`. The one thing that does not is
 the registration form, which needs a Firebase service account to issue an access
-code — see [Registration](#registration) below.
+code — see [Registration](#registration-and-payment) below.
 
 ## How it is put together
 
 ```
-app/data/landing.ts          every word on the page, and the types around them
+app/data/landing.ts              every word on the page that is not per-cohort
+app/composables/useCohortLabels  the cohort's dates and price, worded for the page
         ↓
-app/components/landing/      one component per section, plus three shared pieces
+app/components/landing/          one component per section
         ↓
-app/pages/index.vue          nothing but the order of the sections
+app/pages/index.vue              the order of the sections, and the cohort fetch
 ```
 
-The same split the member app makes between `data/` and `components/`: the
-components own layout and behaviour, `data/landing.ts` owns the copy. A price
-change is one edit, and the three places the price appears cannot drift apart.
+Sections, top to bottom: `CountdownBar`, `SiteHeader`, `HeroSection`,
+`CohortBanner`, `ResultsSection`, `ManifestoSection`, `IncludedSection`,
+`WeeksSection`, `FitSection`, `CoachSection`, `RegisterSection` (`#join`),
+`FaqSection`, `SiteFooter`, and the phone-only `MobileCta`.
 
-`PageContainer` and `CtaButton` are the only shared pieces in this app, and
-`BrandLogo` comes from the design-system layer rather than from here — the mark
-is authored once in `packages/theme` and both apps import it. Every other
-component is a section, named for what it says rather than where it sits, so
-re-ordering the argument is a matter of moving a line in `index.vue`.
+What comes from the active cohort (`/api/challenge`): the countdown target
+(pre-order open/close, then the cohort's `startsAt`), duration, start date,
+enrolment close, price and per-week price, and the week cards (the published
+program's weeks; the design's six focuses only when it has none).
+
+**Placeholders.** The design ships with bracketed client results, an
+early-bird offer and a `[Selar logo]` chip. They are rendered as designed and
+live in `data/landing.ts` under `PLACEHOLDER` comments — swap the copy there.
+
+**Photos.** The coach portrait, the before / after pairs and the app
+screenshots are served from `public/landing/` at web sizes, cut down from the
+masters (`meet-the-coach-original.jpg`, `public/before-and-after-images/`,
+`public/app-mock/`). Each result photo is 352×640, cropped around the subject to
+fit the card's slot, and each app screenshot is 440×1068 with the capture's pale
+edge trimmed, so a new one needs the same treatment rather than the raw upload.
+
+The palette is declared once at the top of `app/assets/styles/main.css` as
+`--lp-*` tokens (Tailwind colours `lp-paper`, `lp-ink`, `lp-accent`, the
+`lp-lilac-*` ramp, …), alongside the interaction recipes from the design
+(`lp-ul`, `lp-lift`, the marquee, scroll reveals).
 
 ## Registration and payment
 
@@ -92,14 +108,26 @@ who edits their email on Selar's checkout form produces a sale that matches
 nothing; rather than lose it, the webhook writes it to `unmatchedSales`, which
 is a short queue of people who have paid and are owed a code by hand.
 
-**The price is advertised here and charged there.** `NUXT_PUBLIC_PRICE` is in
-naira (`30000`) and the `₦30,000` on the page is derived from it,
-but Selar's dashboard is what actually charges. The two are kept equal by hand.
-A sale that comes in under the advertised amount *in the same currency* is
-logged as a mismatch and issued anyway — and it is issued anyway because Selar
-converts prices into the buyer's own currency, so a member paying from London
-legitimately pays in pounds, and a strict check would refuse every
-international sale.
+**The offer comes from Firestore first.** The active cohort's `registration` map holds
+`amountMinor`, `currency` and `codeTtlDays`. The checkout URL remains in
+`NUXT_SELAR_PRODUCT_URL`. Missing fields fall back independently to
+`NUXT_PUBLIC_PRICE`, `NUXT_PUBLIC_PRICE_CURRENCY` and
+`NUXT_REGISTRATION_CODE_TTL_DAYS`. No hardcoded business values are used. Selar's dashboard
+still controls the charge, so keep it aligned. Registration snapshots the cohort,
+price and code lifetime; the webhook uses those saved values even after a cohort
+switch. A same-currency underpayment is recorded for manual review, without issuing
+a code. Cross-currency payments retain the existing Selar conversion handling.
+
+**Sales happen in a pre-order.** The form only sells between the cohort's
+`registration.preorderStartsAt` and `preorderEndsAt`. A sale in that window is
+fulfilled up to the email: the code is minted and saved with `codeHeld: true`,
+and the buyer gets `server/emails/slot-reserved.ts` instead of the code. When the
+window closes, `POST /api/preorder/release` (called hourly by
+`releasePreorderCodes` in `apps/functions`, bearer `NUXT_PREORDER_RELEASE_SECRET`)
+sends each held code. It reads the window fresh every run, so moving the end
+moves the release. A held code that was revoked or redeemed in the meantime is
+not sent, and one whose email fails three times joins the `emailed == false`
+queue. Closing the Selar product when the pre-order ends is done by hand.
 
 **The confirmation page waits rather than knows.** Selar redirects to a fixed
 URL with nothing appended, so the page identifies the buyer from the `dpf_ref`
@@ -112,42 +140,27 @@ returned by any route. The confirmation page says the slot is reserved and to
 check the inbox, then takes itself back to the site after eight seconds — with a
 real link alongside, so it is never a dead end.
 
-**`nuxt generate` will not work.** Prerendering `/` is fine, but a fully static
+**`nuxt generate` will not work.** The page needs current Firestore data. A fully static
 export has no handler behind `/api/*`, and registration would 404 on submit.
 
 ## Decisions worth knowing
 
-**Prerendered, not client-rendered.** The opposite of the PWA's call, for the
-opposite reason: every word here is known at build time and the page's whole job
-is to be found and read by someone who has never heard of DP Fitness. `nitro.prerender`
-crawls in-page links, so adding a route to `pages/` is enough to get it rendered
-to static HTML.
-
-**One live value on a prerendered page.** The hero badge's start date is read
-from `cohorts/{NUXT_REGISTRATION_COHORT_ID}.startDate` by `GET /api/challenge` —
-the same document the member app counts the six weeks from, so what the coach
-sets is what the page says and there is no second copy to keep in step. The
-build bakes whatever the date was then, which is what a crawler is served, and
-`HeroSection` asks again on mount so moving a cohort does not need a deploy. The
-route formats the day in the cohort's own `timezone`, because a browser
-elsewhere formatting the raw instant lands a day either side of it. With no
-service account, no cohort, or no `startDate`, it answers with nulls and the
-badge reads "6-week challenge" — a missing clause rather than a stale promise.
+**Rendered from Firestore on each request.** `/api/challenge` queries for exactly
+one `status: active` cohort, falling back to `NUXT_REGISTRATION_COHORT_ID` only
+when none exists, and exposes only public metadata: name, dates in its
+own timezone, duration, linked published program, week outline, guide descriptions
+and price. Workout prescriptions, guide bodies and member details remain private.
+The page also refreshes every minute and when a tab becomes visible. No active
+cohort or fallback document, ambiguous active cohorts or a failed read clear
+availability. Offer fields missing from both Firestore and the environment disable checkout. See [Firestore setup](../../FIREBASE.md#active-cohort-and-registration).
 
 **Pinned to the light palette.** `data-theme="light"` is set on `<html>` in
-`nuxt.config.ts`. This is one authored composition — a warm paper page with two
-deliberately dark panels — rather than a surface someone lives in, so it does not
-follow the visitor's OS the way the member app does.
-
-**Its own tokens are few and named.** Almost everything comes from
-`@dpfit/theme`. What the marketing composition genuinely adds — the paper page,
-the near-black panels, the heavier rules, the marketing type scale — is declared
-at the top of `app/assets/styles/main.css` with a note on why each one is not
-just the app's equivalent.
+`nuxt.config.ts`. This is one authored composition, so it does not follow the
+visitor's OS the way the member app does.
 
 **The FAQ is `<details>`.** Keyboard-operable, announced as expandable, findable
-with the browser's own find-in-page, and open-able with JavaScript off. The only
-thing written by hand is the rotation of the `+`.
+with the browser's own find-in-page, and open-able with JavaScript off. Each
+entry has an id, so `#faq-refund` (the footer's "refund policy") opens it.
 
 ## What is not finished
 

@@ -3,7 +3,8 @@
 //
 // This route issues nothing. It records the attempt and hands back a Selar
 // checkout URL; the access code is minted by `fulfilRegistration`, and only
-// when Selar's sale notification arrives. That ordering is the point — an
+// when Selar's sale notification arrives. It only answers during the cohort's
+// pre-order window (`registrationOpen`); after that, sales are closed. That ordering is the point — an
 // earlier version issued a live, redeemable code the moment the form was
 // submitted, which meant anyone who filled it in and walked away held a seat.
 //
@@ -12,14 +13,14 @@
 // advertised. Selar owns its own price: the product is created once in their
 // dashboard and this route only points a browser at it. The configured price
 // is still written onto the registration, but now as a record of what the page promised
-// rather than as an instruction — see `readPrice` in `app/data/landing.ts`.
+// rather than as an instruction — see `cohorts/{id}.registration` in Firestore.
 //
 // The cookie set at the end is the other thing Selar forces. Paystack redirected
 // the buyer back with the reference in the query string; Selar redirects to a
 // fixed URL and says nothing, so this is the only way the confirmation page can
 // know which registration to watch.
 // =============================================================================
-import { readPrice } from '../../app/data/landing'
+import { cohortFallbacks, loadChallenge } from '../utils/cohort'
 import { firestore } from '../utils/firebase'
 import { checkoutUrl, newReference, SelarError } from '../utils/selar'
 import type { Registration } from '../utils/access-code'
@@ -144,19 +145,32 @@ const throttle = (key: string) => {
 export default defineEventHandler(async (event) => {
   throttle(getRequestIP(event, { xForwardedFor: true }) ?? 'unknown')
 
-  const registration = validate((await readBody(event)) ?? {})
+  const body = (await readBody(event)) ?? {}
+  const registration = validate(body)
   const config = useRuntimeConfig()
-  const price = readPrice(config.public)
-
-  if (!config.selarProductUrl) {
-    console.error(
-      '[register] NUXT_SELAR_PRODUCT_URL is not set, so there is nowhere to send a buyer. ' +
-        'Registration is blocked until it is.',
-    )
+  let active
+  try { active = await loadChallenge(firestore(), cohortFallbacks()) } catch (cause) {
+    console.error('[register] could not resolve the active cohort:', cause)
+    throw createError({ statusCode: 503, statusMessage: 'Registration is temporarily unavailable.' })
+  }
+  if (!active?.challenge.registrationOpen || !active.registration || !active.challenge.price) {
+    // Outside the pre-order is the common refusal now, and the one worth
+    // saying plainly: a tab left open past the close has a live-looking form.
+    const preorder = active?.challenge.preorder
     throw createError({
-      statusCode: 500,
-      statusMessage: 'Payment is temporarily unavailable. Please try again shortly.',
+      statusCode: 503,
+      statusMessage:
+        preorder?.state === 'closed' ? 'Pre-orders for this cohort have closed.'
+          : preorder?.state === 'upcoming' ? `Pre-orders open ${preorder.startsLabel}.`
+            : 'Registration is not open for a cohort yet.',
     })
+  }
+  const { challenge, registration: offer } = active
+  const price = challenge.price!
+  // A stale tab must review the new offer before entering checkout. The server
+  // still reads every value from Firestore; these are comparison values only.
+  if (body.cohortId !== challenge.id || body.amountMinor !== price.minor || body.currency !== price.currency) {
+    throw createError({ statusCode: 409, statusMessage: 'The cohort or price has changed. Refresh this page before continuing.' })
   }
 
   // A second thing worth failing loudly on. The form would work without it —
@@ -174,11 +188,22 @@ export default defineEventHandler(async (event) => {
     })
   }
 
+  // Validate the environment's checkout destination before recording a buyer.
+  let paymentUrl: string
+  const reference = newReference()
+  try {
+    paymentUrl = checkoutUrl({
+      productUrl: config.selarProductUrl, reference,
+      email: registration.email, fullName: registration.fullName, whatsapp: registration.whatsapp,
+    })
+  } catch (cause) {
+    console.error('[register] invalid Selar product URL:', cause)
+    throw createError({ statusCode: 503, statusMessage: 'Payment is temporarily unavailable.' })
+  }
+
   // Ours alone now. Under Paystack this doubled as the transaction reference;
   // Selar has no field for it, so it is the id of the document a sale is later
   // matched back to by email, and nothing else.
-  const reference = newReference()
-
   try {
     // Written first. A registration with no payment behind it is an abandoned
     // form, which is readable and harmless; a payment with no registration
@@ -189,7 +214,9 @@ export default defineEventHandler(async (event) => {
         reference,
         code: null,
         ...registration,
-        cohortId: config.registrationCohortId,
+        cohortId: challenge.id,
+        cohortName: challenge.name,
+        codeTtlDays: offer.codeTtlDays,
         source: 'landing',
         provider: 'selar',
         // The member app as *this* deployment knows it, written down now
@@ -236,13 +263,7 @@ export default defineEventHandler(async (event) => {
     // nothing else worth reading off a network tab.
     return {
       ok: true,
-      checkoutUrl: checkoutUrl({
-        productUrl: config.selarProductUrl,
-        reference,
-        email: registration.email,
-        fullName: registration.fullName,
-        whatsapp: registration.whatsapp,
-      }),
+      checkoutUrl: paymentUrl,
     }
   } catch (cause) {
     console.error('[register] could not start the payment:', cause)

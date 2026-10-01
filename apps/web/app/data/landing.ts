@@ -1,82 +1,21 @@
 /**
- * Every word on the landing page, in one place.
+ * General marketing copy. Cohort and program details come from Firestore.
  *
  * The same split the member app makes between `data/` and `components/`: the
- * components own layout and behaviour, this file owns the copy. A price change
- * or a new FAQ entry is then an edit here rather than a hunt through templates,
- * and the three places the price appears cannot drift apart.
+ * components own layout and behaviour, this file owns the words. Prices, dates,
+ * duration, the pre-order window and the program's weeks come from
+ * `/api/challenge`; everything here is copy that does not change per cohort.
  *
- * The strings are transcribed from the Figma composition
- * (`DP Fitness · Landing Page`, node 448:2) and should be changed with the
- * design, not around it.
+ * Transcribed from the "Body Recomp Challenge" design reference. Anything in
+ * [square brackets] is a placeholder the design ships with, waiting on real
+ * content. Search for `PLACEHOLDER` to find them all.
  */
 
-/**
- * The one-time price, as the page advertises it and a sale is checked against.
- *
- * Configured, not authored: `NUXT_PUBLIC_PRICE` in major units (naira — `30000`
- * is ₦30,000) and `NUXT_PUBLIC_PRICE_CURRENCY`, read through `runtimeConfig`.
- * Everything here works in minor units (kobo), because that is how money is
- * counted anywhere it is counted exactly, and the display string is derived
- * from the same number: two numbers that must agree is a page that can
- * advertise one price while charging another.
- *
- * BUT READ THIS BEFORE CHANGING IT. Under Paystack this number *was* the
- * price — `register.post.ts` handed it over and that is what was charged.
- * Selar does not work that way. The product is created in Selar's dashboard
- * and carries its own price, so this no longer instructs anything; it is what
- * the page promises, and what a sale is checked against in `describeAmount`.
- * Changing it changes the promise and not the charge. The two are kept equal
- * by hand, and a sale that comes in under this amount in this currency is
- * logged as a mismatch — which is the only warning there is that the dashboard
- * and the page have drifted apart.
- *
- * The currency is ISO 4217, and only the one the price is *quoted* in. Selar
- * converts prices into the buyer's own currency at checkout, so a real sale
- * can and often does arrive in something else; `describeAmount` reports that
- * as unchecked rather than as a failure.
- */
-export interface Price {
-  /** Smallest unit of `currency` — kobo for NGN. */
-  minor: number
-  currency: string
-  /** Formatted for display, e.g. `₦30,000`. */
-  label: string
-}
+/** Where every "book a slot" call-to-action points. */
+export const REGISTER_ANCHOR = '#join'
 
-/**
- * The price out of `runtimeConfig.public`, or a thrown error.
- *
- * Throws rather than falling back, because a price that does not parse would
- * otherwise print as `₦NaN` on a prerendered page, or check every sale against
- * nothing. `nuxt.config.ts` calls this once so a bad value fails the build.
- */
-export const readPrice = (config: { price: unknown; priceCurrency: unknown }): Price => {
-  const major = Number(String(config.price).replace(/,/g, ''))
-  if (!Number.isFinite(major) || major <= 0) {
-    throw new Error(
-      `NUXT_PUBLIC_PRICE must be a positive number in major units (e.g. 30000), got "${config.price}".`,
-    )
-  }
-  const currency = String(config.priceCurrency || '').toUpperCase()
-  if (!/^[A-Z]{3}$/.test(currency)) {
-    throw new Error(
-      `NUXT_PUBLIC_PRICE_CURRENCY must be an ISO 4217 code (e.g. NGN), got "${config.priceCurrency}".`,
-    )
-  }
-  return {
-    minor: Math.round(major * 100),
-    currency,
-    label: new Intl.NumberFormat('en-NG', {
-      style: 'currency',
-      currency,
-      maximumFractionDigits: 0,
-    }).format(major),
-  }
-}
-
-/** Where every "Join the Challenge" call-to-action points. */
-export const REGISTER_ANCHOR = '#register'
+/** The name of the app the challenge runs in, as the copy says it. */
+export const APP_NAME = 'DP Fitness app'
 
 export interface NavLink {
   label: string
@@ -84,323 +23,282 @@ export interface NavLink {
 }
 
 export const NAV_LINKS: NavLink[] = [
-  { label: 'The Package', href: '#package' },
-  { label: 'The 6 weeks', href: '#weeks' },
-  { label: 'Price', href: '#price' },
-  { label: 'FAQ', href: '#faq' },
+  { label: 'results', href: '#results' },
+  { label: 'program', href: '#included' },
+  { label: 'weekly focus', href: '#weeks' },
+  { label: 'coach', href: '#coach' },
+  { label: 'faq', href: '#faq' },
 ]
+
+/** Social proof beside the hero buttons. */
+export const PROOF = { strong: '500+ women', rest: 'coached since 2024' }
 
 /**
- * When the challenge starts, as `GET /api/challenge` answers it.
- *
- * Declared here rather than beside the route because both ends need it and
- * this file is the one place the page and its server already share — the same
- * reason `readPrice` is read from here by `register.post.ts`. Both fields are
- * nullable together: the badge has a date or it has none.
+ * PLACEHOLDER: stock portraits for the avatar stack beside `PROOF`, until there
+ * are client photos to use. Cropped to the face at 2x the 32px circles.
  */
-export interface ChallengeStart {
-  /** The start day in the cohort's own zone, `YYYY-MM-DD`. */
-  startsOn: string | null
-  /** The same day as the badge prints it, e.g. `26 Aug`. */
-  startsLabel: string | null
+export const PROOF_AVATARS: string[] = [
+  '1611432579699-484f7990b127',
+  '1487412720507-e7ab37603c6f',
+  '1531123897727-8f129e1688ce',
+].map((id) => `https://images.unsplash.com/photo-${id}?w=64&h=64&fit=crop&crop=faces&q=80`)
+
+/** Training cadence. Not stored on the cohort, so it lives with the copy. */
+export const TRAINING_DAYS = 4
+export const TRAINING_SPLIT = '3 lower, 1 upper per week'
+export const EQUIPMENT = 'Gym access required'
+
+// ---------------------------------------------------------------------------
+// PLACEHOLDER: client transformations for the results strip. The photos are
+// real; the stats and quotes are still the design's, and the card shows none
+// of its text for now (the lines are commented out in `ResultsSection`).
+// ---------------------------------------------------------------------------
+export interface ResultCard {
+  stat: string
+  detail: string
+  quote: string
+  name: string
+  /**
+   * 352×640, cut to the card's photo slot around the subject. Masters are in
+   * `public/before-and-after-images`.
+   */
+  before: string
+  after: string
 }
 
-export interface HeroStat {
-  value: string
-  caption: string
-}
+/** The before / after pair for client `n` under `public/landing/results`. */
+const resultPhotos = (n: number) => ({
+  before: `/landing/results/${n}-before.jpg`,
+  after: `/landing/results/${n}-after.jpg`,
+})
 
-export const heroStats = (price: string): HeroStat[] => [
-  { value: price, caption: 'One-time · 6 weeks' },
-  { value: '6 wks', caption: 'Structured phases' },
-  { value: '2×', caption: 'Live calls / week' },
+export const RESULTS: ResultCard[] = [
+  { stat: '[-6 cm]', detail: '[waist, in 6 weeks]', quote: '"[Client quote about her experience and result]"', name: '[Client name]', ...resultPhotos(1) },
+  { stat: '[+20 kg]', detail: '[hip thrust, in 6 weeks]', quote: '"[Client quote about her experience and result]"', name: '[Client name]', ...resultPhotos(2) },
+  { stat: '[-4 cm]', detail: '[hips, in 6 weeks]', quote: '"[Client quote about her experience and result]"', name: '[Client name]', ...resultPhotos(3) },
+  { stat: '[-5 kg]', detail: '[body fat, in 6 weeks]', quote: '"[Client quote about her experience and result]"', name: '[Client name]', ...resultPhotos(4) },
+  { stat: '[result]', detail: '[what changed]', quote: '"[Client quote about her experience and result]"', name: '[Client name]', ...resultPhotos(5) },
+  { stat: '[result]', detail: '[what changed]', quote: '"[Client quote about her experience and result]"', name: '[Client name]', ...resultPhotos(6) },
 ]
 
-/**
- * The three-cell diagram under the problem statement: fat down, muscle up, and
- * the word for doing both. `tone` is what the middle and last cells are drawn
- * differently for — purple for the thing that goes up, ink for the conclusion.
- */
-export interface RecompCell {
-  symbol: string
-  label?: string
-  tone: 'neutral' | 'accent' | 'ink'
-  /** The operator painted on the seam to this cell's left. */
-  joiner?: string
+// ---------------------------------------------------------------------------
+// App screenshots for the "everything included" panel.
+// ---------------------------------------------------------------------------
+export interface AppScreen {
+  /**
+   * 440×1068, the whole screen top to bottom; the phone frame shows the top.
+   * Masters are in `public/app-mock`.
+   */
+  src: string
+  alt: string
 }
 
-export const RECOMP_CELLS: RecompCell[] = [
-  { symbol: '↓', label: 'Fat mass', tone: 'neutral' },
-  { symbol: '↑', label: 'Muscle', tone: 'accent', joiner: '+' },
-  { symbol: 'Recomp', tone: 'ink', joiner: '=' },
+export const APP_SCREENS: AppScreen[] = [
+  { src: '/landing/app/train.jpg', alt: "Today's workout in the app: each exercise with its sets, reps and a weight log" },
+  { src: '/landing/app/fuel.jpg', alt: 'Daily fuel in the app: calorie, protein, carb and fat targets with nutrition tips' },
+  { src: '/landing/app/chat.jpg', alt: 'The cohort group chat in the app, with the coach and other members' },
 ]
 
-/**
- * What the package contains. `release` is when a member gets it — everything
- * lands on day one except the overload guide, which is deliberately held back
- * until there are two weeks of real numbers to progress from.
- */
-export interface PackageItem {
-  title: string
-  description: string
-  release: string
-  /** Held-back items get the purple chip instead of the quiet one. */
-  staged?: boolean
-}
-
-export const PACKAGE_ITEMS: PackageItem[] = [
-  {
-    title: 'Main Training Program',
-    description:
-      'Your core 6-week lifting structure, the anchor everything else builds on.',
-    release: 'Day 1',
-  },
-  {
-    title: 'Warm-Up Guide',
-    description:
-      'Same sequence every session, so your body is primed and the guesswork is gone.',
-    release: 'Day 1',
-  },
-  {
-    title: 'Core Workout Guide',
-    description: 'Dedicated core work woven through the plan, never an afterthought.',
-    release: 'Day 1',
-  },
-  {
-    title: 'Cardio Guide',
-    description:
-      'Options by equipment and preference, built to support recomp instead of sabotaging it.',
-    release: 'Day 1',
-  },
-  {
-    title: 'Dynamic Stretch Guide',
-    description:
-      'Mobility work from week one, so you keep moving well as intensity climbs.',
-    release: 'Day 1',
-  },
-  {
-    title: 'Progressive Overload Guide',
-    description:
-      "The exact rules for adding weight and reps, released once you've got two weeks of real numbers to build from.",
-    release: 'Week 3',
-    staged: true,
-  },
-  {
-    title: 'Nutrition Guide',
-    description:
-      'How to eat for recomp: protein and portion guidance, sensible calorie ranges, and everyday food swaps you can build any meal around. General principles you apply to your own food, not a rigid meal plan.',
-    release: 'Day 1',
-  },
-]
-
-export interface Phase {
-  weeks: string
-  title: string
-  description: string
-  /** The middle phase is the turn of the challenge, so it is drawn in purple. */
-  featured?: boolean
-}
-
-export const PHASES: Phase[] = [
-  {
-    weeks: 'Week 1–2',
-    title: 'Foundation',
-    description:
-      'Baseline lifts, form, and habits lock in. Nutrition, warm-up, core and cardio rhythm at moderate volume.',
-  },
-  {
-    weeks: 'Week 3–4',
-    title: 'Overload',
-    description:
-      'Progressive Overload Guide unlocks. Weight and reps climb based on your own Week 1–2 numbers. This is where change becomes visible.',
-    featured: true,
-  },
-  {
-    weeks: 'Week 5–6',
-    title: 'Push & Peak',
-    description:
-      'Highest intensity of the challenge, then a finishing week, so you end feeling strong instead of wrecked.',
-  },
-]
-
-export interface WeeklyItem {
+export interface IncludedItem {
   title: string
   description: string
 }
 
-export const WEEKLY_ITEMS: WeeklyItem[] = [
+/** `weeks` is the cohort's duration, so "Full app access for N weeks" is right. */
+export const includedItems = (weeks: number): IncludedItem[] => [
   {
-    title: 'Two live group calls',
-    description: 'Same session, two time slots. Pick whichever fits your time zone.',
+    title: `${TRAINING_DAYS}-day training program`,
+    description: '3 lower body days and 1 upper body day each week, built for glute and leg growth.',
   },
   {
-    title: 'Private group chat',
-    description: 'Direct access to the community and to me, all in one place.',
+    title: 'Workout tracker and overload guide',
+    description: 'Log every set and know exactly when to add weight or reps.',
   },
   {
-    title: 'Weekly check-in',
-    description:
-      "A 2-minute form covering adherence, energy, what's working and what's not.",
+    title: 'Nutrition guide',
+    description: 'Your calorie and protein targets, a simple meal structure and easy food swaps.',
   },
   {
-    title: 'Private progress photos',
-    description:
-      'Optional and always private by default, so you track for yourself first.',
+    title: 'Weekly check-ins',
+    description: 'Submit your progress each week. Coach Dayo reads every one and adjusts your plan.',
+  },
+  {
+    title: 'Live group calls',
+    // PLACEHOLDER: the call cadence.
+    description: '[Weekly] live calls for questions, form tips and motivation.',
+  },
+  {
+    title: 'Progress tracking',
+    description: 'Photos, measurements and strength markers, so you see what the scale misses.',
+  },
+  {
+    title: 'Community chat',
+    description: 'A private in-app group with the goal-driven women in your cohort.',
+  },
+  {
+    title: `Full app access for ${weeks} weeks`,
+    description: 'Everything above, on your phone, from day one.',
   },
 ]
+
+export interface WeekFocus {
+  title: string
+  description: string
+}
+
+/**
+ * The six focuses from the design, used only when the cohort's published
+ * program has no weeks to show. The program in Firestore wins when it has them.
+ */
+export const DEFAULT_WEEK_FOCUSES: WeekFocus[] = [
+  { title: 'foundations', description: 'Learn the movements, set your baseline measurements and lock in good form before we add load.' },
+  { title: 'fuel and habits', description: 'Hit your protein target daily, set your routine and make consistency the easy part.' },
+  { title: 'progressive overload', description: 'Start adding weight and reps with intent. Your logbook becomes your coach.' },
+  { title: 'intensity', description: 'Train closer to failure, control your tempo and feel every rep in the right muscle.' },
+  { title: 'recovery', description: 'Sleep, steps and stress. The progress you make outside the gym is part of the program.' },
+  { title: 'peak and re-test', description: 'Your strongest week. Final check-in, progress photos and a plan for what comes next.' },
+]
+
+const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve']
+
+/** "six", or the digits past twelve. */
+export const numberWord = (n: number) => NUMBER_WORDS[n] ?? String(n)
 
 export const FIT_FOR_YOU: string[] = [
-  "You're a complete beginner or you've trained a while and stalled. Both are welcome",
-  'You want visible change without an extreme diet or 2-hour gym sessions',
-  'You want your nutrition tailored to you, not a generic meal plan',
-  "You're willing to actually watch the form videos if you're new to lifting",
-  "You'll show up to at least one call and one check-in a week",
+  `You have gym access and can train ${TRAINING_DAYS} days a week`,
+  'You want to build muscle, especially glutes and legs, while losing fat',
+  'You are ready to track your workouts and your food',
+  'You want structure, coaching and real accountability',
+  'You are a beginner or intermediate lifter ready to take training seriously',
 ]
 
 export const NOT_FOR_YOU: string[] = [
-  'You want daily personal check-ins from me',
-  "You're looking for a crash diet or extreme fast results",
-  'You have an injury that needs individual clearance first',
-  "You can't commit any time over the next 6 weeks",
+  'You want a quick fix or a crash diet',
+  'You can only train at home or cannot get to a gym',
+  'You are not willing to check in every week',
+  'You want daily one-on-one programming built only around you',
+  'You have an injury or health condition and have not been cleared to train',
 ]
 
-export interface GalleryImage {
-  src: string
-  alt: string
-  width: number
-  height: number
+export const COACH = {
+  first: 'Dayo',
+  last: 'Pius',
+  bio: 'Dayo has been training since 2023 and has coached over 500 women since 2024. Her approach is simple: science-based training, research-proven methods and no gimmicks. Programs that fit real lives and build results you keep.',
+  stats: [
+    { value: '3+ years', caption: 'Training, since 2023' },
+    { value: '500+', caption: 'Women coached since 2024' },
+  ],
 }
 
-export const GALLERY: GalleryImage[] = [
-  {
-    src: '/landing/gallery-dumbbell-floor.jpg',
-    alt: 'A woman working through a set on a weight bench',
-    width: 900,
-    height: 668,
-  },
-  {
-    src: '/landing/gallery-strength-session.jpg',
-    alt: 'A woman mid-swing with a kettlebell in a busy gym',
-    width: 675,
-    height: 900,
-  },
-  {
-    src: '/landing/gallery-dumbbell-rack.jpg',
-    alt: 'A full rack of dumbbells along a gym wall',
-    width: 900,
-    height: 600,
-  },
-]
-
-export const PRICE_INCLUDES: string[] = [
-  'Full 6-week training program',
-  'Warm-up, core, cardio & stretch guides',
-  'Progressive overload guide (Week 3)',
-  'Nutrition guide with protein and portion guidance',
-  'Exercise video library',
-  '2× weekly live group calls',
-  'Private group chat + weekly check-ins',
+export const NEXT_STEPS: string[] = [
+  'Book your slot here',
+  'Pay securely on Selar',
+  'Get app access by email',
 ]
 
 export interface FaqEntry {
+  id: string
   question: string
   answer: string
 }
 
 /**
- * The Figma frame shows every row collapsed, so it carries the questions but no
- * answers. These are written from what the rest of the page already commits to
- * — the cardio guide's equipment options, the two call slots, the group format,
- * the "principles not a meal plan" line — so nothing here promises anything the
- * page doesn't. The refund wording is the one that needs the real policy before
- * launch; see the note on `REFUND_ANSWER_IS_PLACEHOLDER`.
+ * The FAQ. A function because two answers name things only known at runtime:
+ * the cohort's start day and the contact address.
  */
-export const FAQS: FaqEntry[] = [
-  {
-    question: 'Do I need a gym membership?',
-    answer:
-      'A gym makes the lifting program easiest to follow, because it is built around barbells, dumbbells and machines. The cardio guide gives you options by equipment and preference, so that part works wherever you train.',
-  },
-  {
-    question: "What if I've never trained before?",
-    answer:
-      "Complete beginners are welcome — the program starts from baseline lifts and form in Weeks 1–2 before any weight goes up. The one thing asked of you is that you actually watch the form videos if lifting is new to you.",
-  },
-  {
-    question: 'What if I miss a live call?',
-    answer:
-      'The same session runs twice a week in two different time slots, so you pick whichever fits your time zone. If you miss both, the group chat is where the week gets picked back up.',
-  },
-  {
-    question: 'Is this 1-on-1 coaching?',
-    answer:
-      'No — this is a 6-week group challenge. You get the live calls, the private group chat and a weekly check-in that I read. What it is not is daily personal programming built around one person.',
-  },
-  {
-    question: "What if I have allergies or don't eat certain foods?",
-    answer:
-      'The nutrition guide is principles rather than a fixed meal plan: protein and portion guidance, sensible calorie ranges, and everyday swaps you apply to your own food. You build meals from what you actually eat.',
-  },
-  {
-    question: 'Can I get a refund?',
-    answer:
-      'Tell me before the cohort starts and we will sort it out. Once the program has been released, the full package is already in your hands, so refunds are handled case by case — reach out and ask.',
-  },
-]
+export function faqs(context: { startsOn: string | null; contactEmail: string }): FaqEntry[] {
+  const contact = context.contactEmail ? `email ${context.contactEmail}` : 'get in touch'
+  const before = context.startsOn ? `before ${context.startsOn}` : 'before the cohort starts'
+  return [
+    {
+      id: 'faq-coaching',
+      question: 'Is this 1-on-1 coaching?',
+      answer: 'No, this is a group challenge. You get the live calls, the private group chat and a weekly check-in that I read. What it is not is daily personal programming built around one person.',
+    },
+    {
+      id: 'faq-where',
+      question: 'Where does the challenge happen?',
+      answer: `Everything runs in the ${APP_NAME}: workouts, logging, nutrition, check-ins, progress tracking, live calls and the community chat. You train at your own gym and follow along on your phone.`,
+    },
+    {
+      id: 'faq-pay',
+      question: 'How do I pay?',
+      answer: "After you book your slot, you complete payment on Selar, a secure payment platform. Your receipt, app download link and access code are sent to your email. Check your spam or promotions folder if you don't see it.",
+    },
+    {
+      id: 'faq-refund',
+      question: 'Can I get a refund?',
+      answer: `Your spot, app access and coaching time are reserved for you from day one. So once the cohort starts and you've received your links and access code, refunds aren't available. You'll already have the full program and resources, and check-ins and live calls are planned around each cohort. It also keeps everyone committed, which is a big part of why the group works. If something changes ${before}, ${contact}.`,
+    },
+    {
+      id: 'faq-missed',
+      question: 'What if I miss a workout or a week?',
+      answer: 'Life happens. Pick up where you left off, tell me in your check-in and we adjust. Consistency over six weeks matters more than one perfect week.',
+    },
+    {
+      id: 'faq-scale',
+      question: 'Will I lose weight on the scale?',
+      answer: "Maybe, maybe not, and that's okay. In a recomp you build muscle while losing fat, so the scale can move slowly while your shape changes. That's why we track photos, measurements and strength too.",
+    },
+    {
+      id: 'faq-abroad',
+      question: 'Can I join from outside Nigeria?',
+      answer: "Yes. The challenge runs in the app, so you can join from anywhere. That's why we ask for your timezone when you book.",
+    },
+    {
+      id: 'faq-health',
+      question: 'I have a health condition or injury. Can I join?',
+      answer: 'Please check with your doctor before starting. This program does not replace medical advice, and your safety comes first.',
+    },
+  ]
+}
 
-/**
- * The refund answer above is written to be plausible, not authoritative. Swap it
- * for the actual policy before this page goes live.
- */
-export const REFUND_ANSWER_IS_PLACEHOLDER = true
+/** Where the "refund policy" links go: the refund answer, opened. */
+export const REFUND_ANCHOR = '#faq-refund'
 
 export const LEGAL_DISCLAIMER =
   'Results vary by individual and depend on consistency with training and nutrition. This program does not replace medical advice, so check with a doctor before starting if you have any health concerns.'
 
-/**
- * The line under the lockup in the footer.
- *
- * A compressed restatement of the page rather than new argument — someone who
- * has scrolled this far has already read the case, and someone who landed here
- * from a shared link needs one sentence telling them what this is.
- */
-export const FOOTER_BLURB =
-  'The 6-week group challenge for people who are done choosing between losing fat and building muscle. Coached programming, live calls, and a check-in every week.'
+export const FOOTER_BLURB = 'Science-based coaching for women who want to get strong and feel it.'
 
-/**
- * Turn the configured Instagram handle into the row the footer draws.
- *
- * Tolerates the three things that actually get pasted into a `.env` — `dpfit`,
- * `@dpfit`, and the full profile URL — because this value is edited by hand in
- * a file with no validation behind it, and being wrong about which form was
- * meant produces a dead link on the live page that nobody notices for weeks.
- *
- * Returns null when unset, which is what keeps the row out rather than drawing
- * a link to `instagram.com/`.
- */
-export function instagramLink(handle: string): NavLink | null {
-  const raw = handle.trim().replace(/\/+$/, '')
-  if (!raw) return null
-  // A pasted URL is reduced to its last path segment, which is the handle.
-  const name = (raw.startsWith('http') ? raw.split('/').pop() : raw)?.replace(/^@/, '')
-  if (!name) return null
-  return { label: `@${name}`, href: `https://instagram.com/${name}` }
+export type SocialNetwork = 'instagram' | 'tiktok'
+
+/** A profile link drawn as the network's icon, `label` being its accessible name. */
+export interface SocialLink extends NavLink {
+  network: SocialNetwork
+}
+
+const SOCIAL_NETWORKS: Record<SocialNetwork, { base: string; name: string }> = {
+  instagram: { base: 'https://instagram.com/', name: 'Instagram' },
+  tiktok: { base: 'https://www.tiktok.com/@', name: 'TikTok' },
 }
 
 /**
- * The runtime values the footer needs, none of which this file can know.
+ * Turn a configured social handle into a link.
  *
- * All three are deployment configuration rather than copy — the member app's
- * origin, the address the business answers on, the handle it posts from — so
- * they arrive from `runtimeConfig.public` instead of being written here. That
- * is the whole reason `footerColumns` is a function.
+ * Tolerates the three things that actually get pasted into a `.env` — `dpfit`,
+ * `@dpfit`, and the full profile URL. A URL copied from the app's share sheet
+ * carries a tracking query (`?stkn=…`, `?igsh=…`), which is cut off rather
+ * than passed on to every visitor. Returns null when unset.
  */
-export interface FooterConfig {
-  appUrl: string
-  /** Brevo's verified sender, which is also the published contact. */
-  contactEmail: string
-  /** A bare handle, an `@handle`, or a full profile URL. */
+export function socialLink(handle: string, network: SocialNetwork): SocialLink | null {
+  const raw = handle.trim().replace(/[?#].*$/, '').replace(/\/+$/, '')
+  if (!raw) return null
+  const name = (raw.startsWith('http') ? raw.split('/').pop() : raw)?.replace(/^@/, '')
+  if (!name) return null
+  const { base, name: networkName } = SOCIAL_NETWORKS[network]
+  return { label: `DP Fitness on ${networkName}`, href: `${base}${name}`, network }
+}
+
+export interface FollowConfig {
   instagramHandle: string
+  tiktokHandle: string
+}
+
+/** The footer's "follow" icons, leaving out any network with no handle configured. */
+export function followLinks(config: FollowConfig): SocialLink[] {
+  return [socialLink(config.instagramHandle, 'instagram'), socialLink(config.tiktokHandle, 'tiktok')]
+    .filter((link): link is SocialLink => link !== null)
 }
 
 export interface FooterColumn {
@@ -408,37 +306,24 @@ export interface FooterColumn {
   links: NavLink[]
 }
 
-/**
- * The footer's link columns.
- *
- * A function rather than a constant because three of the links are not knowable
- * from here — they are deployment configuration, not copy, and arrive from
- * `runtimeConfig.public`. Everything else is reused rather than restated:
- * "Explore" *is* `NAV_LINKS`, so the header and the footer cannot come to
- * disagree about what the page contains.
- *
- * The contact column is dropped entirely when neither the address nor the
- * handle is configured, which is what keeps a half-configured deployment from
- * shipping an empty heading — or worse, a heading over one lonely link to
- * nowhere.
- */
-export function footerColumns(config: FooterConfig): FooterColumn[] {
-  const { appUrl, contactEmail, instagramHandle } = config
-
-  const contact: NavLink[] = []
-  if (contactEmail) contact.push({ label: contactEmail, href: `mailto:${contactEmail}` })
-  const instagram = instagramLink(instagramHandle)
-  if (instagram) contact.push(instagram)
+export function footerColumns(contactEmail: string): FooterColumn[] {
+  const support: NavLink[] = [
+    { label: 'faq', href: '#faq' },
+    { label: 'refund policy', href: REFUND_ANCHOR },
+    { label: 'about the coach', href: '#coach' },
+  ]
+  if (contactEmail) support.push({ label: contactEmail, href: `mailto:${contactEmail}` })
 
   return [
-    { title: 'Explore', links: NAV_LINKS },
     {
-      title: 'Get started',
+      title: 'challenge',
       links: [
-        { label: 'Join the challenge', href: REGISTER_ANCHOR },
-        { label: 'Member sign-in', href: appUrl },
+        { label: 'results', href: '#results' },
+        { label: "what's included", href: '#included' },
+        { label: 'weekly focus', href: '#weeks' },
+        { label: 'book a slot', href: REGISTER_ANCHOR },
       ],
     },
-    ...(contact.length ? [{ title: 'Contact', links: contact }] : []),
+    { title: 'support', links: support },
   ]
 }

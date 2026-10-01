@@ -32,6 +32,8 @@ export interface IssuedCode {
   reused: boolean
   /** The cohort the function read the code's details from. */
   cohortId: string
+  /** When it stops working. A reused code is extended to cover `ttlDays` from now. */
+  expiresAt: Date | null
 }
 
 /** Has to match `REGION` and `FUNCTION_NAME` in `apps/functions/src/callers.ts`. */
@@ -70,7 +72,10 @@ const serviceToken = async (audience: string): Promise<string> => {
  * Returns the buyer's existing live code rather than a second one when they
  * already hold one for this cohort — which is also what makes a retry safe: a
  * request that timed out here after the function had minted gets the same code
- * back the next time Zapier replays the sale.
+ * back the next time Zapier replays the sale. It is also how a code held
+ * through a pre-order is released: asked for again when the pre-order closes,
+ * the function hands back the same code with its expiry pushed out to
+ * `ttlDays` from then.
  *
  * Throws on anything but a code. `fulfilRegistration` has recorded nothing yet
  * when this runs, so a throw leaves the registration unfulfilled and the
@@ -105,7 +110,7 @@ export const issueAccessCode = async (
   })
 
   const body = (await response.json().catch(() => null)) as {
-    result?: { code?: string; reused?: boolean; cohortId?: string }
+    result?: { code?: string; reused?: boolean; cohortId?: string; expiresAt?: string }
     error?: { status?: string; message?: string }
   } | null
 
@@ -119,5 +124,11 @@ export const issueAccessCode = async (
   if (typeof result?.code !== 'string' || !result.cohortId) {
     throw new Error(`${FUNCTION_NAME} answered ${response.status} without a code.`)
   }
-  return { code: result.code, reused: result.reused === true, cohortId: result.cohortId }
+  const expiresAt = result.expiresAt ? new Date(result.expiresAt) : null
+  return {
+    code: result.code,
+    reused: result.reused === true,
+    cohortId: result.cohortId,
+    expiresAt: expiresAt && !Number.isNaN(expiresAt.getTime()) ? expiresAt : null,
+  }
 }

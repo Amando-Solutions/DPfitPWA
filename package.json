@@ -2,7 +2,7 @@
   "name": "dp-fitness",
   "private": true,
   "type": "module",
-  "description": "DP Fitness monorepo · the member PWA, the public landing site, and the design system they share",
+  "description": "DP Fitness monorepo · the member PWA, the public landing site, the admin console, their Cloud Functions, and the design system the first two share",
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -11,9 +11,11 @@
     "dev": "bun run dev:web",
     "dev:web": "bun run --filter dp-fitness-web dev",
     "dev:pwa": "bun run --filter dp-fitness-pwa dev",
+    "dev:admin": "bun run --filter dp-fitness-admin dev",
     "build": "bun run --filter '*' build",
     "build:web": "bun run --filter dp-fitness-web build",
     "build:pwa": "bun run --filter dp-fitness-pwa build",
+    "build:admin": "bun run --filter dp-fitness-admin build",
     "build:functions": "bun run --filter dp-fitness-functions build",
     "typecheck": "bun run --filter '*' typecheck",
     "brand:assets": "bun run --filter @dpfit/theme brand:assets",

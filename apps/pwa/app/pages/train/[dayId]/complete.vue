@@ -5,6 +5,7 @@ definePageMeta({ layout: false })
 import { processImage } from '~/lib/image'
 import { sessionQualifies } from '~/lib/domain/rewards'
 import { prescribedSets } from '~/lib/domain/sets'
+import { formatActivityTime, trustedNow } from '~/lib/time'
 
 const route = useRoute()
 const router = useRouter()
@@ -25,7 +26,7 @@ const session = computed(() => store.activeSession.value)
 /** Back to the logging screen, on the session's own week when it isn't this one. */
 const sessionHref = computed(() => {
   const week = store.activeSessionWeek.value
-  return week && week !== store.clock.value.week
+  return week && week !== store.planWeekNumber.value
     ? `/train/${dayId.value}?week=${week}`
     : `/train/${dayId.value}`
 })
@@ -98,15 +99,9 @@ const durationLabel = computed(() => {
   return `${m}m ${s}s`
 })
 
-const loggedAt = computed(() =>
-  new Date().toLocaleString(undefined, {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }),
-)
+// On the trusted clock and in WAT, labelled: what the log will be filed as, not
+// the phone's idea of the time. The function stamps the real one on saving.
+const loggedAt = computed(() => formatActivityTime(trustedNow(), store.cohortZone.value))
 
 const pickPhoto = () => fileInput.value?.click()
 
@@ -266,7 +261,7 @@ const discard = async () => {
       <div class="complete__notes mt-1.5 flex flex-col gap-2.5">
         <span class="text-[13px] text-muted">Notes (optional)</span>
         <textarea
-          class="complete__area w-full p-[14px_16px] bg-raised rounded-md shadow-[inset_0_0_0_1.5px_var(--hairline)] text-[14px] text-(--ink) border-none outline-none resize-none font-body placeholder:text-placeholder"
+          class="complete__area w-full p-[14px_16px] bg-raised rounded-md shadow-[inset_0_0_0_1.5px_var(--hairline)] text-[16px] text-(--ink) border-none outline-none resize-none font-body placeholder:text-placeholder"
           rows="3"
           placeholder="How did this session feel? Leave a note for yourself…"
           :value="session.note"

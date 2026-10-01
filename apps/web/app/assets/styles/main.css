@@ -1,9 +1,8 @@
 @import 'tailwindcss';
 
-/* The same design system the member app is built from — one palette, one type
-   ramp, one set of control recipes across both. Imported into this file rather
-   than registered as its own `css` entry because `@theme inline` only publishes
-   utilities inside the Tailwind root that pulled in `tailwindcss`. */
+/* The shared design system is still imported — the confirmation page, the
+   `PoweredBy` credit and the radius / spacing scale come from it — but the
+   landing composition now draws from its own palette, declared below. */
 @import '@dpfit/theme/styles/theme.css';
 
 /* Tailwind scans outwards from the stylesheet's own directory, which since the
@@ -12,171 +11,275 @@
 @source '../..';
 
 /* =============================================================================
-   Landing page · the handful of values the shared system doesn't already carry
+   Landing page palette
    -----------------------------------------------------------------------------
-   Almost everything this page needs is already a token: `--text` is the ink,
-   `--text-soft` the secondary ink, `--primary-fill` the accent, `--secondary` the
-   violet, `--macro-carbs` the green the "this is for you" column uses, and
-   the five `--font-*` families are the same. What follows is only what the
-   marketing composition genuinely introduces.
+   Transcribed from the "Body Recomp Challenge" design reference: a lavender
+   paper page, one near-black plum for type and the dark panels, a single
+   violet accent, and a five-step lilac ramp the week cards walk down.
 
    The page is pinned to the light palette (`data-theme="light"` in
-   `nuxt.config.ts`) because it is one authored composition — a lavender-white page
-   with two deliberately dark panels — rather than a surface someone lives in.
-   That is why these sit on plain `:root` with no dark counterpart.
+   `nuxt.config.ts`) because it is one authored composition, so these sit on
+   plain `:root` with no dark counterpart.
    ========================================================================== */
 :root {
-  /* The page itself, and the slightly deeper band that alternating sections sit
-     on. The app's `--surface-raised` and `--surface` respectively: a full-width
-     page on the page colour itself reads as grey, so it sits on the card white
-     and the bands drop to the page lavender. */
-  --page: #fcfbff;
-  --page-deep: #f5f3fa;
-  /* The hero and the closing panel. Deeper than the app's `--surface-inverse`
-     (#241b2e) so the purple and violet glows bloom out of something near-black
-     instead of out of violet. */
-  --night: #0f0a14;
-  /* Type on `--night`. Matches `--page` so the dark panels read as the page
-     inverted rather than as a different brand. */
-  --paper: #fcfbff;
+  /* Page and ink. */
+  --lp-paper: #f7f4fc;
+  --lp-ink: #1d1628;
+  /* Hover state of the ink pill. */
+  --lp-ink-hover: #352a4a;
+  /* Secondary copy everywhere on the page. */
+  --lp-soft: #5f5872;
+  /* Copy inside the "not for you" panel, a touch warmer than `--lp-soft`. */
+  --lp-soft-deep: #534c68;
+  /* The one accent: eyebrows, numerals, results figures. */
+  --lp-accent: #6d46ab;
 
-  /* The asides under a price or a submit button. Scheme A's muted text, the
-     same value as the app's `--text-muted`. */
-  --ink-mute: #5c4f66;
+  /* The lilac ramp, lightest to deepest. Week cards, panels, photo slots. */
+  --lp-lilac-50: #eee7fa;
+  --lp-lilac-100: #e6def4;
+  --lp-lilac-150: #e1d3f5;
+  --lp-lilac-200: #cfb9ef;
+  --lp-lilac-250: #c7b0ec;
+  --lp-lilac-300: #b99ce6;
+  --lp-lilac-350: #b6a0e4;
+  --lp-lilac-500: #8660c4;
 
-  /* The rules that divide the numbered lists. Heavier than the app's
-     `--hairline` (0.11) because here they are structure, not just separation. */
-  --rule: rgba(36, 27, 46, 0.14);
-  --rule-soft: rgba(36, 27, 46, 0.1);
-  --rule-faint: rgba(36, 27, 46, 0.08);
-  /* The same idea drawn on `--night`. */
-  --rule-inverse: rgba(255, 255, 255, 0.14);
+  /* Rules and edges. */
+  --lp-rule: #e1daee;
+  --lp-edge: #ece6f6;
+  --lp-field-edge: #cdc3e2;
+  --lp-rule-lilac: #d6cbea;
 
-  /* The release chip on each package row. Its own pair in Figma
-     (`chip-day-surface` / `chip-day-label`) rather than a tint of the ink,
-     because it is the violet on purpose: the one chip on the page that is
-     neither the ink nor the primary. The ink is the light-mode icon-safe violet,
-     which holds 4.6:1 on this tint where the plain violet does not. */
-  --chip-quiet: rgba(157, 127, 234, 0.14);
-  --chip-quiet-ink: #6e59a4;
+  /* Muted type on the plum footer. */
+  --lp-on-ink-soft: #bfb5d6;
+  --lp-on-ink-hover: #d9c6f5;
 
-  /* Field surfaces in the registration card. */
-  --field: #fcfbff;
-  --field-edge: rgba(36, 27, 46, 0.18);
-
-  /* The two-stop wash that paints "Do both at once." and nothing else. */
-  --recomp-gradient: linear-gradient(
-    111.43deg,
-    var(--brand-primary) 6.17%,
-    var(--brand-violet) 93.83%
-  );
+  --font-landing: 'Manrope', system-ui, sans-serif;
+  --font-serif: 'Instrument Serif', Georgia, serif;
 }
 
 @theme inline {
-  --color-page: var(--page);
-  --color-page-deep: var(--page-deep);
-  --color-night: var(--night);
-  --color-paper: var(--paper);
-  --color-ink-mute: var(--ink-mute);
-  --color-rule: var(--rule);
-  --color-rule-soft: var(--rule-soft);
-  --color-rule-faint: var(--rule-faint);
-  --color-rule-inverse: var(--rule-inverse);
-  --color-chip-quiet: var(--chip-quiet);
-  --color-field: var(--field);
-  --color-field-edge: var(--field-edge);
+  --color-lp-paper: var(--lp-paper);
+  --color-lp-ink: var(--lp-ink);
+  --color-lp-ink-hover: var(--lp-ink-hover);
+  --color-lp-soft: var(--lp-soft);
+  --color-lp-soft-deep: var(--lp-soft-deep);
+  --color-lp-accent: var(--lp-accent);
+  --color-lp-lilac-50: var(--lp-lilac-50);
+  --color-lp-lilac-100: var(--lp-lilac-100);
+  --color-lp-lilac-150: var(--lp-lilac-150);
+  --color-lp-lilac-200: var(--lp-lilac-200);
+  --color-lp-lilac-250: var(--lp-lilac-250);
+  --color-lp-lilac-300: var(--lp-lilac-300);
+  --color-lp-lilac-350: var(--lp-lilac-350);
+  --color-lp-lilac-500: var(--lp-lilac-500);
+  --color-lp-rule: var(--lp-rule);
+  --color-lp-edge: var(--lp-edge);
+  --color-lp-field-edge: var(--lp-field-edge);
+  --color-lp-rule-lilac: var(--lp-rule-lilac);
+  --color-lp-on-ink-soft: var(--lp-on-ink-soft);
+  --color-lp-on-ink-hover: var(--lp-on-ink-hover);
+  --font-landing: var(--font-landing);
+  --font-serif: var(--font-serif);
 }
 
 /* =============================================================================
-   Type ramp
-   -----------------------------------------------------------------------------
-   The shared `display-xl / lg / md` utilities are sized for a phone screen a
-   member reads every morning — 34px at the top of the ramp. A landing page
-   opens at 88px. Same families and the same weights, a different scale, so
-   these are additions rather than overrides.
-
-   Each one is fluid between the mobile artboard and the 1400px desktop one, so
-   the page has no width at which the headline is either clipped or marooned.
+   Type
    ========================================================================== */
 
-/* The primary or violet kicker above every section heading. */
-@utility eyebrow-section {
-  font-family: var(--font-eyebrow);
-  font-weight: 700;
-  font-size: 12px;
-  letter-spacing: 0.17em;
+/* The italic serif half of every heading: "body recomp *challenge*". */
+@utility serif-accent {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* The uppercase accent kicker above the hero and the coach / join headings. */
+@utility lp-eyebrow {
+  font-size: 13px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
+  font-weight: 600;
+  color: var(--lp-accent);
 }
 
-/* "Lose the fat. Keep the muscle." — used once, at the top. */
-@utility title-hero {
-  font-family: var(--font-display);
-  font-weight: 900;
-  font-size: clamp(2.75rem, 6.4vw, 5.5rem);
-  line-height: 0.95;
-  letter-spacing: -0.038em;
-}
-
-/* Every section heading on the page. */
-@utility title-section {
-  font-family: var(--font-display);
-  font-weight: 900;
-  font-size: clamp(2rem, 4vw, 3.125rem);
-  line-height: 1.02;
+/* Every section heading. */
+@utility lp-h2 {
+  margin: 0;
+  font-size: clamp(36px, 4vw, 56px);
+  font-weight: 500;
   letter-spacing: -0.03em;
+  line-height: 1.05;
 }
 
-/* Card headings inside the three-phase grid, and the "What you get" lead. */
-@utility title-card {
-  font-family: var(--font-display);
-  font-weight: 900;
-  font-size: 1.625rem;
-  line-height: 1.15;
-  letter-spacing: -0.02em;
-}
-
-/* The price, at the size the pricing section prints it. */
-@utility title-price {
-  font-family: var(--font-display);
-  font-weight: 900;
-  font-size: clamp(3.75rem, 8vw, 6.5rem);
-  line-height: 0.9;
+/* The larger heading used by the coach and join sections. */
+@utility lp-h2-lg {
+  margin: 0;
+  font-size: clamp(42px, 4.6vw, 68px);
+  font-weight: 500;
   letter-spacing: -0.04em;
+  line-height: 1;
 }
 
-/* Small uppercase monospace: stat captions, field labels, release chips. */
-@utility meta {
-  font-family: var(--font-data);
-  font-size: 10.5px;
-  letter-spacing: 0.13em;
+/* Small uppercase pill: week labels, before / after. */
+@utility lp-chip {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
+  border-radius: 999px;
 }
 
-/* The purple-to-violet "Do both at once." wash. Needs a painted background clipped to the
-   glyphs, so it cannot be expressed as a colour token. */
-@utility text-recomp {
-  background-image: var(--recomp-gradient);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+/* =============================================================================
+   Interaction recipes from the design reference
+   ========================================================================== */
+
+/* Underline that draws itself in from the left on hover. The hovers here are
+   all behind `(hover: hover)`, as Tailwind's own `hover:` is: a tap on a phone
+   would otherwise leave the card lifted or the link underlined until the next
+   tap somewhere else. */
+@utility lp-ul {
+  background-image: linear-gradient(currentColor, currentColor);
+  background-size: 0 1px;
+  background-position: 0 100%;
+  background-repeat: no-repeat;
+  transition:
+    background-size 0.45s cubic-bezier(0.2, 0.7, 0.2, 1),
+    color 0.3s;
+  @media (hover: hover) {
+    &:hover {
+      background-size: 100% 1px;
+    }
+  }
+}
+
+/* Cards that rise on hover; the week numerals fill in as they do. */
+@utility lp-lift {
+  transition: transform 0.6s cubic-bezier(0.2, 0.7, 0.2, 1);
+  @media (hover: hover) {
+    &:hover {
+      transform: translateY(-8px);
+    }
+  }
+}
+
+@layer components {
+  .lp-wknum {
+    color: transparent;
+    transition: color 0.6s cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+  @media (hover: hover) {
+    .lp-lift:hover .lp-wknum {
+      color: var(--lp-ink);
+    }
+    .lp-lift:hover .lp-wknum.is-light {
+      color: var(--lp-paper);
+    }
+  }
+
+  /* The results strip: a scroller `useAutoScroll` drifts back and forth. No
+     scrollbar, since it moves by swipe, trackpad, keys or a mouse drag, and
+     `contain` keeps a sideways trackpad swipe from turning into "back". */
+  .lp-marquee-wrap {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    cursor: grab;
+  }
+  .lp-marquee-wrap::-webkit-scrollbar {
+    display: none;
+  }
+  .lp-marquee-wrap.is-dragging {
+    cursor: grabbing;
+    user-select: none;
+  }
+  /* Inset by the page gutter, so the first card lines up with the heading
+     above it and the last one doesn't end flush against the screen edge. */
+  .lp-marquee {
+    display: flex;
+    gap: 20px;
+    width: max-content;
+    padding-inline: 24px;
+  }
+  @media (width < 40rem) {
+    .lp-marquee {
+      gap: 14px;
+    }
+  }
+
+  .lp-hero-in {
+    animation: lp-fadein 1s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  .lp-hero-in.d2 {
+    animation-delay: 0.15s;
+  }
+  .lp-hero-in.d3 {
+    animation-delay: 0.3s;
+  }
+
+  @supports (animation-timeline: view()) {
+    .lp-reveal {
+      animation: lp-rise linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 28%;
+    }
+  }
+
+  /* The FAQ "+" turns into a "×". */
+  details .lp-plus {
+    transition: transform 0.4s cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+  details[open] .lp-plus {
+    transform: rotate(45deg);
+  }
+}
+
+@keyframes lp-rise {
+  from {
+    opacity: 0;
+    transform: translateY(36px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes lp-fadein {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 @layer base {
   body {
-    background: var(--page);
-    color: var(--text);
+    background: var(--lp-paper);
+    color: var(--lp-ink);
   }
 
-  /* Every in-page CTA is an anchor to a section further down, so the jump has
-     to clear the sticky header rather than hiding the heading behind it. */
+  /* Every in-page CTA is an anchor further down, so the jump has to clear the
+     sticky header rather than hide the heading behind it. */
   html {
     scroll-behavior: smooth;
     scroll-padding-top: 96px;
   }
+}
 
-  @media (prefers-reduced-motion: reduce) {
-    html {
-      scroll-behavior: auto;
-    }
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .lp-reveal,
+  .lp-hero-in {
+    animation: none;
+  }
+  .lp-lift:hover,
+  .lp-btn:hover {
+    transform: none;
   }
 }

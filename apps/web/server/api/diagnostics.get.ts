@@ -31,10 +31,12 @@
 // deployment is still reconnaissance, not because anything here would be
 // dangerous to leak — which is exactly the standard a new field has to meet.
 // =============================================================================
+import { cohortFallbacks, loadChallenge } from '../utils/cohort'
+import { firestore } from '../utils/firebase'
 import { isFromSelar } from '../utils/selar'
 import { reachableOrigin } from '../emails/access-code'
 
-export default defineEventHandler((event) => {
+export default defineEventHandler(async (event) => {
   const config = useRuntimeConfig()
 
   // The same gate as the webhook, and the same secret. There is no second
@@ -52,6 +54,7 @@ export default defineEventHandler((event) => {
 
   const appUrl = config.public.appUrl
   const databaseId = config.firebaseDatabaseId?.trim() ?? ''
+  const active = await loadChallenge(firestore(), cohortFallbacks()).catch(() => null)
 
   return {
     /**
@@ -83,7 +86,8 @@ export default defineEventHandler((event) => {
       // `""` in a JSON response reads as "unset and therefore broken" when it
       // is in fact the production database — the one a project starts with.
       firebaseDatabaseId: databaseId || '(default)',
-      registrationCohortId: config.registrationCohortId,
+      registrationCohortId: active?.challenge.id ?? null,
+      registrationOpen: active?.challenge.registrationOpen ?? false,
       // The check the email itself makes. False means the "Open the app"
       // button in an access-code email sent from this deployment points
       // somewhere no inbox can follow — a localhost default left in place.

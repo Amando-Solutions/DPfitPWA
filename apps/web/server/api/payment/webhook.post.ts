@@ -25,7 +25,7 @@
 // out of access logs and referrers, and Zapier's Webhooks action can set one.
 // The query parameter exists because Selar's own hook may not be able to.
 // =============================================================================
-import { readPrice } from '../../../app/data/landing'
+import { brevoConfig } from '../../utils/email'
 import { firestore } from '../../utils/firebase'
 import { findRegistrationForSale, fulfilRegistration } from '../../utils/fulfilment'
 import { describeAmount, isFromSelar, parseSaleEvent } from '../../utils/selar'
@@ -87,40 +87,31 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const price = readPrice(config.public)
-  const amount = describeAmount(sale, price.minor, price.currency)
-
-  // Never a reason to refuse a seat, always a reason to write it down. Selar
-  // prices convert into the buyer's own currency, so a mismatch here is
-  // usually a Londoner paying in pounds rather than anything wrong — but an
-  // underpayment in the home currency means the Selar product and the price on
-  // the page have drifted apart, and that is worth finding out about.
-  if (amount.matches === false) {
-    console.warn(`[webhook] ${sale.email} ${amount.note} — issuing anyway, but check the price.`)
-  }
-
   const reference = await findRegistrationForSale(db, sale)
-
-  // Money moved and there is nothing to attach it to. Almost always a buyer
-  // who changed the email address on Selar's checkout form away from the one
-  // they registered with, occasionally somebody who bought from a Selar link
-  // without ever filling in the form. Either way it is a person who has paid
-  // and is waiting, so it is recorded somewhere a human will look rather than
-  // left in a log line that scrolls away.
   if (!reference) {
     await db.collection('unmatchedSales').add({
-      ...sale,
-      expectedAmountMinor: price.minor,
-      expectedCurrency: price.currency,
-      amountNote: amount.note,
-      resolved: false,
-      receivedAt: new Date(),
+      ...sale, expectedAmountMinor: null, expectedCurrency: null,
+      amountNote: 'No unambiguous registration matches this sale.',
+      resolved: false, receivedAt: new Date(),
     })
-    console.error(
-      `[webhook] a sale from ${sale.email} matches no registration. Nothing has been ` +
-        'issued. It is recorded in `unmatchedSales` and needs a code by hand.',
-    )
     return { ok: true, outcome: 'unmatched' }
+  }
+
+  // Compare against the offer saved at registration, never today's active
+  // cohort or price. A delayed webhook must fulfil the purchase actually made.
+  const registration = await db.doc(`registrations/${reference}`).get()
+  const minor = registration.get('amountMinor')
+  const currency = registration.get('currency')
+  if (!Number.isSafeInteger(minor) || minor < 0 || typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency)) {
+    throw createError({ statusCode: 503, statusMessage: 'Registration price needs manual review.' })
+  }
+  const amount = describeAmount(sale, minor, currency)
+  if (amount.matches === false) {
+    await db.collection('unmatchedSales').add({
+      ...sale, reference, expectedAmountMinor: minor, expectedCurrency: currency,
+      amountNote: amount.note, resolved: false, receivedAt: new Date(),
+    })
+    return { ok: true, outcome: 'price_mismatch' }
   }
 
   try {
@@ -128,16 +119,13 @@ export default defineEventHandler(async (event) => {
       db,
       { ...sale, reference },
       {
-        cohortId: config.registrationCohortId,
-        ttlDays: Number(config.registrationCodeTtlDays) || 30,
         appUrl: config.public.appUrl,
-        brevo: {
-          apiKey: config.brevoApiKey,
-          senderEmail: config.brevoSenderEmail,
-          senderName: config.brevoSenderName,
-          replyTo: config.brevoReplyTo,
-          templateId: config.brevoTemplateId,
+        codeTtlDaysFallback: config.registrationCodeTtlDays,
+        preorderFallback: {
+          preorderStartsAt: config.registrationPreorderStartsAt,
+          preorderEndsAt: config.registrationPreorderEndsAt,
         },
+        brevo: brevoConfig(),
       },
     )
     return { ok: true, outcome: result.outcome }
