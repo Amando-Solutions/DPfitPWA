@@ -1012,9 +1012,8 @@ the "the leaderboard's live now" card shows above the board, and the week is the
 cohort's — every member is in the same week on the same date (see **The
 schedule**).
 
-Only an admin (the `coach` claim) can write either field. The admin app — a
-separate app, not in this repo — is what turns the board on and off; until it
-exists, flip the boolean in the console. The PWA watches the cohort document,
+Only an admin (the `coach` claim) can write either field. The admin console,
+`apps/admin`, is what turns the board on and off. The PWA watches the cohort document,
 so the change reaches members with the app already open.
 
 This is a visibility switch, not access control. Switched off, the session

@@ -1,0 +1,6 @@
+# What the root .gitignore doesn't already cover.
+dist-ssr
+*.local
+
+# Local data backups from maintenance scripts
+backups/

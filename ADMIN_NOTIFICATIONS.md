@@ -1,7 +1,7 @@
 # Admin console handover
 
-The admin console is a separate app and doesn't live in this repo. It writes
-the data the member app (`apps/pwa`) runs on: access codes, cohorts, the
+The admin console is [`apps/admin`](apps/admin), a Vite and React app in this
+workspace. It writes the data the member app (`apps/pwa`) runs on: access codes, cohorts, the
 training plan, announcements, and the coach's side of chat. This document is
 the contract between the two apps. It covers what the console has to build,
 which documents and fields it writes, and the mistakes that break the member
@@ -1162,9 +1162,9 @@ The rules and indexes live in this repo:
 | `firestore.indexes.json` | both databases |
 
 There is one rules document per database, and whoever deploys last replaces
-the whole of it. The console repo shouldn't keep or deploy its own copies. Any
-rule or index the console needs is a change to these files, made in this repo
-and applied to both Firestore rules files.
+the whole of it. `apps/admin` keeps no copies of its own and deploys none. Any
+rule or index the console needs is a change to these files, applied to both
+Firestore rules files.
 
 ### `firestore.rules.proposed` is out of date. Don't deploy it
 
@@ -1358,8 +1358,7 @@ The console shouldn't promise these, because the member app doesn't do them:
 
 - [ ] `firestore.rules.proposed` is not deployed. Admin branches are added to
       `firestore.rules` and `firestore.staging.rules` instead.
-- [ ] The console's own composite indexes are added to this repo's
-      `firestore.indexes.json`, and the console repo doesn't deploy rules or
-      indexes.
+- [ ] The console's composite indexes are in `firestore.indexes.json`, and
+      nothing under `apps/admin` deploys rules or indexes.
 - [ ] Rules and indexes are deployed, and indexes have finished building,
       before the feature that needs them is released.

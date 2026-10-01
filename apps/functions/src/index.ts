@@ -7,6 +7,10 @@
 //                    `callers.ts` is how it tells them apart, `access-codes.ts`
 //                    is what it writes.
 //
+// cloneProgramVersion
+//                    Copies a published program into its next version, as a
+//                    draft. Called by the admin console. See `programs.ts`.
+//
 // releasePreorderCodes
 //                    Every 15 minutes. Calls the landing site's release route, which
 //                    sends the access codes held during a cohort's pre-order
@@ -38,6 +42,7 @@ import {
   setRegionHandler,
   submitCheckInHandler,
 } from './member-writes.js'
+import { clonePublishedProgram } from './programs.js'
 import { pushCohortMessage, pushCohortNotification } from './push.js'
 export { remindLiveCalls } from './live-call-reminders.js'
 export { releasePreorderCodes } from './release.js'
@@ -81,6 +86,12 @@ export const createAccessCode = onCall(async (request): Promise<CreateAccessCode
   const batchId = `${caller.batchPrefix}-${new Date().toISOString().slice(0, 7)}`
   return mintAccessCode(input, caller.actor, batchId)
 })
+
+/**
+ * Copy a published program into its next version, as a draft, for the admin
+ * console. Needs the `dpfitAdmin` claim. See `programs.ts`.
+ */
+export const cloneProgramVersion = onCall(clonePublishedProgram)
 
 // --- Member writes ----------------------------------------------------------
 // Called by the member app with its own ID token, from
