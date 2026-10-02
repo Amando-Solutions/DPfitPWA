@@ -124,11 +124,6 @@ export const includedItems = (weeks: number): IncludedItem[] => [
     description: 'Submit your progress each week. Coach Dayo reads every one and adjusts your plan.',
   },
   {
-    title: 'Live group calls',
-    // PLACEHOLDER: the call cadence.
-    description: '[Weekly] live calls for questions, form tips and motivation.',
-  },
-  {
     title: 'Progress tracking',
     description: 'Photos, measurements and strength markers, so you see what the scale misses.',
   },

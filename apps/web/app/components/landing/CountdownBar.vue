@@ -3,8 +3,8 @@
  * The plum strip above the header, counting down to whatever happens next.
  *
  * Reads the active cohort's pre-order window and start date:
- *   before the pre-order → "pre-order starts in"     → preorder.startsAt
- *   during the pre-order → "pre-order ends in"       → preorder.endsAt
+ *   before the pre-order → "enrolment opens in"      → preorder.startsAt
+ *   during the pre-order → "enrolment closes in"     → preorder.endsAt
  *   after it             → "the challenge starts in" → cohort start
  * and disappears once there is nothing left to count to, or no cohort at all.
  *
@@ -31,8 +31,8 @@ const target = computed(() => {
   if (preorder) {
     const opens = Date.parse(preorder.startsAt)
     const closes = Date.parse(preorder.endsAt)
-    if (at < opens) return { label: 'pre-order starts in', at: opens }
-    if (at < closes) return { label: 'pre-order ends in', at: closes }
+    if (at < opens) return { label: 'enrolment opens in', at: opens }
+    if (at < closes) return { label: 'enrolment closes in', at: closes }
   }
   const starts = Date.parse(c.startsAt)
   if (Number.isFinite(starts) && at < starts) {
