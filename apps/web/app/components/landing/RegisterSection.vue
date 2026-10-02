@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { detectTimezone, isTimezone } from '~/data/timezones'
 import { APP_NAME, EQUIPMENT, NEXT_STEPS, TRAINING_SPLIT } from '~/data/landing'
+import { TERMS_PATH, TERMS_VERSION } from '~/data/terms'
 
 /**
  * "book your slot": the offer on the left, the form on the right.
@@ -120,6 +121,13 @@ const otherFields = FIELDS.slice(2)
 const errors = reactive<Partial<Record<FieldName, string>>>({})
 const attempted = ref(false)
 
+/**
+ * The terms box. Not one of `FIELDS`: there is nothing to tell somebody about
+ * it after the fact, so instead of an error under it the button stays disabled
+ * until it is ticked.
+ */
+const agreed = ref(false)
+
 /** In flight, and stays true while the browser is on its way to Selar. */
 const submitting = ref(false)
 const failure = ref('')
@@ -196,7 +204,7 @@ const failureMessage = (cause: unknown) => {
 }
 
 async function onSubmit() {
-  if (submitting.value || !open.value || !challenge.value || !rawPrice.value) return
+  if (submitting.value || !agreed.value || !open.value || !challenge.value || !rawPrice.value) return
 
   attempted.value = true
   failure.value = ''
@@ -216,6 +224,7 @@ async function onSubmit() {
         cohortId: challenge.value.id,
         amountMinor: rawPrice.value.minor,
         currency: rawPrice.value.currency,
+        acceptedTermsVersion: TERMS_VERSION,
       },
     })
 
@@ -367,9 +376,31 @@ const inputClass = (name: FieldName) => [
                 Detected from your device. Change it if it's wrong.
               </span>
             </div>
+
+            <!-- A new tab for the terms, so reading them never costs anybody
+                 the answers above. -->
+            <div class="flex items-start gap-3">
+              <input
+                id="register-terms"
+                v-model="agreed"
+                type="checkbox"
+                name="terms"
+                class="mt-0.5 size-4.5 shrink-0 cursor-pointer accent-lp-ink"
+                @change="failure = ''"
+              >
+              <label for="register-terms" class="cursor-pointer text-[14px] leading-normal text-lp-soft">
+                I have read and agree to the
+                <a
+                  :href="TERMS_PATH"
+                  target="_blank"
+                  rel="noopener"
+                  class="font-semibold text-lp-ink underline underline-offset-3"
+                >terms and conditions</a>.
+              </label>
+            </div>
           </div>
 
-          <CtaButton type="submit" block :disabled="submitting || !open">
+          <CtaButton type="submit" block :disabled="submitting || !open || !agreed">
             {{ actionLabel }}
           </CtaButton>
 

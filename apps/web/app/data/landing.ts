@@ -10,6 +10,7 @@
  * [square brackets] is a placeholder the design ships with, waiting on real
  * content. Search for `PLACEHOLDER` to find them all.
  */
+import { TERMS_PATH } from './terms'
 
 /** Where every "book a slot" call-to-action points. */
 export const REGISTER_ANCHOR = '#join'
@@ -86,7 +87,7 @@ export const RESULTS: ResultCard[] = [
 // ---------------------------------------------------------------------------
 export interface AppScreen {
   /**
-   * 440×1068, the whole screen top to bottom; the phone frame shows the top.
+   * 440 wide, the whole screen top to bottom; the phone frame shows the top.
    * Masters are in `public/app-mock`.
    */
   src: string
@@ -96,7 +97,7 @@ export interface AppScreen {
 export const APP_SCREENS: AppScreen[] = [
   { src: '/landing/app/train.jpg', alt: "Today's workout in the app: each exercise with its sets, reps and a weight log" },
   { src: '/landing/app/fuel.jpg', alt: 'Daily fuel in the app: calorie, protein, carb and fat targets with nutrition tips' },
-  { src: '/landing/app/chat.jpg', alt: 'The cohort group chat in the app, with the coach and other members' },
+  { src: '/landing/app/guides.jpg', alt: 'Program guides in the app: cardio, core and mobility guides to read alongside the training' },
 ]
 
 export interface IncludedItem {
@@ -310,6 +311,7 @@ export function footerColumns(contactEmail: string): FooterColumn[] {
   const support: NavLink[] = [
     { label: 'faq', href: '#faq' },
     { label: 'refund policy', href: REFUND_ANCHOR },
+    { label: 'terms and conditions', href: TERMS_PATH },
     { label: 'about the coach', href: '#coach' },
   ]
   if (contactEmail) support.push({ label: contactEmail, href: `mailto:${contactEmail}` })

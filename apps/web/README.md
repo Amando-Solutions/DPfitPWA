@@ -39,12 +39,14 @@ program's weeks; the design's six focuses only when it has none).
 early-bird offer and a `[Selar logo]` chip. They are rendered as designed and
 live in `data/landing.ts` under `PLACEHOLDER` comments — swap the copy there.
 
-**Photos.** The coach portrait, the before / after pairs and the app
-screenshots are served from `public/landing/` at web sizes, cut down from the
-masters (`meet-the-coach-original.png`, `public/before-and-after-images/`,
-`public/app-mock/`). Each result photo is 352×640, cropped around the subject to
-fit the card's slot, and each app screenshot is 440×1068 with the capture's pale
-edge trimmed, so a new one needs the same treatment rather than the raw upload.
+**Photos.** The hero banner, the coach portrait, the before / after pairs and
+the app screenshots are served from `public/landing/` at web sizes, cut down
+from the masters (`hero-coach-original.png`, `meet-the-coach-original.jpg`,
+`public/before-and-after-images/`, `public/app-mock/`). The banner is 1800 wide
+and the portrait 1080×1440. Each result photo is 352×640, cropped around the
+subject to fit the card's slot, and each app screenshot is 440 wide with the
+capture's pale edge (and a phone's status bar) trimmed, so a new one needs the
+same treatment rather than the raw upload.
 
 The palette is declared once at the top of `app/assets/styles/main.css` as
 `--lp-*` tokens (Tailwind colours `lp-paper`, `lp-ink`, `lp-accent`, the
