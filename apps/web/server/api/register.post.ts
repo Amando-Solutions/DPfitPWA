@@ -24,6 +24,7 @@ import { cohortFallbacks, loadChallenge } from '../utils/cohort'
 import { firestore } from '../utils/firebase'
 import { enrolmentRefusal } from '../utils/membership'
 import { checkoutUrl, newReference, SelarError } from '../utils/selar'
+import { TERMS_VERSION } from '../../app/data/terms'
 import type { Registration } from '../utils/access-code'
 
 /** How long the confirmation page has to find its registration. */
@@ -148,6 +149,16 @@ export default defineEventHandler(async (event) => {
 
   const body = (await readBody(event)) ?? {}
   const registration = validate(body)
+  // Asked again for the same reason the fields are: the box on the form can be
+  // skipped by anything that is not the form. Matched against the current
+  // version rather than merely present, so a tab opened before the terms
+  // changed, or before the form had the box, is sent to read the new ones.
+  if (body.acceptedTermsVersion !== TERMS_VERSION) {
+    throw createError({
+      statusCode: 409,
+      statusMessage: 'Refresh this page and accept the terms and conditions to continue.',
+    })
+  }
   const config = useRuntimeConfig()
   let active
   try { active = await loadChallenge(firestore(), cohortFallbacks()) } catch (cause) {
@@ -232,6 +243,10 @@ export default defineEventHandler(async (event) => {
         codeTtlDays: offer.codeTtlDays,
         source: 'landing',
         provider: 'selar',
+        // Which terms they ticked the box for, since `data/terms.ts` changes
+        // under every registration taken before it.
+        termsVersion: TERMS_VERSION,
+        termsAcceptedAt: new Date(),
         // The member app as *this* deployment knows it, written down now
         // because the sale notification cannot work it out later. Selar posts
         // every sale to one fixed webhook URL, so the deployment that issues

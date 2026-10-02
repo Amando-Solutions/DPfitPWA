@@ -10,6 +10,7 @@
  * [square brackets] is a placeholder the design ships with, waiting on real
  * content. Search for `PLACEHOLDER` to find them all.
  */
+import { TERMS_PATH } from './terms'
 
 /** Where every "book a slot" call-to-action points. */
 export const REGISTER_ANCHOR = '#join'
@@ -310,6 +311,7 @@ export function footerColumns(contactEmail: string): FooterColumn[] {
   const support: NavLink[] = [
     { label: 'faq', href: '#faq' },
     { label: 'refund policy', href: REFUND_ANCHOR },
+    { label: 'terms and conditions', href: TERMS_PATH },
     { label: 'about the coach', href: '#coach' },
   ]
   if (contactEmail) support.push({ label: contactEmail, href: `mailto:${contactEmail}` })
