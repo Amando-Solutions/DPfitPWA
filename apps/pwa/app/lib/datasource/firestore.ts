@@ -158,8 +158,19 @@ const JOIN_REFUSALS = new Set<string>([
   'code-expired',
   'code-wrong-email',
   'already-member',
-  'already-registered',
 ])
+
+/**
+ * Whether a log belongs to the cohort the member is active in.
+ *
+ * A member keeps the logs of every cohort they have been in, each tagged with
+ * its `cohortId`, and the app shows only the active one's: nothing from a
+ * cohort they finished appears in the next. One with no tag was written before
+ * the field existed, in the cohort they are still in. Mirrors `ofCohort` in
+ * `apps/functions/src/member-writes.ts`.
+ */
+const ofCohort = (log: { cohortId?: string }, cohortId: string): boolean =>
+  (log.cohortId || cohortId) === cohortId
 
 /**
  * The provider's ways of saying "that email and password don't go together".
@@ -1199,30 +1210,22 @@ export class FirestoreDataSource implements DataSource {
   }
 
   /**
-   * The move itself is `joinCohort` in `apps/functions/src/memberships.ts`.
+   * The join itself is `joinCohort` in `apps/functions/src/memberships.ts`.
    * Sent with the cohort over, which is when it is needed most.
    *
-   * After a move every cache here describes the old cohort — its program, its
-   * weeks, its threads under the same ids the new cohort's use — so they go,
-   * and the caller reloads.
+   * Afterwards every cache here describes the cohort they left — its program,
+   * its weeks, its threads under the same ids the new cohort's use — so they
+   * go, and the caller reloads.
    */
-  async joinCohort(code?: string): Promise<JoinCohortResult> {
-    const result = await this.call<JoinCohortResult>(
-      'joinCohort',
-      code === undefined ? {} : { code },
-      { evenIfOver: true },
-    )
-    if (result.moved) {
-      const user = await this.requireUser()
-      this.memberCache = null
-      this.programCache = null
-      this.weeksCache = null
-      this.myReactions.clear()
-      this.typingWrittenAt.clear()
-      forgetThreadCaches(['cohort', user.uid])
-    } else {
-      this.memberCache = null
-    }
+  async joinCohort(code: string): Promise<JoinCohortResult> {
+    const result = await this.call<JoinCohortResult>('joinCohort', { code }, { evenIfOver: true })
+    const user = await this.requireUser()
+    this.memberCache = null
+    this.programCache = null
+    this.weeksCache = null
+    this.myReactions.clear()
+    this.typingWrittenAt.clear()
+    forgetThreadCaches(['cohort', user.uid])
     return result
   }
 
@@ -1498,7 +1501,7 @@ export class FirestoreDataSource implements DataSource {
         orderBy('completedAt', 'desc'),
       ),
     )
-    return snap.docs.map((d) => withId<SessionLog>(d))
+    return snap.docs.map((d) => withId<SessionLog>(d)).filter((log) => ofCohort(log, member.cohortId))
   }
 
   async saveSession(log: SessionInput): Promise<SessionLog> {
@@ -1559,7 +1562,7 @@ export class FirestoreDataSource implements DataSource {
         orderBy('weekNumber', 'desc'),
       ),
     )
-    return snap.docs.map((d) => withId<CheckIn>(d))
+    return snap.docs.map((d) => withId<CheckIn>(d)).filter((log) => ofCohort(log, member.cohortId))
   }
 
   async saveCheckIn(input: CheckInInput): Promise<CheckIn> {
@@ -1587,7 +1590,7 @@ export class FirestoreDataSource implements DataSource {
         orderBy('takenAt', 'desc'),
       ),
     )
-    return snap.docs.map((d) => withId<ProgressPhoto>(d))
+    return snap.docs.map((d) => withId<ProgressPhoto>(d)).filter((log) => ofCohort(log, member.cohortId))
   }
 
   async savePhoto(input: PhotoInput): Promise<ProgressPhoto> {
@@ -2404,7 +2407,12 @@ export class FirestoreDataSource implements DataSource {
   async listEarnedBadges(): Promise<Record<string, EarnedBadge>> {
     const member = await this.requireMember()
     const snap = await getDocs(collection(firebaseDb(), 'members', member.id, 'badges'))
-    return Object.fromEntries(snap.docs.map((d) => [d.id, withId<EarnedBadge>(d)]))
+    return Object.fromEntries(
+      snap.docs
+        .map((d) => withId<EarnedBadge>(d))
+        .filter((badge) => ofCohort(badge, member.cohortId))
+        .map((badge) => [badge.id, badge]),
+    )
   }
 
   async awardBadge(id: string): Promise<void> {
@@ -2416,14 +2424,19 @@ export class FirestoreDataSource implements DataSource {
 
     const db = firebaseDb()
     const ref = doc(db, 'members', member.id, 'badges', id)
+    // Where `joinCohort` sets this cohort's badge aside, which a join cut off
+    // half-way leaves in this same cohort.
+    const setAside = doc(db, 'members', member.id, 'badges', `${member.cohortId}~${id}`)
 
     // Keyed by badge id, so awarding twice is a no-op rather than a duplicate.
     // The existence check sits inside the transaction because two screens can
-    // both notice the same unlock in the same tick.
+    // both notice the same unlock in the same tick. Tagged with the cohort, so
+    // the next cohort they join can award it again.
     await runTransaction(db, async (tx) => {
-      if ((await tx.get(ref)).exists()) return
+      const [earned, earnedBefore] = await Promise.all([tx.get(ref), tx.get(setAside)])
+      if (earned.exists() || earnedBefore.exists()) return
       const rewardPoints = program.rewards.badgeTierPoints[def.tier]
-      tx.set(ref, { badgeId: id, earnedAt: Timestamp.now(), rewardPoints })
+      tx.set(ref, { badgeId: id, cohortId: member.cohortId, earnedAt: Timestamp.now(), rewardPoints })
       tx.update(doc(db, 'members', member.id), {
         'stats.points': increment(rewardPoints),
         updatedAt: serverTimestamp(),

@@ -2,14 +2,10 @@
 /*
   An access code for another cohort, from somebody who is already a member.
 
-  On the ended screen, the one screen such a member can reach: the cohort is
-  over, so an accepted code moves them straight in. (The server's clock decides
-  that; if it says not yet, the code is held, `store.nextCohort` says so, and
-  the ended screen offers the move once it is.)
-
-  A move goes where any member goes once they are in, and the form stays frozen
-  on the way, as every write does: unfreezing for a frame would offer a code
-  box for a code that is already spent.
+  On the ended screen, the one screen such a member can reach. An accepted code
+  makes its cohort the active one, and the member goes where any member goes
+  once they are in. The form stays frozen on the way, as every write does:
+  unfreezing for a frame would offer a code box for a code already spent.
 */
 import { DataSourceError } from '~/lib/datasource'
 import { FIRST_SETUP_STEP } from '~/middleware/auth.global'
@@ -32,12 +28,9 @@ const submit = async () => {
   busy.value = true
   error.value = ''
   try {
-    const result = await store.joinCohort(code.value)
-    if (result.moved) {
-      await router.replace(store.gate.value === 'needs-setup' ? FIRST_SETUP_STEP : '/home')
-      return
-    }
-    code.value = ''
+    await store.joinCohort(code.value)
+    await router.replace(store.gate.value === 'needs-setup' ? FIRST_SETUP_STEP : '/home')
+    return
   } catch (cause) {
     error.value = cause instanceof DataSourceError ? cause.message : 'Something went wrong. Try again.'
   }

@@ -94,7 +94,7 @@ service firebase.storage {
     }
 
     /**
-     * Whether the cohort is still running: not archived, and not past the last
+     * Whether the cohort is still running: not completed or archived, and not past the last
      * day its `endDate` names. `cohortRunning` in `firestore.rules`, restated,
      * because rules cannot share code across services. Keep the two in step,
      * 24-hour reading of `endDate` and all. On the staging bucket, true.
@@ -112,7 +112,7 @@ service firebase.storage {
      * compiler refuses `null + duration` even behind the check.
      */
     function cohortStillOn(cohort) {
-      return cohort.get('status', '') != 'archived'
+      return !(cohort.get('status', '') in ['archived', 'completed'])
         && !(cohort.get('endDate', null) is timestamp
              && request.time >= cohort.endDate + duration.value(1, 'd'));
     }

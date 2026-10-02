@@ -226,8 +226,8 @@ export class HttpDataSource implements DataSource {
     return this.send<Member>('/me/access-code', 'POST', { code })
   }
 
-  joinCohort(code?: string) {
-    return this.send<JoinCohortResult>('/me/next-cohort', 'POST', code === undefined ? {} : { code })
+  joinCohort(code: string) {
+    return this.send<JoinCohortResult>('/me/cohorts', 'POST', { code })
   }
 
   getMember() {

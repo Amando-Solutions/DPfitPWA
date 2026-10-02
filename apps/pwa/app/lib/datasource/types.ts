@@ -229,22 +229,20 @@ export interface DataSource {
 
   /**
    * Redeem a code on an account that already has a membership: a member
-   * joining their next cohort.
+   * joining another cohort.
    *
-   * An account is in one cohort at a time. If theirs is over, they move now:
-   * its sessions, check-ins, photos and badges are deleted, so none of it shows
-   * in the new one, and stats start again. The profile carries over, so there
-   * is no second setup. If it is still running, the code is
-   * claimed and held as `nextCohort`, and a call with no code once it has
-   * ended moves them on it, which is what the ended screen sends.
+   * A member can belong to several cohorts and appears in each one's results,
+   * but trains in one at a time. The code's cohort becomes the active one, and
+   * the one they were in becomes a previous one — ended early for them if it
+   * was still running. Its logs stay on the account but no longer show, stats
+   * start again, and the profile carries over, so there is no second setup.
    *
-   * A server-side move, because it touches what a member may not write: the
-   * cohort and code on their own document, and their logs. Throws the code
-   * errors `redeemAccessCode` does, plus `already-member` and
-   * `already-registered`. Callable while the cohort is over, unlike every
-   * other member write.
+   * Server-side, because it touches what a member may not write: the cohort
+   * and code on their own document, and their logs. Throws the code errors
+   * `redeemAccessCode` does, plus `already-member`. Callable while the cohort
+   * is over, unlike every other member write.
    */
-  joinCohort(code?: string): Promise<JoinCohortResult>
+  joinCohort(code: string): Promise<JoinCohortResult>
 
   getMember(): Promise<Member | null>
 
@@ -735,10 +733,8 @@ export type Unsubscribe = () => void
 /** Whether this device holds the account. See `claimDevice`. */
 export type DeviceClaim = 'claimed' | 'superseded'
 
-/** What `joinCohort` did. Mirrors `JoinCohortResult` in `apps/functions`. */
+/** The cohort `joinCohort` made active. Mirrors `JoinCohortResult` in `apps/functions`. */
 export interface JoinCohortResult {
-  /** In the new cohort now. `false` is held until the current one ends. */
-  moved: boolean
   cohortName: string
 }
 
@@ -827,10 +823,8 @@ export class DataSourceError extends Error {
       | 'account-exists'
       /** The member's cohort is over, so nothing more is written. See `refuseWritesWhen`. */
       | 'cohort-ended'
-      /** A code for the cohort the member is already in. See `joinCohort`. */
+      /** A code for a cohort the member is in, or has been in. See `joinCohort`. */
       | 'already-member'
-      /** A second code while one is already held for the next cohort. See `joinCohort`. */
-      | 'already-registered'
       | 'unknown' = 'unknown',
   ) {
     super(message)

@@ -75,16 +75,6 @@ const step = ref<'code' | 'account'>('code')
  */
 const busy = ref<'' | 'code' | 'account' | 'redeem' | 'retry' | 'switch'>('')
 
-/**
- * The next cohort's name, once its code has been held.
- *
- * A member back for their next cohort while the one they are in is still
- * running: the code is spent and saved, and they move when that cohort ends.
- * Said here before they are sent on, because everywhere they go next is the
- * cohort they are still in, and none of it would mention the code they typed.
- */
-const heldInto = ref('')
-
 const phase = computed<'code' | 'account' | 'redeem' | 'blocked'>(() => {
   // Held for the whole of a sign-up. It signs in halfway through, and without
   // this the form the member is watching would turn into the redeem step before
@@ -128,9 +118,8 @@ const CODE_FAILURES: DataSourceError['code'][] = [
   'invalid-code',
   'code-claimed',
   'code-expired',
-  // A member back for their next cohort, with the one they are in or a second.
+  // A member back for another cohort, with one they are in or have been in.
   'already-member',
-  'already-registered',
 ]
 
 const accountFieldFor = (cause: unknown): Field => {
@@ -295,12 +284,7 @@ const createAccount = async () => {
 
   busy.value = 'account'
   try {
-    const joined = await store.createAccount(checkedCode.value, email.value, password.value)
-    if (joined && !joined.moved) {
-      heldInto.value = joined.cohortName || 'your next cohort'
-      busy.value = ''
-      return
-    }
+    await store.createAccount(checkedCode.value, email.value, password.value)
     if (await settle()) return
   } catch (cause) {
     if (cause instanceof DataSourceError && CODE_FAILURES.includes(cause.code)) {
@@ -321,24 +305,16 @@ const createAccount = async () => {
  * Signed in: spend the code on the session there is.
  *
  * Usually an account with no membership, which the code makes one for. The
- * other way here is a member back for their next cohort whose join failed on
- * the way through sign-up; they join with it instead, as sign-up would have.
+ * other way here is a member back for another cohort whose join failed on the
+ * way through sign-up; they join with it instead, as sign-up would have.
  */
 const redeem = async () => {
   if (busy.value) return
   busy.value = 'redeem'
   failure.value = null
   try {
-    if (store.member.value) {
-      const joined = await store.joinCohort(code.value)
-      if (!joined.moved) {
-        heldInto.value = joined.cohortName || 'your next cohort'
-        busy.value = ''
-        return
-      }
-    } else {
-      await store.redeemAccessCode(code.value)
-    }
+    if (store.member.value) await store.joinCohort(code.value)
+    else await store.redeemAccessCode(code.value)
     if (await settle()) return
   } catch (cause) {
     fail('code', cause)
@@ -431,7 +407,6 @@ const signedInAs = computed(() => store.authUser.value?.email ?? '')
  * already paid; nothing on it is addressed to somebody deciding whether to buy.
  */
 const heading = computed(() => {
-  if (heldInto.value) return `You’re registered for ${heldInto.value}`
   if (installFirst.value) return 'Install the app first'
   if (phase.value === 'blocked') return 'Couldn’t load your account'
   if (phase.value === 'account') return 'Create your account'
@@ -446,10 +421,6 @@ const heading = computed(() => {
  * says the single fact that step needs and the fields cannot state.
  */
 const standfirst = computed(() => {
-  if (heldInto.value) {
-    const current = store.cohort.value?.name?.trim() || store.member.value?.cohortName?.trim() || 'your current cohort'
-    return `You’ll move there when ${current} ends. Until then, carry on where you are.`
-  }
   if (installFirst.value) {
     return 'Then set up your account from your Home Screen, so you only sign in once.'
   }
@@ -483,8 +454,7 @@ const showSignInLink = computed(
  * yet.
  */
 const askingForCode = computed(
-  () =>
-    !installFirst.value && !heldInto.value && (phase.value === 'code' || phase.value === 'redeem'),
+  () => !installFirst.value && (phase.value === 'code' || phase.value === 'redeem'),
 )
 
 /** Hidden on a deploy with no site to point at; see `buyHref`. */
@@ -536,16 +506,6 @@ watch([code, email, password, confirm], () => {
       <AppButton variant="ghost" @click="chooseSignInHere">
         Continue in the browser
       </AppButton>
-    </AppCard>
-
-    <!-- A held next cohort. Nothing left to type: the heading and the line
-         under it are the message, and this is the way on. -->
-    <AppCard
-      v-else-if="heldInto"
-      variant="raised"
-      class="access__card access__held flex flex-col gap-4 shadow-raised"
-    >
-      <AppButton @click="settle">Continue</AppButton>
     </AppCard>
 
     <!--

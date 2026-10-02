@@ -22,8 +22,12 @@
 //                    `live-call-reminders.ts`.
 //
 // joinCohort         An access code redeemed by somebody who already has a
-//                    membership. Moves them into its cohort once their current
-//                    one is over, and holds it until then. See `memberships.ts`.
+//                    membership. Its cohort becomes the active one; the one
+//                    they were in stays theirs, in its results, and ends early
+//                    for them if it is still running. See `memberships.ts`.
+//
+// completeCohorts    Every 15 minutes. Marks an active cohort `completed` once
+//                    its last day has passed. See `cohort-status.ts`.
 //
 // setRegion, logSession, submitCheckIn, logPhoto
 //                    The member writes locked to a day or a week. The day is
@@ -49,6 +53,7 @@ import {
 import { joinCohortHandler } from './memberships.js'
 import { clonePublishedProgram } from './programs.js'
 import { pushCohortMessage, pushCohortNotification } from './push.js'
+export { completeCohorts } from './cohort-status.js'
 export { remindLiveCalls } from './live-call-reminders.js'
 export { releasePreorderCodes } from './release.js'
 
@@ -78,14 +83,14 @@ setGlobalOptions({ region: REGION, maxInstances: 10 })
  * `expiryDays` from now if it would end sooner.
  *
  * Refuses with `unauthenticated`, `permission-denied`, `invalid-argument`,
- * `failed-precondition` (the cohort is missing, archived or has no program; or,
+ * `failed-precondition` (the cohort is missing, completed, archived or has no program; or,
  * from the console, the address belongs to a member whose cohort is still
  * running) or `aborted` (no free code after four draws).
  *
  * The landing site is not asked the enrolment question here. It asks before
  * the buyer pays (`register.post.ts`), and a code it requests now is for a sale
- * that has been paid: refusing it would strand the money, where `joinCohort`
- * holds the seat until the member is free to take it.
+ * that has been paid: refusing it would strand the money, and `joinCohort`
+ * takes the member in whenever they redeem it.
  *
  * From the admin console:
  *

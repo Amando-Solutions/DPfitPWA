@@ -108,6 +108,17 @@ export const identifyMember = async (request: CallableRequest): Promise<MemberCa
 
 // --- What the member is on ---------------------------------------------------
 
+/**
+ * Whether a log belongs to the cohort the member is active in.
+ *
+ * A member keeps the logs of every cohort they have been in, each tagged with
+ * its `cohortId` (see `memberships.ts`), and only the active cohort's count
+ * towards what is open, logged or due. One with no tag was written before the
+ * field existed, in the cohort they are still in.
+ */
+export const ofCohort = (log: { get: (field: string) => unknown }, cohortId: string): boolean =>
+  ((log.get('cohortId') as string | undefined) || cohortId) === cohortId
+
 /** `members/{uid}.region` as stored, or `null` when it is absent or unusable. */
 const regionOf = (member: DocumentSnapshot): StoredRegion | null => {
   const raw = member.get('region') as Record<string, unknown> | undefined
@@ -433,13 +444,15 @@ export const logSessionHandler = async (request: CallableRequest): Promise<LogSe
         tx.get(sessions.where('dayId', '==', dayId)),
       ])
 
+      const cohortId = String(member.get('cohortId'))
       const gate = sessionGate({
         now,
         region: regionOf(member),
         cohortZone: cohort.zone,
         opensOn: cohort.opensOn,
         weeks: program.weeks,
-        logged: logged.docs.map(
+        // The same day in a cohort they were in before is not this one logged.
+        logged: logged.docs.filter((doc) => ofCohort(doc, cohortId)).map(
           (doc): LoggedRef => ({
             dayId: String(doc.get('dayId')),
             weekNumber: Number(doc.get('weekNumber')),
@@ -475,6 +488,7 @@ export const logSessionHandler = async (request: CallableRequest): Promise<LogSe
       }
       tx.create(ref, {
         ...decided,
+        cohortId,
         dayId,
         completedAt,
         durationSeconds,
@@ -567,14 +581,20 @@ export const submitCheckInHandler = async (request: CallableRequest): Promise<Su
       }
 
       const weekNumber = cohortWeekAt(program.weeks, now, cohort.zone)
-      const ref = caller.memberRef.collection('checkIns').doc(`week-${weekNumber}`)
-      if ((await tx.get(ref)).exists) {
+      const cohortId = String(member.get('cohortId'))
+      const checkIns = caller.memberRef.collection('checkIns')
+      const ref = checkIns.doc(`week-${weekNumber}`)
+      // And under the id `joinCohort` sets it aside at, which a join cut off
+      // half-way leaves in this same cohort.
+      const [filed, setAside] = await Promise.all([tx.get(ref), tx.get(checkIns.doc(`${cohortId}~week-${weekNumber}`))])
+      if (filed.exists || setAside.exists) {
         throw new HttpsError('already-exists', `Your week ${weekNumber} check-in is already in.`, {
           reason: 'check-in-submitted',
         })
       }
       tx.create(ref, {
         ...fields,
+        cohortId,
         weekNumber,
         submittedAt: Timestamp.fromDate(now),
         rewardPoints: program.values.checkIn,
@@ -631,10 +651,12 @@ export const logPhotoHandler = async (request: CallableRequest): Promise<LogPhot
 
   return caller.db.runTransaction(async (tx) => {
     const now = new Date()
-    const [member, any] = await Promise.all([tx.get(caller.memberRef), tx.get(photos.limit(1))])
+    const [member, filed] = await Promise.all([tx.get(caller.memberRef), tx.get(photos)])
+    const cohortId = String(member.get('cohortId'))
     const beforeStart =
       cohort.opensOn !== null && memberDay(now, regionOf(member), cohort.zone) < cohort.opensOn
-    if (beforeStart && !any.empty) {
+    // This cohort's photos: a "before" from a cohort they were in earlier is not this one's.
+    if (beforeStart && filed.docs.some((doc) => ofCohort(doc, cohortId))) {
       throw new HttpsError(
         'failed-precondition',
         `More progress photos open with training, on ${dayLabel(cohort.opensOn!)}.`,
@@ -646,6 +668,7 @@ export const logPhotoHandler = async (request: CallableRequest): Promise<LogPhot
     const weekNumber = cohortWeekAt(program.weeks, now, cohort.zone)
     tx.create(ref, {
       pose: raw.pose,
+      cohortId,
       weekNumber,
       image,
       takenAt: Timestamp.fromDate(now),

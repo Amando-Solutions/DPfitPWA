@@ -203,8 +203,8 @@ const readCohort = async (db: Firestore, cohortId: string): Promise<Cohort> => {
     programId?: string | null
     programVersion?: number | null
   }
-  if (data.status === 'archived') {
-    throw new HttpsError('failed-precondition', `cohorts/${cohortId} is archived.`)
+  if (data.status === 'archived' || data.status === 'completed') {
+    throw new HttpsError('failed-precondition', `cohorts/${cohortId} is ${data.status}.`)
   }
   if (!data.programId) {
     throw new HttpsError(

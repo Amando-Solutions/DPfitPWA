@@ -33,8 +33,9 @@ describe('cohortOver', () => {
     expect(cohortOver(lastDay, new Date('2026-10-03T00:00:00+01:00'))).toBe(true)
   })
 
-  test('archived is over, and no end date is not', () => {
+  test('archived or completed is over, and no end date is not', () => {
     expect(cohortOver({ ...running, status: 'archived' }, NOW)).toBe(true)
+    expect(cohortOver({ ...running, status: 'completed' }, NOW)).toBe(true)
     expect(cohortOver({ status: 'active' }, NOW)).toBe(false)
   })
 })
@@ -63,10 +64,10 @@ describe('enrolmentRefusal', () => {
     expect(await enrolmentRefusal(db, 'ada@example.com', 'cohort-2', NOW)).toBe(ENROLLED)
   })
 
-  test('nor a third while their next is held', async () => {
+  test('nor one they have already been in', async () => {
     const db = fakeDb(
-      { cohortId: 'cohort-1', cohortName: 'Cohort 1', nextCohort: { cohortName: 'Cohort 3' } },
-      { 'cohort-1': ended },
+      { cohortId: 'cohort-3', cohortName: 'Cohort 3', previousCohorts: { 'cohort-2': { cohortName: 'Cohort 2' } } },
+      { 'cohort-3': ended },
     )
     expect(await enrolmentRefusal(db, 'ada@example.com', 'cohort-2', NOW)).toBe(ENROLLED)
   })

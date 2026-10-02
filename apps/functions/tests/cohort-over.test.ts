@@ -35,6 +35,10 @@ describe('cohortOver', () => {
     expect(cohortOver({ ...running, status: 'archived' }, at('2026-09-01T12:00:00+01:00'))).toBe(true)
   })
 
+  test('so is a completed one', () => {
+    expect(cohortOver({ ...running, status: 'completed' }, at('2026-09-01T12:00:00+01:00'))).toBe(true)
+  })
+
   test('no end date is no end on the calendar', () => {
     expect(cohortOver({ ...running, endDate: null }, at('2030-01-01T00:00:00Z'))).toBe(false)
     expect(cohortOver({ status: 'active' }, at('2030-01-01T00:00:00Z'))).toBe(false)
