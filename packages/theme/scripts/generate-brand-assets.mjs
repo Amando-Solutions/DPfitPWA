@@ -5,8 +5,8 @@
  * — `BrandLogo` and `BrandIcon` next door. What has to be raster is the set a
  * browser, an OS or a mail client will not take an SVG for: the ICO a legacy
  * tab bar wants, the PNG iOS pins to a home screen, the manifest icons Android
- * renders, the share card a link unfurls into, and the two lockups plus the
- * two build credits the access-code email hangs off an `<img>`. Those are what
+ * renders, the share card a link unfurls into, and the two lockups, the two
+ * build credits and the copy glyph the access-code email hangs off an `<img>`. Those are what
  * this writes, and nothing else, because every other use of the logo should be
  * reaching for the components.
  *
@@ -137,7 +137,9 @@ const targets = [
   { file: 'icon-512-maskable.png', size: 512, scale: 0.5, bg: GROUND },
 ]
 
-const browser = await chromium.launch()
+// `CHROMIUM_PATH` for a machine whose Playwright browser is a different build
+// from the one `playwright-core` expects, as in the OG-image scripts.
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH })
 const page = await browser.newPage()
 
 /** Renders one square and hands back the PNG bytes. */
@@ -301,6 +303,43 @@ for (const [file, fill] of [
     }),
   )
   console.log(`✓ ${file}  ${CREDIT_PNG_W}x${CREDIT_PNG_H}  (transparent)`)
+}
+
+/**
+ * The copy glyph, beside the code in the access-code email.
+ *
+ * Not brand artwork, and here only because it is the same problem as the two
+ * above: the email needs it as an `<img>`, and a mail client will not take
+ * the SVG. Two overlapping sheets, stroked on a 24 grid like the app's own
+ * icons, so it reads as the copy icon people already know.
+ *
+ * Two colourways, traded by the email the same way as the credit: the accent
+ * fill on paper, and the lifted accent the dark card takes for type.
+ *
+ * 42px square is 3x the 14px the email shows it at.
+ */
+const COPY_PNG = 42
+const copyGlyph = (stroke) => `<svg xmlns="http://www.w3.org/2000/svg" width="${COPY_PNG}" height="${COPY_PNG}" viewBox="0 0 24 24" fill="none" stroke="${stroke}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="8.5" y="8.5" width="12.5" height="12.5" rx="2.2"/>
+  <path d="M15.5 8.5V5.2A2.2 2.2 0 0 0 13.3 3H5.2A2.2 2.2 0 0 0 3 5.2v8.1a2.2 2.2 0 0 0 2.2 2.2h3.3"/>
+</svg>`
+
+for (const [file, stroke] of [
+  ['copy-color.png', '#9333ea'],
+  ['copy-lifted.png', '#a657ee'],
+]) {
+  await page.setViewportSize({ width: COPY_PNG, height: COPY_PNG })
+  await page.setContent(
+    `<style>html,body{margin:0;padding:0;background:transparent}</style>${copyGlyph(stroke)}`,
+  )
+  writeFileSync(
+    OUT + file,
+    await page.screenshot({
+      omitBackground: true,
+      clip: { x: 0, y: 0, width: COPY_PNG, height: COPY_PNG },
+    }),
+  )
+  console.log(`✓ ${file}  ${COPY_PNG}x${COPY_PNG}  (transparent)`)
 }
 
 await browser.close()

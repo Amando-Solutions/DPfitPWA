@@ -17,6 +17,25 @@ const pushWorker = `/push-sw.js?v=${createHash('sha256')
   .digest('hex')
   .slice(0, 12)}`
 
+/**
+ * The app's own origin, for the share card. Read at build time, since `/` is
+ * prerendered and the tags are baked into it.
+ *
+ * `NUXT_PUBLIC_SITE_URL` when set, else the production domain Vercel hands
+ * every build as `VERCEL_PROJECT_PRODUCTION_URL` (bare host, no scheme). With
+ * neither, the tags fall back to site-relative paths, which Facebook and
+ * LinkedIn drop. Same rule as `apps/web`.
+ */
+const vercelHost = process.env.VERCEL_PROJECT_PRODUCTION_URL
+const siteUrl = (
+  process.env.NUXT_PUBLIC_SITE_URL || (vercelHost ? `https://${vercelHost}` : '')
+).replace(/\/+$/, '')
+const absolute = (path: string) => `${siteUrl}${path}`
+
+const OG_IMAGE = '/og/card.png'
+const OG_IMAGE_ALT =
+  'The DP Fitness logo over the line "Train with purpose · Transform with proof".'
+
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   // The design system — tokens, type ramp, control recipes, the Tailwind build
@@ -229,6 +248,27 @@ export default defineNuxtConfig({
           content:
             'DP Fitness Recomp Challenge. Train with purpose, transform with proof.',
         },
+        /**
+         * The share card, for a link to the app dropped in a chat. It is the
+         * boot splash, rendered by `scripts/generate-og-image.mjs` out of
+         * `app/spa-loading-template.html`, so the preview and the first frame
+         * of the app are one picture; rerun that script after changing the
+         * splash rather than editing the PNG. These ride in the prerendered
+         * shell, which is all a scraper reads of an SPA.
+         */
+        { property: 'og:type', content: 'website' },
+        { property: 'og:site_name', content: 'DP Fitness' },
+        { property: 'og:title', content: 'DP Fitness · Recomp Challenge' },
+        { property: 'og:description', content: 'Train with purpose, transform with proof.' },
+        { name: 'twitter:card', content: 'summary_large_image' },
+        { property: 'og:image', content: absolute(OG_IMAGE) },
+        { property: 'og:image:type', content: 'image/png' },
+        { property: 'og:image:width', content: '1200' },
+        { property: 'og:image:height', content: '630' },
+        { property: 'og:image:alt', content: OG_IMAGE_ALT },
+        { name: 'twitter:image', content: absolute(OG_IMAGE) },
+        { name: 'twitter:image:alt', content: OG_IMAGE_ALT },
+        ...(siteUrl ? [{ property: 'og:url', content: siteUrl + '/' }] : []),
       ],
       // Resolves the theme before the first frame, so neither the SPA loading
       // template nor the app can flash the wrong palette. Reads the same
@@ -330,9 +370,10 @@ pwa: {
 
     globPatterns: ['**/*.{js,css,html,png,svg,ico,woff2}'],
 
-    // Don't precache the onboarding illustrations, or the push handler, which
-    // the worker loads itself through `importScripts` below.
-    globIgnores: ['**/onboarding_tour/**', 'push-sw.js'],
+    // Don't precache the onboarding illustrations, the push handler, which
+    // the worker loads itself through `importScripts` below, or the share
+    // card, which only a link scraper ever fetches.
+    globIgnores: ['**/onboarding_tour/**', '**/og/**', 'push-sw.js'],
 
     // Push and notification taps. See `public/push-sw.js` and `pushWorker`.
     importScripts: [pushWorker],

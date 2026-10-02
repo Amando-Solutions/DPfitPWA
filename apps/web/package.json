@@ -11,7 +11,8 @@
     "postinstall": "nuxt prepare",
     "typecheck": "nuxt prepare && vue-tsc -b --noEmit",
     "test": "bun test tests",
-    "check:cohort": "bun --env-file=.env scripts/check-cohort.ts"
+    "check:cohort": "bun --env-file=.env scripts/check-cohort.ts",
+    "og:image": "node scripts/generate-og-image.mjs"
   },
   "dependencies": {
     "@dpfit/theme": "workspace:*",
@@ -24,6 +25,7 @@
   },
   "devDependencies": {
     "@types/node": "^22",
+    "playwright-core": "1.62.1",
     "typescript": "^5.9.0",
     "vue-tsc": "^3.3.11"
   }

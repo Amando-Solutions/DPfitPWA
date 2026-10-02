@@ -90,6 +90,9 @@ const fallbacks: Record<string, string> = {
   minus: '<path d="M5 12h14"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
   check: '<path d="M5 13l4 4L19 7"/>',
+  // The same two sheets as `copy-*.png` in `packages/theme/public/brand/`, so
+  // the icon in the access-code email and the button it leads to match.
+  copy: '<rect x="8.5" y="8.5" width="12.5" height="12.5" rx="2.2"/><path d="M15.5 8.5V5.2A2.2 2.2 0 0 0 13.3 3H5.2A2.2 2.2 0 0 0 3 5.2v8.1a2.2 2.2 0 0 0 2.2 2.2h3.3"/>',
   settings:
     '<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',

@@ -58,6 +58,8 @@ const params = (email: AccessCodeEmail) => ({
   FULL_NAME: email.fullName,
   ACCESS_CODE: email.code,
   APP_URL: email.appUrl,
+  /** The copy icon's link. Empty when `APP_URL` will not parse. */
+  COPY_URL: template.copyCodeUrl(email.appUrl, email.code) ?? '',
 })
 
 /**

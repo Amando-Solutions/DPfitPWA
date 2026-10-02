@@ -1,4 +1,4 @@
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { zoneLabel } from "@/lib/cohort-calendar"
 import { currencyScale, formatPrice, type CohortCoachInput, type CohortRegistrationInput } from "@/lib/cohorts"
@@ -34,6 +34,9 @@ export function CohortSalesFields({
   const set = (patch: Partial<CohortRegistrationInput>) => onChange({ ...value, ...patch })
   const preview = pricePreview(value)
   const someEmpty = !value.price.trim() || !value.currency.trim() || !value.codeTtlDays.trim() || !value.preorderStartsAt
+  // Both are `YYYY-MM-DDTHH:mm` on one clock, so they compare as strings. Saving refuses this too.
+  const closesTooEarly = !!value.preorderStartsAt && !!value.preorderEndsAt
+    && value.preorderEndsAt.slice(0, 16) <= value.preorderStartsAt.slice(0, 16)
   const state = disabled || undefined
 
   return (
@@ -60,9 +63,10 @@ export function CohortSalesFields({
           <FieldLabel htmlFor={`${id}-preorder-opens`}>Pre-order opens</FieldLabel>
           <Input id={`${id}-preorder-opens`} type="datetime-local" value={value.preorderStartsAt} disabled={disabled} className="h-11 sm:h-8" onChange={(event) => set({ preorderStartsAt: event.target.value })} />
         </Field>
-        <Field data-disabled={state}>
+        <Field data-disabled={state} data-invalid={closesTooEarly || undefined}>
           <FieldLabel htmlFor={`${id}-preorder-closes`}>Pre-order closes</FieldLabel>
-          <Input id={`${id}-preorder-closes`} type="datetime-local" value={value.preorderEndsAt} disabled={disabled} className="h-11 sm:h-8" onChange={(event) => set({ preorderEndsAt: event.target.value })} />
+          <Input id={`${id}-preorder-closes`} type="datetime-local" min={value.preorderStartsAt || undefined} value={value.preorderEndsAt} aria-invalid={closesTooEarly || undefined} disabled={disabled} className="h-11 sm:h-8" onChange={(event) => set({ preorderEndsAt: event.target.value })} />
+          {closesTooEarly && <FieldError>It must close after it opens.</FieldError>}
         </Field>
       </div>
       <FieldDescription className="-mt-2 text-xs">

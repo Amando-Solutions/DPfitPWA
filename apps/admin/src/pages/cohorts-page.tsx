@@ -105,6 +105,7 @@ import { callEnd } from "@/lib/live-calls"
 import {
   assignProgramToCohort,
   cohortInProgress,
+  cohortProgramEditable,
   cohortStartEditable,
   createCohort,
   registrationInputOf,
@@ -169,7 +170,16 @@ function experienceFormOf(cohort: CohortRecord): CohortExperienceInput {
     leaderboardRevealWeek: cohort.leaderboardRevealWeek,
     startDay: dayIn(cohort.startDate, zone),
     lastDay: lastDayOfCohort(cohort) ?? "",
+    program: null,
   }
+}
+
+/** "3 members and 1 unused code", or empty when there are neither. */
+function membersAndCodes(members: number, codes: number) {
+  return [
+    members ? `${members} member${members === 1 ? "" : "s"}` : "",
+    codes ? `${codes} unused code${codes === 1 ? "" : "s"}` : "",
+  ].filter(Boolean).join(" and ")
 }
 
 /** "Ended" covers both ways a cohort closes; the stored `status` stays visible beside it. */
@@ -363,6 +373,30 @@ export function CohortsPage() {
     : experienceEndedNow && experienceLastDayMoved ? <>Saving reopens it: members go back in until the end of {formatDayKey(experienceLastDay)}.</>
     : <>Members are in until the end of {formatDayKey(experienceLastDay)}. The program's weeks don't move.</>
 
+  // The settings dialog's program. Moving it moves the cohort only: members
+  // already in, and codes already issued, keep the program their code carries.
+  const experienceProgramEditable = experienceTarget ? cohortProgramEditable(experienceTarget) : false
+  const experienceProgram = experienceForm?.program ?? null
+  const experienceProgramItems = [
+    // A pin to a program that's no longer published still shows as itself.
+    ...(experienceTarget?.programId && !programs.some((program) => program.id === experienceTarget.programId)
+      ? [{ label: `${experienceTarget.programName ?? experienceTarget.programId} · v${experienceTarget.programVersion ?? 1}`, value: experienceTarget.programId }]
+      : []),
+    ...programs.map((program) => ({ label: `${program.name} · v${program.version}`, value: program.id })),
+  ]
+  const experienceProgramLeftBehind = experienceTarget && experienceProgram
+    ? membersAndCodes(
+        (membersQuery.data ?? []).filter((member) => member.cohortId === experienceTarget.id && member.programId && member.programId !== experienceProgram.id).length,
+        (codesQuery.data ?? []).filter((code) => code.cohortId === experienceTarget.id && effectiveCodeStatus(code) === "unused" && code.programId && code.programId !== experienceProgram.id).length,
+      )
+    : ""
+  const experienceProgramNote = !experienceTarget ? null
+    : !experienceProgramEditable ? <>Locked: {experienceTarget.name} is active.</>
+    : experienceProgram && experienceProgramLeftBehind ? <><strong className="font-medium text-destructive">Saving leaves {experienceProgramLeftBehind} on the program they were issued with.</strong> Only codes issued after it get {experienceProgram.name}.</>
+    : experienceProgram ? <>Codes issued after saving get {experienceProgram.name}.</>
+    : !experienceTarget.programId ? <>Codes can’t be issued until it has one.</>
+    : <>It can change until {experienceTarget.name} is activated.</>
+
   const lastDayPreview = isDayKey(startDate) && Number.parseInt(durationWeeks, 10) >= 1
     ? formatDayKey(lastDayOf(startDate, Number.parseInt(durationWeeks, 10)))
     : null
@@ -520,7 +554,7 @@ export function CohortsPage() {
             onSelect: () => openExperienceSettings(cohort),
           })
         }
-        if (cohort.status === "draft" || (cohort.status === "active" && !cohort.programId)) {
+        if (cohortProgramEditable(cohort)) {
           actions.push({
             label: cohort.programId ? "Change program" : "Assign program",
             icon: DumbbellIcon,
@@ -895,6 +929,27 @@ export function CohortsPage() {
                       <FieldDescription>{experienceLastDayNote}</FieldDescription>
                     </Field>
                   </div></CardContent>
+                </Card>
+
+                <Card size="sm">
+                  <CardHeader><CardTitle>Program</CardTitle><CardDescription>The plan members train on. It can change while the cohort is a draft, and locks once it’s active.</CardDescription></CardHeader>
+                  <CardContent>
+                    <Field data-disabled={isUpdating || !experienceProgramEditable || undefined}>
+                      <FieldLabel htmlFor="settings-program">Assigned program</FieldLabel>
+                      <Select
+                        items={experienceProgramItems}
+                        value={experienceProgram?.id ?? experienceTarget.programId ?? ""}
+                        disabled={isUpdating || !experienceProgramEditable}
+                        onValueChange={(value) => value && setExperienceForm((current) => current ? { ...current, program: value === experienceTarget.programId ? null : programs.find((program) => program.id === value) ?? null } : current)}
+                      >
+                        <SelectTrigger id="settings-program" className="h-11 w-full sm:h-8">
+                          <SelectValue placeholder="Select a published program" />
+                        </SelectTrigger>
+                        <SelectContent><SelectGroup>{experienceProgramItems.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectGroup></SelectContent>
+                      </Select>
+                      <FieldDescription>{experienceProgramNote}</FieldDescription>
+                    </Field>
+                  </CardContent>
                 </Card>
 
                 <Card size="sm">

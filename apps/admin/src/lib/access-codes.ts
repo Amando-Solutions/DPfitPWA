@@ -34,6 +34,8 @@ export type AccessCodeRecord = {
   /** Who may redeem it. `null` only on codes from before every code had one. */
   issuedToEmail: string | null
   claimedByName: string | null
+  /** The program it gives the member who redeems it, pinned when it was issued. `null` on codes from before every code had one. */
+  programId: string | null
 }
 
 export type IssueAccessCodeInput = {
@@ -124,6 +126,8 @@ export function subscribeToAccessCodes(
             typeof data.issuedToEmail === "string" && data.issuedToEmail ? data.issuedToEmail : null,
           claimedByName:
             typeof data.claimedByName === "string" ? data.claimedByName : null,
+          programId:
+            typeof data.programId === "string" && data.programId ? data.programId : null,
         } satisfies AccessCodeRecord
       })
 

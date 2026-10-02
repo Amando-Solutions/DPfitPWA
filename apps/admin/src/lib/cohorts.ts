@@ -104,6 +104,8 @@ export type CohortExperienceInput = {
   startDay: DayKey
   /** The last day, or empty for a cohort that has none; it moves at any time. */
   lastDay: DayKey
+  /** The program to move to, or `null` to keep the cohort's own; it moves only while `cohortProgramEditable`. */
+  program: ProgramRecord | null
 }
 
 type CreateCohortInput = {
@@ -127,6 +129,13 @@ export const cohortInProgress = (cohort: CohortRecord, now: Date) =>
 /** A draft that hasn't reached its first day: the only cohort whose start can still move. */
 export const cohortStartEditable = (cohort: CohortRecord, now: Date) =>
   cohort.status === "draft" && now.getTime() < cohort.startDate.getTime()
+
+/**
+ * A draft, or an active cohort still without one: the only cohort whose program
+ * can change. Mirrors `keepsActiveProgramPin` in the rules.
+ */
+export const cohortProgramEditable = (cohort: CohortRecord) =>
+  cohort.status === "draft" || (cohort.status === "active" && !cohort.programId)
 
 function requireDatabase() {
   if (!firebaseDb) throw new Error("Cohorts are not configured.")
@@ -366,6 +375,28 @@ export async function createCohort({
   return reference.id
 }
 
+/**
+ * The pin that points the cohort at `program`. It moves the cohort only: each
+ * code keeps the program it was issued with, and each member the one their
+ * code carried.
+ */
+function programPin(cohort: CohortRecord, program: ProgramRecord) {
+  if (cohort.status === "archived") {
+    throw new Error("Archived cohorts cannot be changed.")
+  }
+  if (!cohortProgramEditable(cohort)) {
+    throw new Error("The program for an active cohort is locked.")
+  }
+  if (program.status !== "published") {
+    throw new Error("Only published programs can be assigned.")
+  }
+  return {
+    programId: program.id,
+    programName: program.name,
+    programVersion: program.version,
+  }
+}
+
 export async function assignProgramToCohort(
   cohort: CohortRecord,
   program: ProgramRecord,
@@ -373,20 +404,8 @@ export async function assignProgramToCohort(
 ) {
   const database = requireDatabase()
 
-  if (cohort.status === "archived") {
-    throw new Error("Archived cohorts cannot be changed.")
-  }
-  if (cohort.status === "active" && cohort.programId) {
-    throw new Error("The program for an active cohort is locked.")
-  }
-  if (program.status !== "published") {
-    throw new Error("Only published programs can be assigned.")
-  }
-
   await updateDoc(doc(database, "cohorts", cohort.id), {
-    programId: program.id,
-    programName: program.name,
-    programVersion: program.version,
+    ...programPin(cohort, program),
     updatedAt: serverTimestamp(),
     updatedByUid: user.uid,
     updatedByEmail: user.email,
@@ -494,8 +513,12 @@ export async function saveCohortExperience(
     throw new Error(`Leaderboard reveal week must be between 1 and ${cohort.durationWeeks}.`)
   }
 
+  // Only a program the form moved, so an active cohort's untouched pin never trips its lock.
+  const program = input.program && input.program.id !== cohort.programId ? programPin(cohort, input.program) : {}
+
   await updateDoc(doc(database, "cohorts", cohort.id), {
     ...datesPatch(cohort, input),
+    ...program,
     coach,
     registration,
     leaderboardVisible: input.leaderboardVisible,

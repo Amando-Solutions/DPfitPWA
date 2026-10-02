@@ -243,6 +243,12 @@ export const layout = ({ title, preheader, appUrl, content }: Shell) => {
        the terracotta lifts rather than simply carrying over. */
     .credit-light { display: none !important; }
     .credit-dark { display: inline-block !important; }
+    /* The copy chip under the access code: the card's own ground rather than
+       a white pill, and its glyph traded for the lifted accent like the
+       credit. */
+    .bg-chip { background: #1e1826 !important; border-color: #3b3148 !important; }
+    .icon-light { display: none !important; }
+    .icon-dark { display: inline-block !important; }
   }
 </style>
 </head>
