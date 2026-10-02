@@ -227,6 +227,25 @@ export interface DataSource {
    */
   redeemAccessCode(code: string): Promise<Member>
 
+  /**
+   * Redeem a code on an account that already has a membership: a member
+   * joining their next cohort.
+   *
+   * An account is in one cohort at a time. If theirs is over, they move now:
+   * its sessions, check-ins, photos and badges are deleted, so none of it shows
+   * in the new one, and stats start again. The profile carries over, so there
+   * is no second setup. If it is still running, the code is
+   * claimed and held as `nextCohort`, and a call with no code once it has
+   * ended moves them on it, which is what the ended screen sends.
+   *
+   * A server-side move, because it touches what a member may not write: the
+   * cohort and code on their own document, and their logs. Throws the code
+   * errors `redeemAccessCode` does, plus `already-member` and
+   * `already-registered`. Callable while the cohort is over, unlike every
+   * other member write.
+   */
+  joinCohort(code?: string): Promise<JoinCohortResult>
+
   getMember(): Promise<Member | null>
 
   /**
@@ -716,6 +735,13 @@ export type Unsubscribe = () => void
 /** Whether this device holds the account. See `claimDevice`. */
 export type DeviceClaim = 'claimed' | 'superseded'
 
+/** What `joinCohort` did. Mirrors `JoinCohortResult` in `apps/functions`. */
+export interface JoinCohortResult {
+  /** In the new cohort now. `false` is held until the current one ends. */
+  moved: boolean
+  cohortName: string
+}
+
 /** A non-image file picked on the device, before anything has stored it. */
 export interface PendingFile {
   name: string
@@ -801,6 +827,10 @@ export class DataSourceError extends Error {
       | 'account-exists'
       /** The member's cohort is over, so nothing more is written. See `refuseWritesWhen`. */
       | 'cohort-ended'
+      /** A code for the cohort the member is already in. See `joinCohort`. */
+      | 'already-member'
+      /** A second code while one is already held for the next cohort. See `joinCohort`. */
+      | 'already-registered'
       | 'unknown' = 'unknown',
   ) {
     super(message)

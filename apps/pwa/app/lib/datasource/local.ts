@@ -10,6 +10,7 @@ import {
   type CheckInInput,
   type DataSource,
   type DeviceClaim,
+  type JoinCohortResult,
   type OutgoingMessage,
   type PendingFile,
   type PhotoInput,
@@ -356,6 +357,11 @@ export class LocalDataSource implements DataSource {
     }
     storage.write(KEY.member, member)
     return member
+  }
+
+  /** One cohort on this device, so no other to join. The move is `FirestoreDataSource`'s. */
+  async joinCohort(): Promise<JoinCohortResult> {
+    throw new DataSourceError('There’s only one cohort in the demo, so there’s no other to join.', 'unknown')
   }
 
   async getMember(): Promise<Member | null> {

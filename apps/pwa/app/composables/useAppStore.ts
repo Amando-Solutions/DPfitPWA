@@ -1,7 +1,7 @@
 import { Timestamp } from 'firebase/firestore'
 
 import { DataSourceError, useDataSourceClient } from '~/lib/datasource'
-import type { ActiveSessionInput, CheckInInput, DeviceClaim } from '~/lib/datasource'
+import type { ActiveSessionInput, CheckInInput, DeviceClaim, JoinCohortResult } from '~/lib/datasource'
 import { defaultPreferences } from '~/data/preferences'
 import {
   addDays,
@@ -731,6 +731,8 @@ const buildStore = () => {
   )
   /** The cohort that has ended, for the screen that says so. `null` while one is running. */
   const endedCohort = computed(() => (cohortIsOver.value ? state.value.cohort : null))
+  /** The cohort the member moves into when this one ends, if they hold one. See `PendingCohort`. */
+  const nextCohort = computed(() => state.value.member?.nextCohort ?? null)
   const guides = computed(() => state.value.guides)
   /**
    * `cohorts/{id}/announcements`, as the listener last delivered them.
@@ -1563,13 +1565,34 @@ const buildStore = () => {
    * without a membership, which is `needs-code`, and the access-code screen
    * redeems for exactly that session when they try again — deleting the account
    * would only make them choose a password a second time.
+   *
+   * An account that already holds a membership under another code is a member
+   * back for their next cohort, so the code is joined with rather than dropped.
+   * It used to be dropped: the sign-in went through, the new code was never
+   * spent, and they landed back in the cohort they had come to leave. Resolves
+   * to what the join did, so the screen can say when it was held; `null` for
+   * every other path.
    */
-  const createAccount = async (code: string, email: string, password: string) => {
+  const createAccount = async (
+    code: string,
+    email: string,
+    password: string,
+  ): Promise<JoinCohortResult | null> => {
     startupError.value = ''
     await data.createAccount(code, email, password)
     const hasMember = await identify()
     if (gate.value === 'needs-code') await redeemAccessCode(code)
-    else if (hasMember) void loadContent()
+    else if (hasMember && state.value.member?.accessCode !== code) {
+      try {
+        return await joinCohort(code)
+      } catch (cause) {
+        // Signed in and a member whatever the code said, so the app behind the
+        // screen loads as it would have; the screen shows why the code did not.
+        void loadContent()
+        throw cause
+      }
+    } else if (hasMember) void loadContent()
+    return null
   }
 
   /**
@@ -1609,6 +1632,21 @@ const buildStore = () => {
     // just committed by this client, so the read below sees it.
     await hydrate(true)
     return account
+  }
+
+  /**
+   * Join another cohort with `code`, or move into the one already held when
+   * there is no code. See `DataSource.joinCohort`.
+   *
+   * Reloads whole either way. A move changes every path the app reads through —
+   * cohort, program, logs, board — and a hold changes what the member document
+   * says comes next. `gate` is settled by the time this resolves, so the caller
+   * can route on it.
+   */
+  const joinCohort = async (code?: string) => {
+    const result = await data.joinCohort(code)
+    await hydrate(true)
+    return result
   }
 
   const saveProfile = async (patch: Partial<MemberProfile>) => {
@@ -2040,6 +2078,7 @@ const buildStore = () => {
     program,
     cohort,
     endedCohort,
+    nextCohort,
     coach,
     liveCallToday,
     guides,
@@ -2123,6 +2162,7 @@ const buildStore = () => {
     signInWithPassword,
     sendPasswordReset,
     redeemAccessCode,
+    joinCohort,
     saveProfile,
     completeSetup,
     setRegion,

@@ -22,7 +22,7 @@ one. Read them before changing anything in `app/lib/datasource/firestore.ts`.
 | `programs/{id}/weeks/{weekId}` | One week of the block: its number, title and dates. `week-1`, `week-2`, … — see **The schedule**. |
 | `programs/{id}/weeks/{weekId}/days/{dayId}` | One training day in that week, with the date it falls on. |
 | `programs/{id}/guides/{guideId}` | The guide library. |
-| `members/{uid}` | The member. Keyed by the Firebase Auth uid, so rules are `request.auth.uid == uid` with no lookup. `region` is written only by `setRegion` — see **Days and regions**. |
+| `members/{uid}` | The member. Keyed by the Firebase Auth uid, so rules are `request.auth.uid == uid` with no lookup. `region` is written only by `setRegion` — see **Days and regions**. `nextCohort` only by `joinCohort` — see **One cohort after another**. |
 | `members/{uid}/sessions/{id}` | Workout logs. Written only by `logSession`. |
 | `members/{uid}/state/activeSession` | The workout in progress. A fixed id, because there is only ever one. |
 | `members/{uid}/checkIns/week-{n}` | One per week, enforced by the key. Written only by `submitCheckIn`. |
@@ -698,6 +698,11 @@ What the function settles so no caller has to:
   unused, unexpired code for that cohort, it comes back with `reused: true`
   instead of a second one. That is what makes Zapier replaying a sale safe, and
   it means a replacement for a live code starts with revoking it.
+- **No new code while their cohort is running.** From the console, an address
+  whose member is in a cohort that has not ended — or already holds their next
+  one — is refused with `failed-precondition` and a sentence naming the cohort.
+  The landing site is not asked here: `register.post.ts` asks before the buyer
+  pays, and a paid sale always gets its code. See **One cohort after another**.
 
 From the admin console:
 
@@ -739,6 +744,46 @@ sessions, check-ins and photos itself, so once the rules land an installed app
 still on it cannot log until it picks up the new build — deploy the rules after
 installed apps have had a chance to update (the service worker takes it on the
 next launch).
+
+## One cohort after another
+
+An account is in one cohort at a time: `members/{uid}.cohortId` names it, and
+every rule and function resolves the cohort through it. A member joining
+another cohort is moved, by the `joinCohort` callable (`apps/functions/src/memberships.ts`):
+
+- **Their current cohort is over:** the move happens at once. That cohort's
+  `sessions`, `checkIns`, `photos`, `badges` and `state` are deleted, with the
+  progress and proof photos they point at, so none of it shows in the new
+  cohort. Nothing of the old cohort is kept on the account; its board keeps
+  their row. The member document is pointed at the new cohort with fresh
+  `stats` and a new `joinedAt`, and a row goes on the new cohort's board. The
+  profile (name, region, body metrics, goal) carries over, so there is no
+  second setup.
+- **It is still running:** the code is claimed anyway (the seat was paid for)
+  and held as `members/{uid}.nextCohort`. The member stays where they are, and
+  the ended screen moves them on it once the cohort is over.
+
+A code should not reach somebody whose cohort is running. The landing form
+refuses one with a single sentence that names no cohort, since anybody can type
+any address. The console refuses with the cohort's name. The hold is for what
+gets through anyway: a code issued before either check existed, or a purchase
+for two cohorts at once.
+
+Where a member enters one: the access-code screen (an existing account signing
+back in with a new code joins with it), and the ended screen.
+
+The move runs in three steps, each safe to repeat: claim and hold, delete the
+old logs, re-point the member. A call cut off between two is finished by the
+next. The held code is checked before anything is deleted, so a revoked one
+cannot leave a member with no logs and no new cohort.
+
+**Deploy order:** `joinCohort` first, then the member app and `apps/web`, then
+both rules files. Until the rules land a member could write `nextCohort` on
+their own document; the function re-reads the held code before moving anyone
+on it, so that buys nothing, but the rules are what make the field theirs alone.
+
+The admin console lists members by `members/{uid}.cohortId`, so a member who
+has moved shows under their new cohort only.
 
 ## What a code contains
 

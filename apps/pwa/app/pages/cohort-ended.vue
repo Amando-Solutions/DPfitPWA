@@ -5,7 +5,8 @@
 // were when it happened.
 definePageMeta({ layout: 'default' })
 
-import { useDataSourceClient, type SupportContact } from '~/lib/datasource'
+import { DataSourceError, useDataSourceClient, type SupportContact } from '~/lib/datasource'
+import { FIRST_SETUP_STEP } from '~/middleware/auth.global'
 
 const router = useRouter()
 const store = useAppStore()
@@ -73,6 +74,42 @@ const whatsappHref = computed(() =>
 const signedInAs = computed(() => store.authUser.value?.email ?? '')
 
 /**
+ * The way on to another cohort, which this screen is the door to.
+ *
+ * A member who redeemed their next code while this cohort was running holds it
+ * as `nextCohort`, and moves into it from here: one button, because the code is
+ * already spent. Anybody else is asked for the code from their confirmation
+ * email — see `JoinCohortForm`, which moves them as soon as it is accepted,
+ * since there is nothing left here to wait for.
+ */
+const nextCohort = computed(() => store.nextCohort.value)
+const nextCohortName = computed(() => nextCohort.value?.cohortName?.trim() || 'your next cohort')
+
+const moving = ref(false)
+/** A code being joined with, in `JoinCohortForm`. */
+const joining = ref(false)
+const moveError = ref('')
+const moveOn = async () => {
+  if (moving.value || signingOut.value) return
+  moving.value = true
+  moveError.value = ''
+  try {
+    const result = await store.joinCohort()
+    if (result.moved) {
+      // Left frozen: the screen is on its way out.
+      await router.replace(store.gate.value === 'needs-setup' ? FIRST_SETUP_STEP : '/home')
+      return
+    }
+    // The server's clock is the one that decides, and it does not think this
+    // cohort is over yet.
+    moveError.value = `You’ll move to ${nextCohortName.value} once this cohort has ended.`
+  } catch (cause) {
+    moveError.value = cause instanceof DataSourceError ? cause.message : 'Something went wrong. Try again.'
+  }
+  moving.value = false
+}
+
+/**
  * The one way out. Frozen for the length of it, as every sign-out is: the
  * session is already going, and there is nothing on the card worth pressing
  * twice. Left frozen on success, because the screen is on its way out.
@@ -80,7 +117,7 @@ const signedInAs = computed(() => store.authUser.value?.email ?? '')
 const signingOut = ref(false)
 const signOutFailed = ref(false)
 const signOut = async () => {
-  if (signingOut.value) return
+  if (signingOut.value || moving.value || joining.value) return
   signingOut.value = true
   signOutFailed.value = false
   try {
@@ -111,11 +148,11 @@ const signOut = async () => {
     <AppCard
       variant="raised"
       class="ended__card relative flex flex-col gap-4 shadow-raised"
-      :aria-busy="signingOut || undefined"
+      :aria-busy="signingOut || moving || undefined"
     >
       <p v-if="statsState === 'loading'" role="status" class="sr-only">Loading your results.</p>
 
-      <div :inert="signingOut" class="flex flex-col gap-4">
+      <div :inert="signingOut || moving" class="flex flex-col gap-4">
         <section v-if="statsState !== 'none'" aria-labelledby="ended-results" class="flex flex-col gap-2.5">
           <h2 id="ended-results" class="m-0 text-[13px] font-semibold text-muted">Your challenge</h2>
           <dl class="m-0 grid grid-cols-3 gap-2">
@@ -133,12 +170,31 @@ const signOut = async () => {
           </dl>
         </section>
 
-        <AppButton variant="secondary" :disabled="signingOut" @click="signOut">
+        <!-- What comes next. A cohort already held is one button, since its
+             code is spent; otherwise the code from the confirmation email. -->
+        <section v-if="nextCohort" aria-labelledby="ended-next" class="flex flex-col gap-2.5">
+          <h2 id="ended-next" class="m-0 text-[13px] font-semibold text-muted">Up next</h2>
+          <p class="m-0 text-[14px] leading-normal text-ink">
+            You’re registered for <strong class="font-semibold">{{ nextCohortName }}</strong>.
+          </p>
+          <AppButton :disabled="moving || signingOut" @click="moveOn">
+            {{ moving ? 'Moving you in…' : `Go to ${nextCohortName}` }}
+          </AppButton>
+        </section>
+        <section v-else aria-labelledby="ended-join" class="flex flex-col gap-2.5">
+          <h2 id="ended-join" class="m-0 text-[13px] font-semibold text-muted">Joining another cohort?</h2>
+          <JoinCohortForm v-model:busy="joining" />
+        </section>
+
+        <AppButton variant="secondary" :disabled="signingOut || moving || joining" @click="signOut">
           {{ signingOut ? 'Signing out…' : 'Sign out' }}
         </AppButton>
       </div>
 
-      <!-- Outside the frozen block, so it is read out when it arrives. -->
+      <!-- Outside the frozen block, so they are read out when they arrive. -->
+      <p v-if="moveError" role="alert" class="m-0 -mt-1 text-center text-xs font-semibold text-primary">
+        {{ moveError }}
+      </p>
       <p v-if="signOutFailed" role="alert" class="m-0 -mt-1 text-center text-xs font-semibold text-primary">
         Couldn’t sign out. Check your connection and try again.
       </p>

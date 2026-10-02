@@ -66,6 +66,7 @@ import {
   typingIsFresh,
 } from '~/lib/chat'
 import { withShippedBadges } from '~/data/badges'
+import { forgetThreadCaches } from '~/lib/chat-cache'
 import { daysBetween, isDateKey } from '~/lib/domain/challenge'
 import { liveCallFrom } from '~/lib/domain/liveCall'
 import { storage as webStorage } from '~/lib/storage'
@@ -78,6 +79,7 @@ import {
   type CheckInInput,
   type DataSource,
   type DeviceClaim,
+  type JoinCohortResult,
   type OutgoingMessage,
   type PendingFile,
   type PhotoInput,
@@ -148,6 +150,16 @@ const isEmail = (value: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(va
 
 /** A code as it is stored. The document id is exactly this. */
 const normaliseCode = (code: string): string => code.trim().toUpperCase()
+
+/** The `reason`s `joinCohort` refuses with, each one of `DataSourceError`'s codes. */
+const JOIN_REFUSALS = new Set<string>([
+  'invalid-code',
+  'code-claimed',
+  'code-expired',
+  'code-wrong-email',
+  'already-member',
+  'already-registered',
+])
 
 /**
  * The provider's ways of saying "that email and password don't go together".
@@ -1184,6 +1196,34 @@ export class FirestoreDataSource implements DataSource {
     this.memberCache = member
     await this.writeLifecycleEvent('member.joined', null, 'onboarding', 'Redeemed access code')
     return member
+  }
+
+  /**
+   * The move itself is `joinCohort` in `apps/functions/src/memberships.ts`.
+   * Sent with the cohort over, which is when it is needed most.
+   *
+   * After a move every cache here describes the old cohort — its program, its
+   * weeks, its threads under the same ids the new cohort's use — so they go,
+   * and the caller reloads.
+   */
+  async joinCohort(code?: string): Promise<JoinCohortResult> {
+    const result = await this.call<JoinCohortResult>(
+      'joinCohort',
+      code === undefined ? {} : { code },
+      { evenIfOver: true },
+    )
+    if (result.moved) {
+      const user = await this.requireUser()
+      this.memberCache = null
+      this.programCache = null
+      this.weeksCache = null
+      this.myReactions.clear()
+      this.typingWrittenAt.clear()
+      forgetThreadCaches(['cohort', user.uid])
+    } else {
+      this.memberCache = null
+    }
+    return result
   }
 
   async getMember(): Promise<Member | null> {
@@ -2547,10 +2587,17 @@ export class FirestoreDataSource implements DataSource {
    * session opens on Monday 12 Oct." — so it is passed through as the message.
    * A call that never reached the function says so instead, because the
    * callable SDK's own word for that is "internal".
+   *
+   * `evenIfOver` is for `joinCohort`, the one call whose point is leaving a
+   * cohort that has ended.
    */
-  private async call<T>(name: string, data: Record<string, unknown>): Promise<T> {
-    // Every one of these is a member write, so this covers all four.
-    this.refuseIfOver()
+  private async call<T>(
+    name: string,
+    data: Record<string, unknown>,
+    { evenIfOver = false }: { evenIfOver?: boolean } = {},
+  ): Promise<T> {
+    // Every other one is a member write into the cohort, so this covers them.
+    if (!evenIfOver) this.refuseIfOver()
     await this.requireUser()
     try {
       const run = httpsCallable<Record<string, unknown>, T>(firebaseFunctions(), name)
@@ -2563,6 +2610,9 @@ export class FirestoreDataSource implements DataSource {
       }
       if (reason === 'cohort-ended') {
         throw new DataSourceError(cause.message, 'cohort-ended')
+      }
+      if (reason && JOIN_REFUSALS.has(reason)) {
+        throw new DataSourceError(cause.message, reason as DataSourceError['code'])
       }
       if (cause.code === 'functions/unauthenticated') {
         throw new DataSourceError(cause.message, 'unauthenticated')

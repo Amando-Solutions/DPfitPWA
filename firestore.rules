@@ -696,6 +696,8 @@ service cloud.firestore {
         && request.resource.data.stats.sessionsQualified == 0
         // Nor a region, whose floor only `setRegion` can stamp.
         && !('region' in request.resource.data)
+        // Nor a next cohort, which only `joinCohort` holds. See below.
+        && !('nextCohort' in request.resource.data)
         // The cohort has to be the one the code actually belongs to.
         && request.resource.data.cohortId == get(
              /databases/$(database)/documents/accessCodes/$(request.resource.data.accessCode)
@@ -722,6 +724,10 @@ service cloud.firestore {
         // floor that stops a switch west reopening a day; a member who could
         // write it could set the floor back and log a day twice.
         && request.resource.data.get('region', null) == resource.data.get('region', null)
+        // The cohort a member moves into when this one ends. `joinCohort`
+        // writes it after claiming the code it names, and moves them on it; a
+        // member who could write it could name a cohort they never paid for.
+        && request.resource.data.get('nextCohort', null) == resource.data.get('nextCohort', null)
         // The one status move a member makes for themselves is finishing
         // setup, in `completeSetup`. Writing `onboarding` back would reopen the
         // two fields locked below; every other move is the console's.

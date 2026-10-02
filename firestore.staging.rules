@@ -1076,6 +1076,8 @@ service cloud.firestore {
         && request.resource.data.stats.sessionsQualified == 0
         // A region's floor is `setRegion`'s to stamp.
         && !('region' in request.resource.data)
+        // A next cohort is `joinCohort`'s to hold.
+        && !('nextCohort' in request.resource.data)
         // The membership and claim are one transaction, including rebuilds
         // where the code was already claimed by this uid.
         && code.data.status == 'claimed'
@@ -1108,6 +1110,9 @@ service cloud.firestore {
         // region change forward-only.
         && request.resource.data.get('region', null)
              == resource.data.get('region', null)
+        // Written only by `joinCohort`, after claiming the code it names.
+        && request.resource.data.get('nextCohort', null)
+             == resource.data.get('nextCohort', null)
         && (request.resource.data.status == resource.data.status
             || (resource.data.status == 'onboarding'
                 && request.resource.data.status == 'active'))

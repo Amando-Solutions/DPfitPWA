@@ -89,3 +89,15 @@ export const writeThreadCache = (
     messages: messages.slice(-KEEP),
   })
 }
+
+/**
+ * Drop these threads' copies.
+ *
+ * For a member moving to another cohort: the ids stay the same — `cohort`, and
+ * their own uid for the coach — but the threads behind them are the new
+ * cohort's, and the reader check cannot tell the two apart. Sign-out has no
+ * need of this; it clears the whole store.
+ */
+export const forgetThreadCaches = (threadIds: ThreadId[]): void => {
+  for (const threadId of threadIds) storage.remove(keyFor(threadId))
+}

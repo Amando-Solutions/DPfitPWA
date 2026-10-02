@@ -75,6 +75,16 @@ const step = ref<'code' | 'account'>('code')
  */
 const busy = ref<'' | 'code' | 'account' | 'redeem' | 'retry' | 'switch'>('')
 
+/**
+ * The next cohort's name, once its code has been held.
+ *
+ * A member back for their next cohort while the one they are in is still
+ * running: the code is spent and saved, and they move when that cohort ends.
+ * Said here before they are sent on, because everywhere they go next is the
+ * cohort they are still in, and none of it would mention the code they typed.
+ */
+const heldInto = ref('')
+
 const phase = computed<'code' | 'account' | 'redeem' | 'blocked'>(() => {
   // Held for the whole of a sign-up. It signs in halfway through, and without
   // this the form the member is watching would turn into the redeem step before
@@ -114,7 +124,14 @@ const fail = (on: Field, cause: unknown) => {
 }
 
 /** Failures that are about the code rather than anything typed on the account step. */
-const CODE_FAILURES: DataSourceError['code'][] = ['invalid-code', 'code-claimed', 'code-expired']
+const CODE_FAILURES: DataSourceError['code'][] = [
+  'invalid-code',
+  'code-claimed',
+  'code-expired',
+  // A member back for their next cohort, with the one they are in or a second.
+  'already-member',
+  'already-registered',
+]
 
 const accountFieldFor = (cause: unknown): Field => {
   if (!(cause instanceof DataSourceError)) return 'form'
@@ -278,11 +295,20 @@ const createAccount = async () => {
 
   busy.value = 'account'
   try {
-    await store.createAccount(checkedCode.value, email.value, password.value)
+    const joined = await store.createAccount(checkedCode.value, email.value, password.value)
+    if (joined && !joined.moved) {
+      heldInto.value = joined.cohortName || 'your next cohort'
+      busy.value = ''
+      return
+    }
     if (await settle()) return
   } catch (cause) {
     if (cause instanceof DataSourceError && CODE_FAILURES.includes(cause.code)) {
       step.value = 'code'
+      fail('code', cause)
+    } else if (store.member.value) {
+      // Signed in to a membership already, so this is the redeem step now and
+      // the account fields are gone: the code box is where they try again.
       fail('code', cause)
     } else {
       fail(accountFieldFor(cause), cause)
@@ -291,13 +317,28 @@ const createAccount = async () => {
   busy.value = ''
 }
 
-/** Signed in without a membership: spend the code on the session there is. */
+/**
+ * Signed in: spend the code on the session there is.
+ *
+ * Usually an account with no membership, which the code makes one for. The
+ * other way here is a member back for their next cohort whose join failed on
+ * the way through sign-up; they join with it instead, as sign-up would have.
+ */
 const redeem = async () => {
   if (busy.value) return
   busy.value = 'redeem'
   failure.value = null
   try {
-    await store.redeemAccessCode(code.value)
+    if (store.member.value) {
+      const joined = await store.joinCohort(code.value)
+      if (!joined.moved) {
+        heldInto.value = joined.cohortName || 'your next cohort'
+        busy.value = ''
+        return
+      }
+    } else {
+      await store.redeemAccessCode(code.value)
+    }
     if (await settle()) return
   } catch (cause) {
     fail('code', cause)
@@ -390,6 +431,7 @@ const signedInAs = computed(() => store.authUser.value?.email ?? '')
  * already paid; nothing on it is addressed to somebody deciding whether to buy.
  */
 const heading = computed(() => {
+  if (heldInto.value) return `You’re registered for ${heldInto.value}`
   if (installFirst.value) return 'Install the app first'
   if (phase.value === 'blocked') return 'Couldn’t load your account'
   if (phase.value === 'account') return 'Create your account'
@@ -404,6 +446,10 @@ const heading = computed(() => {
  * says the single fact that step needs and the fields cannot state.
  */
 const standfirst = computed(() => {
+  if (heldInto.value) {
+    const current = store.cohort.value?.name?.trim() || store.member.value?.cohortName?.trim() || 'your current cohort'
+    return `You’ll move there when ${current} ends. Until then, carry on where you are.`
+  }
   if (installFirst.value) {
     return 'Then set up your account from your Home Screen, so you only sign in once.'
   }
@@ -437,7 +483,8 @@ const showSignInLink = computed(
  * yet.
  */
 const askingForCode = computed(
-  () => !installFirst.value && (phase.value === 'code' || phase.value === 'redeem'),
+  () =>
+    !installFirst.value && !heldInto.value && (phase.value === 'code' || phase.value === 'redeem'),
 )
 
 /** Hidden on a deploy with no site to point at; see `buyHref`. */
@@ -491,6 +538,16 @@ watch([code, email, password, confirm], () => {
       </AppButton>
     </AppCard>
 
+    <!-- A held next cohort. Nothing left to type: the heading and the line
+         under it are the message, and this is the way on. -->
+    <AppCard
+      v-else-if="heldInto"
+      variant="raised"
+      class="access__card access__held flex flex-col gap-4 shadow-raised"
+    >
+      <AppButton @click="settle">Continue</AppButton>
+    </AppCard>
+
     <!--
       A real form, so Enter submits.
 
@@ -522,19 +579,24 @@ watch([code, email, password, confirm], () => {
           :class="busy !== '' && 'opacity-60'"
           :inert="busy !== ''"
         >
-          <TextField
-            v-if="askingForCode"
-            v-model="code"
-            label="Access code"
-            placeholder="ENTER YOUR CODE"
-            autocomplete="off"
-            mono
-            :error="errorOn('code')"
-          />
-          <p v-if="askingForCode && codeFailed && supportContact" class="m-0 -mt-2 text-[13px] leading-normal text-muted">
-            Still stuck? Check it and try again, or
-            <a :href="whatsappHref" target="_blank" rel="noopener noreferrer" class="access__link font-semibold text-primary">message {{ supportContact.name }} on WhatsApp</a>.
-          </p>
+          <!-- One branch with its support line, so the line cannot break the
+               `v-if` / `v-else-if` / `v-else` chain below. Standing as a sibling
+               `v-if`, it did, and `blocked`'s connection hint printed under the
+               code field on every ordinary visit. -->
+          <template v-if="askingForCode">
+            <TextField
+              v-model="code"
+              label="Access code"
+              placeholder="ENTER YOUR CODE"
+              autocomplete="off"
+              mono
+              :error="errorOn('code')"
+            />
+            <p v-if="codeFailed && supportContact" class="m-0 -mt-2 text-[13px] leading-normal text-muted">
+              Still stuck? Check it and try again, or
+              <a :href="whatsappHref" target="_blank" rel="noopener noreferrer" class="access__link font-semibold text-primary">message {{ supportContact.name }} on WhatsApp</a>.
+            </p>
+          </template>
 
           <!-- Three fields and nothing else. The code that got the member here
                is held in `checkedCode` and neither shown nor editable: it has

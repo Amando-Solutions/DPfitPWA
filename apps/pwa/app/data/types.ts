@@ -734,10 +734,17 @@ export interface MemberDoc extends UpdatedBy {
   cohortName: string
   programId: string
   programVersion: number
-  /** The code they redeemed. One member, one code. */
+  /** The code that put them in this cohort. Each cohort they join has its own. */
   accessCode: string
   /** When the challenge clock starts for this member. */
   joinedAt: Timestamp
+  /**
+   * The cohort they move into once this one is over, when they redeemed its
+   * code while this one was still running. Absent otherwise, and again once
+   * they have moved. Written only by the `joinCohort` function; the rules
+   * refuse it from a client. See `PendingCohort`.
+   */
+  nextCohort?: PendingCohort
   /**
    * Absent until the member picks one at setup, and on every membership from
    * before regions existed. Absent reads as the cohort's own zone — WAT — which
@@ -751,6 +758,24 @@ export interface MemberDoc extends UpdatedBy {
 }
 
 export type Member = WithId<MemberDoc>
+
+/**
+ * A code claimed for the next cohort, waiting for the current one to end.
+ *
+ * An account is in one cohort at a time, and nobody leaves one while it is
+ * running. A code for another cohort should not be issued then, but one that
+ * was is still claimed — the seat is paid for — and held here. The ended screen
+ * moves the member on it. Mirrored by `PendingCohort` in
+ * `apps/functions/src/memberships.ts`.
+ */
+export interface PendingCohort {
+  accessCode: string
+  cohortId: string
+  cohortName: string
+  programId: string
+  programVersion: number
+  claimedAt: Timestamp
+}
 
 // --- Lifecycle events -------------- `members/{uid}/lifecycleEvents/{eventId}`
 //

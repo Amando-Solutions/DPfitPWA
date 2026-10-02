@@ -27,6 +27,7 @@ import { Timestamp, type Firestore, type QueryDocumentSnapshot } from 'firebase-
 import { logger } from 'firebase-functions'
 import { HttpsError } from 'firebase-functions/https'
 import { DATABASES, database, type DatabaseId } from './databases.js'
+import { enrolmentRefusal } from './memberships.js'
 
 // --- What -------------------------------------------------------------------
 
@@ -295,11 +296,15 @@ const extendToCover = async (
  * retry correct rather than a silent overwrite of somebody else's unredeemed
  * seat. Four attempts is generous for a 32^8 space; it is here for the birthday
  * collision, not for a full collection.
+ *
+ * `checkEnrolment` refuses a new code to somebody whose cohort is still
+ * running, or who already holds their next one. See `enrolmentRefusal`.
  */
 export const mintAccessCode = async (
   input: CreateAccessCodeInput,
   actor: Actor,
   batchId: string,
+  { checkEnrolment = false }: { checkEnrolment?: boolean } = {},
 ): Promise<CreateAccessCodeResult> => {
   const db = database(input.database)
   const cohort = await readCohort(db, input.cohortId)
@@ -316,6 +321,14 @@ export const mintAccessCode = async (
 
   const live = await existingCode(db, input.email, cohort.id)
   if (live) return result(live.id, true, await extendToCover(live, input.expiryDays, actor))
+
+  // After the reuse, which hands back a seat already issued rather than a new
+  // one: the pre-order release asks for its held code again, and that code was
+  // paid for whatever has happened since.
+  if (checkEnrolment) {
+    const refusal = await enrolmentRefusal(db, input.email, cohort.id)
+    if (refusal) throw new HttpsError('failed-precondition', refusal)
+  }
 
   const now = Timestamp.now()
   const expiresAt = Timestamp.fromMillis(now.toMillis() + input.expiryDays * 86_400_000)

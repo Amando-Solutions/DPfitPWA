@@ -52,7 +52,7 @@ import { resolveRegion } from './regions.js'
 
 // --- Who is asking -----------------------------------------------------------
 
-interface MemberCaller {
+export interface MemberCaller {
   uid: string
   email: string
   db: Firestore
@@ -73,8 +73,11 @@ const readDatabase = (raw: unknown): DatabaseId => {
  * The same standing `signedIn()` asks of a member in `firestore.rules`, which a
  * function bypasses and so has to ask again: the account's latest sign-in, the
  * email the membership was made with, and a sign-in the account trusts.
+ *
+ * Shared with `joinCohort` in `memberships.ts`, which asks the same of a member
+ * moving to their next cohort.
  */
-const identifyMember = async (request: CallableRequest): Promise<MemberCaller> => {
+export const identifyMember = async (request: CallableRequest): Promise<MemberCaller> => {
   const auth = request.auth
   if (!auth) throw new HttpsError('unauthenticated', 'Sign in first.')
   const db = database(readDatabase(request.data))
