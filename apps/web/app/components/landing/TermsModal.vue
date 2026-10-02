@@ -14,14 +14,12 @@ const scroller = ref<HTMLElement>()
 /** Rendered on first open, so nobody downloads terms they never open. */
 const rendered = ref(false)
 
-/** Opens at the top, or at the clause whose id is `target`. */
-async function open(target?: string) {
+/** Opens at the top, wherever the last visit was scrolled to. */
+async function open() {
   rendered.value = true
   await nextTick()
   dialog.value?.showModal()
-  const at = target ? scroller.value?.querySelector<HTMLElement>(`#${target}`) : null
-  if (at) at.scrollIntoView({ block: 'start' })
-  else if (scroller.value) scroller.value.scrollTop = 0
+  if (scroller.value) scroller.value.scrollTop = 0
 }
 
 const close = () => dialog.value?.close()

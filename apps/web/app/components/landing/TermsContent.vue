@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import {
-  MARKETING_CLAUSE,
   TERMS_CLAUSE,
   TERMS_SECTIONS,
   TERMS_SUMMARY,
@@ -23,11 +22,6 @@ const props = withDefaults(
 const heading = computed(() => `h${props.level}`)
 const subheading = computed(() => `h${props.level + 1}`)
 
-const clauses = [
-  { ...TERMS_CLAUSE, tag: 'required' },
-  { ...MARKETING_CLAUSE, tag: 'optional' },
-]
-
 const { contactEmail } = useRuntimeConfig().public
 </script>
 
@@ -43,21 +37,19 @@ const { contactEmail } = useRuntimeConfig().public
       </ul>
     </section>
 
-    <!-- One card per box on the booking form, so the optional one reads as
-         its own decision rather than a line of the terms. -->
+    <!-- What the box on the booking form commits somebody to, carded so it
+         reads apart from the summary above. -->
     <section
-      v-for="clause in clauses"
-      :id="clause.id"
-      :key="clause.id"
+      :id="TERMS_CLAUSE.id"
       class="flex scroll-mt-4 flex-col gap-3 rounded-[20px] border border-lp-edge bg-lp-lilac-50 p-5 sm:p-6"
     >
       <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <component :is="subheading" class="m-0 text-[16.5px] leading-snug font-semibold">{{ clause.title }}</component>
-        <span class="lp-chip bg-white px-2.5 py-1 text-lp-accent">{{ clause.tag }}</span>
+        <component :is="subheading" class="m-0 text-[16.5px] leading-snug font-semibold">{{ TERMS_CLAUSE.title }}</component>
+        <span class="lp-chip bg-white px-2.5 py-1 text-lp-accent">required</span>
       </div>
-      <p class="m-0 text-[15px] leading-[1.7] text-lp-soft">{{ clause.lead }}</p>
+      <p class="m-0 text-[15px] leading-[1.7] text-lp-soft">{{ TERMS_CLAUSE.lead }}</p>
       <ul class="m-0 flex list-disc flex-col gap-1.5 pl-5 text-[15px] leading-[1.7] text-lp-ink marker:text-lp-accent">
-        <li v-for="point in clause.points" :key="point">{{ point }}</li>
+        <li v-for="point in TERMS_CLAUSE.points" :key="point">{{ point }}</li>
       </ul>
     </section>
 

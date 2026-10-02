@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { detectTimezone, isTimezone } from '~/data/timezones'
 import { APP_NAME, EQUIPMENT, NEXT_STEPS, TRAINING_SPLIT } from '~/data/landing'
-import { MARKETING_CLAUSE_ID, TERMS_PATH, TERMS_VERSION } from '~/data/terms'
+import { TERMS_PATH, TERMS_VERSION } from '~/data/terms'
 
 /**
  * "book your slot": the offer on the left, the form on the right.
@@ -128,23 +128,16 @@ const attempted = ref(false)
  */
 const agreed = ref(false)
 
-/**
- * The marketing box. Optional and separate from the terms: unticked by default,
- * and it never holds the button back.
- */
-const marketingConsent = ref(false)
-
-const termsModal = ref<{ open: (target?: string) => void }>()
+const termsModal = ref<{ open: () => void }>()
 
 /**
- * A plain click on either box's link opens the terms in the modal, at the
- * clause it names. One that asks for a new tab, or lands before hydration,
- * is left to the link and gets `/terms`.
+ * A plain click on the terms link opens them in the modal. One that asks for
+ * a new tab, or lands before hydration, is left to the link and gets `/terms`.
  */
-function openTerms(event: MouseEvent, target?: string) {
+function openTerms(event: MouseEvent) {
   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
   event.preventDefault()
-  termsModal.value?.open(target)
+  termsModal.value?.open()
 }
 
 /** In flight, and stays true while the browser is on its way to Selar. */
@@ -244,7 +237,6 @@ async function onSubmit() {
         amountMinor: rawPrice.value.minor,
         currency: rawPrice.value.currency,
         acceptedTermsVersion: TERMS_VERSION,
-        marketingConsent: marketingConsent.value,
       },
     })
 
@@ -418,36 +410,6 @@ const inputClass = (name: FieldName) => [
                   @click="openTerms($event)"
                 >terms and conditions</a>.
               </label>
-            </div>
-
-            <!-- Its own box and its own clause: separate from the terms and
-                 optional, so it never holds the button back. -->
-            <div class="flex items-start gap-3">
-              <input
-                id="register-marketing"
-                v-model="marketingConsent"
-                type="checkbox"
-                name="marketing"
-                aria-describedby="register-marketing-hint"
-                class="mt-0.5 size-4.5 shrink-0 cursor-pointer accent-lp-ink"
-                @change="failure = ''"
-              >
-              <div class="flex flex-col gap-1">
-                <label for="register-marketing" class="cursor-pointer text-[14px] leading-normal text-lp-soft">
-                  I consent to the
-                  <a
-                    :href="`${TERMS_PATH}#${MARKETING_CLAUSE_ID}`"
-                    target="_blank"
-                    rel="noopener"
-                    class="font-semibold text-lp-ink underline underline-offset-3"
-                    @click="openTerms($event, MARKETING_CLAUSE_ID)"
-                  >marketing use of my photos and results</a>
-                  (optional).
-                </label>
-                <!-- <span id="register-marketing-hint" class="text-[12px] text-lp-soft">
-                  Always with your face blurred. Saying no doesn't affect your place in the challenge.
-                </span> -->
-              </div>
             </div>
           </div>
 

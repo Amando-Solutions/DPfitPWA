@@ -159,9 +159,6 @@ export default defineEventHandler(async (event) => {
       statusMessage: 'Refresh this page and accept the terms and conditions to continue.',
     })
   }
-  // The optional box, so never a reason to refuse. Only a plain `true` is a
-  // yes: a missing or malformed field is read as no, never as consent.
-  const marketingConsent = body.marketingConsent === true
   const config = useRuntimeConfig()
   let active
   try { active = await loadChallenge(firestore(), cohortFallbacks()) } catch (cause) {
@@ -250,10 +247,6 @@ export default defineEventHandler(async (event) => {
         // under every registration taken before it.
         termsVersion: TERMS_VERSION,
         termsAcceptedAt: new Date(),
-        // Whether their before and after photos and results may be used,
-        // face blurred, to promote the coaching. Worded by `MARKETING_CLAUSE`
-        // under the same `termsVersion`.
-        marketingConsent,
         // The member app as *this* deployment knows it, written down now
         // because the sale notification cannot work it out later. Selar posts
         // every sale to one fixed webhook URL, so the deployment that issues
