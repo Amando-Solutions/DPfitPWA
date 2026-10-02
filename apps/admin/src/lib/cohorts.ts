@@ -22,6 +22,7 @@ import {
   instantOfLocal,
   isDayKey,
   lastDayOf,
+  lastDayOfCohort,
   localDateTimeIn,
   startOfDay,
   type DayKey,
@@ -99,6 +100,10 @@ export type CohortExperienceInput = {
   registration: CohortRegistrationInput
   leaderboardVisible: boolean
   leaderboardRevealWeek: number
+  /** The first day; it moves only while `cohortStartEditable`. */
+  startDay: DayKey
+  /** The last day, or empty for a cohort that has none; it moves at any time. */
+  lastDay: DayKey
 }
 
 type CreateCohortInput = {
@@ -118,6 +123,10 @@ const COHORT_LIMIT = 100
 /** Active and not yet over: the cohort its members are training in right now. */
 export const cohortInProgress = (cohort: CohortRecord, now: Date) =>
   cohort.status === "active" && !cohortOver(cohort, now)
+
+/** A draft that hasn't reached its first day: the only cohort whose start can still move. */
+export const cohortStartEditable = (cohort: CohortRecord, now: Date) =>
+  cohort.status === "draft" && now.getTime() < cohort.startDate.getTime()
 
 function requireDatabase() {
   if (!firebaseDb) throw new Error("Cohorts are not configured.")
@@ -440,6 +449,33 @@ export async function reopenCohort(cohort: CohortRecord, user: User, lastDay?: D
   await updateDoc(doc(database, "cohorts", cohort.id), patch)
 }
 
+/**
+ * The dates the settings form moved, and only those, so an untouched date
+ * never trips the start's lock. A last day already past ends the cohort for
+ * its members as soon as this lands; a later one lets them back in.
+ */
+function datesPatch(cohort: CohortRecord, { startDay, lastDay }: CohortExperienceInput) {
+  const zone = cohortZone(cohort.timezone)
+  const now = new Date()
+  const patch: Record<string, unknown> = {}
+  const startMoved = startDay !== dayIn(cohort.startDate, zone)
+
+  if (startMoved) {
+    if (!cohortStartEditable(cohort, now)) {
+      throw new Error("The start date can only move on a draft cohort that hasn't started.")
+    }
+    if (!isDayKey(startDay)) throw new Error("Choose a valid start date.")
+    if (startDay < dayIn(now, zone)) throw new Error("The start date can't be in the past.")
+    patch.startDate = Timestamp.fromDate(startOfDay(startDay, zone))
+  }
+  if (startMoved || lastDay !== (lastDayOfCohort(cohort) ?? "")) {
+    if (!isDayKey(lastDay)) throw new Error("Choose a valid last day.")
+    if (lastDay < startDay) throw new Error(`The last day can't be before the start, ${formatDayKey(startDay)}.`)
+    patch.endDate = Timestamp.fromDate(startOfDay(lastDay, zone))
+  }
+  return patch
+}
+
 export async function saveCohortExperience(
   cohort: CohortRecord,
   input: CohortExperienceInput,
@@ -459,6 +495,7 @@ export async function saveCohortExperience(
   }
 
   await updateDoc(doc(database, "cohorts", cohort.id), {
+    ...datesPatch(cohort, input),
     coach,
     registration,
     leaderboardVisible: input.leaderboardVisible,

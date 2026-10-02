@@ -105,6 +105,7 @@ import { callEnd } from "@/lib/live-calls"
 import {
   assignProgramToCohort,
   cohortInProgress,
+  cohortStartEditable,
   createCohort,
   registrationInputOf,
   reopenCohort,
@@ -160,11 +161,14 @@ function newOfferFrom(latest: CohortRecord | undefined): CohortRegistrationInput
 }
 
 function experienceFormOf(cohort: CohortRecord): CohortExperienceInput {
+  const zone = cohortZone(cohort.timezone)
   return {
     coach: coachInputOf(cohort),
-    registration: registrationInputOf(cohort.registration, cohortZone(cohort.timezone)),
+    registration: registrationInputOf(cohort.registration, zone),
     leaderboardVisible: cohort.leaderboardVisible,
     leaderboardRevealWeek: cohort.leaderboardRevealWeek,
+    startDay: dayIn(cohort.startDate, zone),
+    lastDay: lastDayOfCohort(cohort) ?? "",
   }
 }
 
@@ -342,6 +346,22 @@ export function CohortsPage() {
   const reopenPastLastDay = !!reopenSavedLastDay && reopenSavedLastDay < reopenToday
   const reopenStartDay = reopenTarget ? dayIn(reopenTarget.startDate, reopenZone) : ""
   const reopenStillOver = reopenPastLastDay && !(reopenLastDay && reopenLastDay >= reopenToday)
+
+  // The settings dialog's dates. The start moves only on a draft that hasn't
+  // started; the last day moves at any time, and one already past ends the cohort.
+  const experienceZone = cohortZone(experienceTarget?.timezone)
+  const experienceToday = dayIn(now, experienceZone)
+  const experienceStartEditable = experienceTarget ? cohortStartEditable(experienceTarget, now) : false
+  const experienceSavedLastDay = experienceTarget ? lastDayOfCohort(experienceTarget) ?? "" : ""
+  const experienceLastDay = experienceForm?.lastDay ?? ""
+  const experienceEndedNow = experienceTarget ? cohortOver(experienceTarget, now) : false
+  const experienceLastDayMoved = experienceLastDay !== experienceSavedLastDay
+  const experienceEndsOnSave = experienceLastDayMoved && !experienceEndedNow && isDayKey(experienceLastDay) && experienceLastDay < experienceToday
+  const experienceLastDayNote = !experienceLastDay ? "No last day is set, so the cohort only ends when it's archived."
+    : experienceEndsOnSave ? <strong className="font-medium text-destructive">That day has passed, so saving ends {experienceTarget?.name} for its members straight away.</strong>
+    : experienceLastDay < experienceToday ? <>That day has passed, so the cohort is over for its members.</>
+    : experienceEndedNow && experienceLastDayMoved ? <>Saving reopens it: members go back in until the end of {formatDayKey(experienceLastDay)}.</>
+    : <>Members are in until the end of {formatDayKey(experienceLastDay)}. The program's weeks don't move.</>
 
   const lastDayPreview = isDayKey(startDate) && Number.parseInt(durationWeeks, 10) >= 1
     ? formatDayKey(lastDayOf(startDate, Number.parseInt(durationWeeks, 10)))
@@ -836,6 +856,48 @@ export function CohortsPage() {
               <DialogHeader><DialogTitle>Settings for {experienceTarget.name}</DialogTitle></DialogHeader>
               <FieldGroup>
                 <Card size="sm">
+                  <CardHeader><CardTitle>Dates</CardTitle><CardDescription>Days on the cohort’s calendar, {zoneLabel(experienceZone)}. The start can move only while the cohort is a draft that hasn’t started; the last day can move at any time.</CardDescription></CardHeader>
+                  <CardContent><div className="grid gap-4 sm:grid-cols-2">
+                    <Field data-disabled={isUpdating || !experienceStartEditable || undefined}>
+                      <FieldLabel htmlFor="settings-start-date">Start date</FieldLabel>
+                      <Input
+                        id="settings-start-date"
+                        type="date"
+                        min={experienceToday}
+                        value={experienceForm.startDay}
+                        disabled={isUpdating || !experienceStartEditable}
+                        required
+                        className="h-11 sm:h-8"
+                        onChange={(event) => {
+                          const startDay = event.target.value
+                          // Like Settings → Challenge timing: the last day follows, to the end of the final week.
+                          setExperienceForm((current) => current ? { ...current, startDay, lastDay: isDayKey(startDay) ? lastDayOf(startDay, experienceTarget.durationWeeks) : current.lastDay } : current)
+                        }}
+                      />
+                      <FieldDescription>
+                        {experienceStartEditable
+                          ? <>Moving it moves the last day to the end of week {experienceTarget.durationWeeks}.</>
+                          : experienceTarget.startDate.getTime() <= now.getTime() ? <>Locked: {experienceTarget.name} has started.</> : <>Locked: only a draft cohort’s start can move.</>}
+                      </FieldDescription>
+                    </Field>
+                    <Field data-disabled={isUpdating || undefined}>
+                      <FieldLabel htmlFor="settings-last-day">Last day</FieldLabel>
+                      <Input
+                        id="settings-last-day"
+                        type="date"
+                        min={experienceForm.startDay}
+                        value={experienceForm.lastDay}
+                        disabled={isUpdating}
+                        required={!!experienceSavedLastDay || experienceForm.startDay !== dayIn(experienceTarget.startDate, experienceZone)}
+                        className="h-11 sm:h-8"
+                        onChange={(event) => setExperienceForm((current) => current ? { ...current, lastDay: event.target.value } : current)}
+                      />
+                      <FieldDescription>{experienceLastDayNote}</FieldDescription>
+                    </Field>
+                  </div></CardContent>
+                </Card>
+
+                <Card size="sm">
                   <CardHeader><CardTitle>Coach identity</CardTitle><CardDescription>Shown in the member’s private coach conversation.</CardDescription></CardHeader>
                   <CardContent><CohortCoachFields id="coach" value={experienceForm.coach} disabled={isUpdating} onChange={(value) => setExperienceForm((current) => current ? { ...current, coach: value } : current)} /></CardContent>
                 </Card>
@@ -867,7 +929,7 @@ export function CohortsPage() {
                   </FieldGroup></CardContent>
                 </Card>
               </FieldGroup>
-              <DialogFooter><Button type="button" variant="outline" disabled={isUpdating} onClick={() => { setExperienceTarget(null); setExperienceForm(null) }}>Cancel</Button><Button type="submit" disabled={isUpdating}>{isUpdating && <Spinner data-icon="inline-start" />} Save settings</Button></DialogFooter>
+              <DialogFooter><Button type="button" variant="outline" disabled={isUpdating} onClick={() => { setExperienceTarget(null); setExperienceForm(null) }}>Cancel</Button><Button type="submit" variant={experienceEndsOnSave ? "destructive" : "default"} disabled={isUpdating}>{isUpdating && <Spinner data-icon="inline-start" />} {experienceEndsOnSave ? "Save and end cohort" : "Save settings"}</Button></DialogFooter>
             </form>
           )}
         </DialogContent>

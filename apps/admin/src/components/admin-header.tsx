@@ -35,8 +35,9 @@ function WeekStrip() {
   const phase = phases.find((item) => current >= item.fromWeek && current <= item.toWeek)
   const weeks = Array.from({ length: cohort.durationWeeks }, (_, index) => index + 1)
 
-  return <div className="flex min-w-0 items-center gap-3">
-    <ol className="hidden items-center gap-1 md:flex" aria-label={`${cohort.name} weeks`}>
+  return <div className="flex min-w-0 flex-1 items-center gap-3">
+    {/* Takes only the width the week text leaves and scrolls past that; the padding keeps the current-week dot inside it. */}
+    <ol className="hidden min-w-0 max-w-max flex-1 items-center gap-1 overflow-x-auto py-1 pr-1 scrollbar-none md:flex" aria-label={`${cohort.name} weeks`}>
       {weeks.map((week) => {
         const color = phaseColor(phases, week)
         const isCurrent = week === current
