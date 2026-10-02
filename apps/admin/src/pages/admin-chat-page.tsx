@@ -315,6 +315,9 @@ export function AdminChatPage() {
     mutationFn: deleteAdminMessage,
     onSuccess: (result, input) => {
       toast.success("Message deleted")
+      if (!result.filesRemoved) {
+        toast.warning("Message deleted, but some of its attachments could not be removed from storage.")
+      }
       if (!result.projectionUpdated) {
         toast.warning("Message deleted, but the inbox preview could not be updated.")
       }
@@ -403,6 +406,7 @@ export function AdminChatPage() {
       cohortId: activeThread.cohortId,
       threadId: activeThread.threadId,
       messageId: deleteTarget.id,
+      attachments: deleteTarget.attachments,
       replacePreview: preview && previewIsOf(preview, deleteTarget) ? (remaining.at(-1) ?? null) : undefined,
       user,
     })
@@ -632,7 +636,7 @@ export function AdminChatPage() {
               It's removed for everyone in the thread and from members' inboxes.
               Replies that quote it keep the quote.
               {deleteTarget && deleteTarget.attachments.length > 0
-                && " Its attachments stay in storage."}
+                && " Its attachments are deleted too."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

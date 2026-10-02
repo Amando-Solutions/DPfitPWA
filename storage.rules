@@ -58,6 +58,11 @@ service firebase.storage {
       return signedIn() && request.auth.uid == uid;
     }
 
+    /** The admin console's coach claim. `isCoach` in `firestore.rules`, restated. */
+    function isCoach() {
+      return signedIn() && request.auth.token.get('coach', false) == true;
+    }
+
     /** The staging bucket, whose member documents are out of reach. See the header. */
     function isStagingBucket() {
       return bucket == 'recomp-48b7b-staging';
@@ -174,13 +179,18 @@ service firebase.storage {
     // Writable only under your own uid and your own cohort, so nothing can be
     // planted in somebody else's name or somebody else's cohort.
     //
+    // Deletable by the uploader, and by the coach, who deletes a message's
+    // files with the message when moderating the chat. A file left behind
+    // would stay reachable by anyone holding its download URL. The coach can
+    // delete only: no read, so no listing anyone's folder, and no write.
+    //
     // The size ceiling matches `MAX_FILE_BYTES` in `lib/attachments.ts`, with
     // room for the base64 expansion an upload carries.
     match /chat/{cohortId}/{uid}/{file} {
       allow read: if isSelf(uid) && inCohort(cohortId);
       allow write: if isSelf(uid) && inCohort(cohortId) && cohortRunning(cohortId)
         && request.resource.size < 2 * 1024 * 1024;
-      allow delete: if isSelf(uid) && isMember() && ownCohortRunning();
+      allow delete: if isCoach() || (isSelf(uid) && isMember() && ownCohortRunning());
     }
   }
 }

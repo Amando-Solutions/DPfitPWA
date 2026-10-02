@@ -89,6 +89,7 @@ Functions or API routes holding a service account, for the right-hand column:
 | Upload program hero images | | ✓ Storage refuses client writes under `programs/`. |
 | Write announcements and notifications | ✓ | |
 | Read chat, edit or delete any message, write typing markers | ✓ | |
+| Delete any message's chat attachments | ✓ | |
 | Post a coach message | | ✓ Or add a coach branch to the rules (section 8). |
 | React as the coach | | ✓ The coach's `reactions/{uid}` document is refused. |
 | Upload coach chat attachments | | ✓ Storage accepts only a member's own uploads. |
@@ -1044,9 +1045,11 @@ deleted.
   messages for 15 minutes. The rules put no time limit on the coach, and the
   app shows "Edited" either way.
 - **Deleting and moderation:** the coach can delete any message in any thread
-  through the client SDK. Its attachments stay in Storage under
-  `chat/{cohortId}/{authorUid}/`; delete them through the Admin SDK if they
-  should go too.
+  through the client SDK, and its attachments under
+  `chat/{cohortId}/{authorUid}/` in Storage too. Delete the message first, then
+  the files, so a failure leaves bytes nobody can reach rather than a broken
+  image in the chat. A file left behind stays reachable by anyone who has its
+  download URL. The coach can delete there but can't read or list.
 
 ### Attachments
 
