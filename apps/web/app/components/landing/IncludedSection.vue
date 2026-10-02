@@ -18,7 +18,7 @@ const FAN = [
   'max-sm:relative max-sm:z-10 max-sm:order-2 max-sm:ring-3 max-sm:ring-lp-lilac-50 max-sm:shadow-xl',
   // fuel
   'sm:-mt-5 max-sm:order-1 max-sm:-mr-[21%] max-sm:origin-bottom-left max-sm:-rotate-9',
-  // chat
+  // guides
   'max-sm:order-3 max-sm:-ml-[21%] max-sm:origin-bottom-right max-sm:rotate-9',
 ]
 </script>
