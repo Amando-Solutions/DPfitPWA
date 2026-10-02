@@ -41,7 +41,7 @@ live in `data/landing.ts` under `PLACEHOLDER` comments — swap the copy there.
 
 **Photos.** The coach portrait, the before / after pairs and the app
 screenshots are served from `public/landing/` at web sizes, cut down from the
-masters (`meet-the-coach-original.jpg`, `public/before-and-after-images/`,
+masters (`meet-the-coach-original.png`, `public/before-and-after-images/`,
 `public/app-mock/`). Each result photo is 352×640, cropped around the subject to
 fit the card's slot, and each app screenshot is 440×1068 with the capture's pale
 edge trimmed, so a new one needs the same treatment rather than the raw upload.

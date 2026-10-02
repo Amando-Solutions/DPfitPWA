@@ -16,7 +16,8 @@ export function AdminLayout() {
           Skip to main content
         </a>
         <AppSidebar />
-        <SidebarInset id="admin-content" tabIndex={-1}>
+        {/* min-w-0: a wide table scrolls inside its own box instead of widening the page, which scrolls content under the fixed sidebar. */}
+        <SidebarInset id="admin-content" tabIndex={-1} className="min-w-0">
           <AdminHeader />
           <div className="flex flex-1 flex-col px-4 py-5 sm:px-6 sm:py-7 lg:px-10 lg:py-9">
             <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col">

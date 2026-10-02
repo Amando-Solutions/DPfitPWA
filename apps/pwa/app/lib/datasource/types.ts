@@ -227,6 +227,23 @@ export interface DataSource {
    */
   redeemAccessCode(code: string): Promise<Member>
 
+  /**
+   * Redeem a code on an account that already has a membership: a member
+   * joining another cohort.
+   *
+   * A member can belong to several cohorts and appears in each one's results,
+   * but trains in one at a time. The code's cohort becomes the active one, and
+   * the one they were in becomes a previous one — ended early for them if it
+   * was still running. Its logs stay on the account but no longer show, stats
+   * start again, and the profile carries over, so there is no second setup.
+   *
+   * Server-side, because it touches what a member may not write: the cohort
+   * and code on their own document, and their logs. Throws the code errors
+   * `redeemAccessCode` does, plus `already-member`. Callable while the cohort
+   * is over, unlike every other member write.
+   */
+  joinCohort(code: string): Promise<JoinCohortResult>
+
   getMember(): Promise<Member | null>
 
   /**
@@ -543,6 +560,17 @@ export interface DataSource {
   ): Promise<Unsubscribe>
 
   /**
+   * The coach's newest message in a thread, read once. `null` when the coach
+   * has said nothing there since the member joined.
+   *
+   * For Home's coach card. `listMessages` would answer it, but by reading the
+   * whole thread — two hundred messages and the member's reaction to each —
+   * on the screen everybody opens first, to keep one of them. Reactions are
+   * left empty here for the same reason: the card does not draw them.
+   */
+  getLatestCoachMessage(threadId: ThreadId): Promise<ChatMessageView | null>
+
+  /**
    * `text` may be empty when the member is only sharing photos or files.
    *
    * `replyTo` is stored as given rather than resolved from an id — see
@@ -595,9 +623,25 @@ export interface DataSource {
   ): Promise<ChatMessageView>
 
   /**
+   * Take back a message this member sent, for everyone in the thread.
+   *
+   * Gone, not blanked: the document is deleted, which takes it out of the
+   * thread, out of every inbox it was in, and off the unread dot. Its photos
+   * and files go with it. Replies that quoted it keep their quote — see
+   * `ChatReplyRef` for why a quote is a copy rather than a link — and anyone
+   * who was notified about it has already seen the notification.
+   *
+   * No time limit, unlike an edit. Throws `not-author` for somebody else's
+   * message, and `cohort-ended` once the cohort is over; the rules hold both.
+   */
+  deleteMessage(threadId: ThreadId, messageId: string): Promise<void>
+
+  /**
    * Add the member's reaction to a message, or take it back off if it is
-   * already there. Resolves to that message's reactions as they now stand,
-   * counting everyone's.
+   * already there. Resolves to that message's reactions with this change
+   * applied, counting everyone's as far as this device has seen them. A
+   * reaction someone else made in the same moment may be missing from that
+   * answer; `watchMessages` delivers the committed counts.
    */
   toggleReaction(
     threadId: ThreadId,
@@ -716,6 +760,11 @@ export type Unsubscribe = () => void
 /** Whether this device holds the account. See `claimDevice`. */
 export type DeviceClaim = 'claimed' | 'superseded'
 
+/** The cohort `joinCohort` made active. Mirrors `JoinCohortResult` in `apps/functions`. */
+export interface JoinCohortResult {
+  cohortName: string
+}
+
 /** A non-image file picked on the device, before anything has stored it. */
 export interface PendingFile {
   name: string
@@ -782,7 +831,7 @@ export class DataSourceError extends Error {
       | 'unauthenticated'
       /** The fifteen minutes a sent message can be rewritten in are up. */
       | 'edit-window-closed'
-      /** An edit aimed at somebody else's message. */
+      /** An edit or a delete aimed at somebody else's message. */
       | 'not-author'
       /** This week's check-in is already in, and a sent one is never rewritten. */
       | 'check-in-submitted'
@@ -801,6 +850,8 @@ export class DataSourceError extends Error {
       | 'account-exists'
       /** The member's cohort is over, so nothing more is written. See `refuseWritesWhen`. */
       | 'cohort-ended'
+      /** A code for a cohort the member is in, or has been in. See `joinCohort`. */
+      | 'already-member'
       | 'unknown' = 'unknown',
   ) {
     super(message)

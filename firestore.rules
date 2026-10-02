@@ -188,7 +188,7 @@ service cloud.firestore {
     }
 
     /**
-     * Whether the cohort is still running: not archived, and not past the last
+     * Whether the cohort is still running: not completed or archived, and not past the last
      * day its `endDate` names.
      *
      * Once it is over a member can still read, because the ended screen shows
@@ -225,7 +225,7 @@ service cloud.firestore {
      * `null + duration` even behind the `is timestamp` check that rules it out.
      */
     function cohortStillOn(cohort) {
-      return cohort.get('status', '') != 'archived'
+      return !(cohort.get('status', '') in ['archived', 'completed'])
         && !(cohort.get('endDate', null) is timestamp
              && request.time >= cohort.endDate + duration.value(1, 'd'));
     }
@@ -696,6 +696,8 @@ service cloud.firestore {
         && request.resource.data.stats.sessionsQualified == 0
         // Nor a region, whose floor only `setRegion` can stamp.
         && !('region' in request.resource.data)
+        // Nor cohorts already finished, which only `joinCohort` records.
+        && !('previousCohorts' in request.resource.data)
         // The cohort has to be the one the code actually belongs to.
         && request.resource.data.cohortId == get(
              /databases/$(database)/documents/accessCodes/$(request.resource.data.accessCode)
@@ -722,6 +724,11 @@ service cloud.firestore {
         // floor that stops a switch west reopening a day; a member who could
         // write it could set the floor back and log a day twice.
         && request.resource.data.get('region', null) == resource.data.get('region', null)
+        // The cohorts a member was in before this one, with the stats each
+        // ended on: what puts them in those cohorts' results. `joinCohort`
+        // writes it as they join another; a member who could write it could
+        // rewrite how a finished cohort ended for them.
+        && request.resource.data.get('previousCohorts', null) == resource.data.get('previousCohorts', null)
         // The one status move a member makes for themselves is finishing
         // setup, in `completeSetup`. Writing `onboarding` back would reopen the
         // two fields locked below; every other move is the console's.

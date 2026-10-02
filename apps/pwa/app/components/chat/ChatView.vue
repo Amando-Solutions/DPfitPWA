@@ -116,6 +116,12 @@ const props = withDefaults(
       text: string
       mentions: ChatMention[]
     }) => Promise<void>
+    /**
+     * Delete a message this member sent, for everyone. Awaited so a refusal
+     * can be shown, like `edit`, and optional on the same terms: the hold
+     * menu offers delete only when it is here.
+     */
+    remove?: (messageId: string) => Promise<void>
   }>(),
   {
     placeholder: 'Say something…',
@@ -682,11 +688,14 @@ const HOLD_MS = 420
  */
 const GESTURE_SLOP_PX = 10
 
-/** Six emoji, a divider and the reply button, plus the bar's own padding. */
-const BAR_WIDTH = 296
+/** One button in the bar, emoji or action, with the gap after it. `size-9`. */
+const BUTTON_SLOT_PX = 38
 
-/** The edit button, on the messages that still have one. Widens the bar. */
-const EDIT_BUTTON_PX = 36
+/** The same on a phone too narrow for the full bar. `size-8`. */
+const COMPACT_BUTTON_SLOT_PX = 34
+
+/** The bar's padding and the divider, which are there whatever it holds. */
+const BAR_CHROME_PX = 30
 
 const BAR_HEIGHT = 46
 
@@ -703,6 +712,8 @@ const reacting = ref<{
   left: number
   /** Whether this message is still the member's to rewrite. Settled on open. */
   canEdit: boolean
+  /** Whether this message is the member's to delete. Settled on open. */
+  canDelete: boolean
 } | null>(null)
 
 /** The bubble under a finger right now, so it can give while it is held. */
@@ -937,8 +948,11 @@ const openReactions = (id: string, bubble: HTMLElement) => {
   // `trustedNow`, not `Date.now`: the window is not the device's to extend.
   const canEdit =
     Boolean(props.edit) && !!message && canEditMessage(message, trustedNow().getTime())
+  // No window on this one: a message can be taken back for as long as the
+  // cohort runs, which the data source and the rules both hold.
+  const canDelete = Boolean(props.remove) && !!message?.isSelf
 
-  reacting.value = { id, top: box.top, bottom: box.bottom, left: box.left, canEdit }
+  reacting.value = { id, top: box.top, bottom: box.bottom, left: box.left, canEdit, canDelete }
   navigator.vibrate?.(12)
 }
 
@@ -962,6 +976,21 @@ const swallowClick = (event: MouseEvent) => {
 }
 
 /**
+ * Whether the bar has to shrink its buttons to fit the screen.
+ *
+ * The member's own young message carries edit and delete beside reply, nine
+ * buttons in all, and at full size that is wider than a 360px Android phone.
+ * Every other bar fits, so only that one shrinks, and only where it has to.
+ */
+const pickerButtons = computed(() => {
+  const anchor = reacting.value
+  return REACTIONS.length + 1 + (anchor?.canEdit ? 1 : 0) + (anchor?.canDelete ? 1 : 0)
+})
+const pickerCompact = computed(
+  () => pickerButtons.value * BUTTON_SLOT_PX + BAR_CHROME_PX > window.innerWidth - 16,
+)
+
+/**
  * Sit the bar above the bubble, or below it when the bubble is near the top of
  * the thread, and keep it on screen either way.
  */
@@ -972,7 +1001,8 @@ const pickerStyle = computed(() => {
   const above = anchor.top - BAR_HEIGHT - 18
   const top =
     above > 8 ? above : Math.min(anchor.bottom + 10, window.innerHeight - BAR_HEIGHT - 8)
-  const width = BAR_WIDTH + (anchor.canEdit ? EDIT_BUTTON_PX : 0)
+  const slot = pickerCompact.value ? COMPACT_BUTTON_SLOT_PX : BUTTON_SLOT_PX
+  const width = pickerButtons.value * slot + BAR_CHROME_PX
   const left = Math.min(Math.max(8, anchor.left), window.innerWidth - width - 8)
   return { top: `${Math.round(top)}px`, left: `${Math.round(left)}px` }
 })
@@ -1010,16 +1040,57 @@ const editFromPicker = () => {
   if (id) startEdit(id)
 }
 
+// --- Deleting --------------------------------------------------------------
+/** The message waiting on "Delete this message?", or `null` when none is. */
+const confirmingDelete = ref<ChatMessageView | null>(null)
+
+/**
+ * Delete from the hold menu, behind a confirmation.
+ *
+ * The one action in the bar that cannot be undone and that reaches everybody
+ * else's screen, so it costs a second tap on a button that says what it does.
+ * The bar closes first, so the dialog is the only thing up.
+ */
+const deleteFromPicker = () => {
+  const id = reacting.value?.id
+  reacting.value = null
+  confirmingDelete.value = props.messages.find((m) => m.id === id) ?? null
+}
+
+/**
+ * Take the message back.
+ *
+ * Nothing waits on the write, as with a send or an edit: the page drops the
+ * bubble the moment it is asked, and the dialog closes with it. A refusal puts
+ * the bubble back and says why on the line above the composer.
+ *
+ * Whatever the composer was attached to that message goes with it. An edit of
+ * a message that is gone has nothing to land on, and a reply would quote
+ * something nobody can scroll to.
+ */
+const confirmDelete = () => {
+  const target = confirmingDelete.value
+  confirmingDelete.value = null
+  if (!target || !props.remove) return
+
+  if (editing.value?.id === target.id) cancelEdit()
+  if (replyingTo.value?.id === target.id) cancelReply()
+  sendError.value = ''
+
+  props.remove(target.id).catch((cause) => reportFailure(cause, 'delete'))
+}
+
 // A hold that scrolls out of view would leave the bar floating over nothing.
 const closePicker = () => (reacting.value = null)
 
 // --- Sending ---------------------------------------------------------------
 /**
- * Why the last edit did not go, in the member's words.
+ * Why the last edit or delete did not go, in the member's words.
  *
- * Edits only. A send that fails says so on its own bubble, where the message
- * is — see `submit` — so this line is left to the one write that still has its
- * words back in the composer when it is refused.
+ * Not sends. A send that fails says so on its own bubble, where the message
+ * is — see `submit` — so this line is left to the writes that have no bubble
+ * of their own to say it on: an edit, whose words are back in the composer,
+ * and a delete, whose bubble has just been put back.
  */
 const sendError = ref('')
 
@@ -1043,9 +1114,14 @@ const canSend = computed(() =>
  * cause still goes to the console: what a member needs to read and what
  * whoever configured the project needs to read are rarely the same.
  */
-const reportFailure = (cause: unknown) => {
-  console.error('[chat] edit failed', cause)
-  sendError.value = cause instanceof Error ? cause.message : 'Could not save that. Try again.'
+const reportFailure = (cause: unknown, what: 'edit' | 'delete' = 'edit') => {
+  console.error(`[chat] ${what} failed`, cause)
+  sendError.value =
+    cause instanceof Error
+      ? cause.message
+      : what === 'edit'
+        ? 'Could not save that. Try again.'
+        : 'Could not delete that. Try again.'
 }
 
 /**
@@ -2637,7 +2713,8 @@ const TOOL =
           <button
             v-for="emoji in REACTIONS"
             :key="emoji"
-            class="grid size-9 place-items-center rounded-full text-[19px] transition-transform duration-150 hover:bg-fill-subtle active:scale-90"
+            class="grid place-items-center rounded-full transition-transform duration-150 hover:bg-fill-subtle active:scale-90"
+            :class="pickerCompact ? 'size-8 text-[17px]' : 'size-9 text-[19px]'"
             role="menuitem"
             :aria-label="`React with ${emoji}`"
             @click="react(emoji)"
@@ -2648,7 +2725,8 @@ const TOOL =
           <span class="mx-1 h-6 w-px shrink-0 bg-hairline" aria-hidden="true" />
 
           <button
-            class="grid size-9 place-items-center rounded-full text-muted transition-colors duration-150 hover:bg-primary-soft hover:text-primary"
+            class="grid place-items-center rounded-full text-muted transition-colors duration-150 hover:bg-primary-soft hover:text-primary"
+            :class="pickerCompact ? 'size-8' : 'size-9'"
             role="menuitem"
             aria-label="Reply to this message"
             @click="replyFromPicker"
@@ -2664,16 +2742,49 @@ const TOOL =
           -->
           <button
             v-if="reacting.canEdit"
-            class="grid size-9 place-items-center rounded-full text-muted transition-colors duration-150 hover:bg-primary-soft hover:text-primary"
+            class="grid place-items-center rounded-full text-muted transition-colors duration-150 hover:bg-primary-soft hover:text-primary"
+            :class="pickerCompact ? 'size-8' : 'size-9'"
             role="menuitem"
             aria-label="Edit this message"
             @click="editFromPicker"
           >
             <AppIcon name="edit" :size="18" :stroke="2" />
           </button>
+
+          <!-- On the member's own messages, at any age. Asks first. -->
+          <button
+            v-if="reacting.canDelete"
+            class="grid place-items-center rounded-full text-muted transition-colors duration-150 hover:bg-primary-soft hover:text-primary"
+            :class="pickerCompact ? 'size-8' : 'size-9'"
+            role="menuitem"
+            aria-label="Delete this message"
+            @click="deleteFromPicker"
+          >
+            <AppIcon name="trash" :size="18" :stroke="2" />
+          </button>
         </div>
       </div>
     </Teleport>
+
+    <!--
+      Delete, confirmed. A Dialog rather than a second bar, so focus is trapped
+      in it and Escape or the scrim backs out without deleting anything.
+    -->
+    <Dialog :open="Boolean(confirmingDelete)" @update:open="!$event && (confirmingDelete = null)">
+      <DialogContent class="w-[calc(100%-32px)] max-w-100 gap-0 rounded-lg bg-raised p-5">
+        <span class="grid size-10 place-items-center rounded-pill bg-primary-soft text-primary">
+          <AppIcon name="trash" :size="19" />
+        </span>
+        <DialogTitle class="mt-3.5 text-[17px]">Delete this message?</DialogTitle>
+        <DialogDescription class="mt-1.5 text-[13.5px] leading-normal text-soft">
+          It’s removed for everyone in the chat. Replies that quote it keep the quote.
+        </DialogDescription>
+        <div class="mt-4.5 flex flex-col gap-2.5">
+          <AppButton variant="danger" @click="confirmDelete">Delete</AppButton>
+          <AppButton variant="secondary" @click="confirmingDelete = null">Cancel</AppButton>
+        </div>
+      </DialogContent>
+    </Dialog>
 
     <!-- Full-screen view of a shared photo -->
     <Teleport to="body">

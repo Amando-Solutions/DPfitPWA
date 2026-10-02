@@ -11,6 +11,7 @@
     "lint": "oxlint",
     "admin:provision": "node scripts/provision-admin.mjs",
     "cohort:seed-default": "node scripts/seed-default-cohort.mjs",
+    "cohort:check-end-dates": "node scripts/check-cohort-end-dates.mjs",
     "program:seed-default": "node scripts/seed-default-program.mjs",
     "program:backfill": "node scripts/backfill-program-authoring.mjs",
     "exercise-library:seed": "node scripts/seed-exercise-library.mjs",

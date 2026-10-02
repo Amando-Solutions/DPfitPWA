@@ -15,7 +15,8 @@
     "migrate:weeks": "node scripts/migrate-program-weeks.mjs",
     "exercise-video": "node scripts/set-exercise-video.mjs",
     "repair:members": "node scripts/repair-members.mjs",
-    "backfill:roster": "node scripts/backfill-roster.mjs"
+    "backfill:roster": "node scripts/backfill-roster.mjs",
+    "og:image": "node scripts/generate-og-image.mjs"
   },
   "dependencies": {
     "@dpfit/theme": "workspace:*",

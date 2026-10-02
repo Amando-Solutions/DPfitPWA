@@ -89,6 +89,7 @@ Functions or API routes holding a service account, for the right-hand column:
 | Upload program hero images | | ✓ Storage refuses client writes under `programs/`. |
 | Write announcements and notifications | ✓ | |
 | Read chat, edit or delete any message, write typing markers | ✓ | |
+| Delete any message's chat attachments | ✓ | |
 | Post a coach message | | ✓ Or add a coach branch to the rules (section 8). |
 | React as the coach | | ✓ The coach's `reactions/{uid}` document is refused. |
 | Upload coach chat attachments | | ✓ Storage accepts only a member's own uploads. |
@@ -478,7 +479,7 @@ apps without a reload.
 | `status` | `'draft'` \| `'active'` \| `'archived'` | Website, member app (watched), rules, functions | Website selects the active cohort. `archived` ends the cohort at once for its members; see [Closing a cohort](#closing-a-cohort). Codes cannot be issued for archived cohorts. |
 | `startDate`, `endDate` | Timestamp | Member app (watched), rules, functions, scripts | Each names a **day** in the cohort's `timezone`; store midnight at the start of it. Training opens on `startDate`. The cohort runs to the end of `endDate` and closes at the midnight after it. The calendar itself comes from the program's weeks; the seed and migration scripts place week 1 on `startDate`. |
 | `durationWeeks` | number | Website | Displayed directly from Firestore. |
-| `registration` | map | Website | `amountMinor`, `currency`, `codeTtlDays`; see Firestore setup. |
+| `registration` | map | Website | `amountMinor`, `currency`, `codeTtlDays`, `preorderStartsAt`, `preorderEndsAt`; see Firestore setup. Set on Create cohort and in the cohort's Settings. |
 | `timezone` | string | Scripts, live call reminders, and you | An IANA zone such as `Africa/Lagos`. Build live-call times in it; reminders go out on the call's day in it. |
 | `coach` | map | Member app, watched | `{ uid, name, title, avatarUrl }`. See below. |
 | `programId`, `programName`, `programVersion` | string, string, number, or `null` each | `createAccessCode`; member app as a fallback | Must be set before codes can be issued. |
@@ -590,7 +591,10 @@ in, read their totals and sign out.
 Both signals are watched, so an open app changes screen as soon as either
 lands: an archive within a second or two, and the end date at the cohort's
 midnight. Both can be undone: un-archive the cohort, or move `endDate` later,
-and members go back into the app.
+and members go back into the app. Un-archiving is one write: `status` back to
+`active` (or `draft`), `archivedAt` to `null`, a later `endDate` if the last day
+has passed, and the audit fields. The staging rules allow nothing else in it,
+and no other change to a cohort while it is archived.
 
 - **Store `endDate` as midnight at the start of the last day, in the cohort's
   `timezone`.** Build it with `fromZonedTime('2026-11-08T00:00', cohort.timezone)`
@@ -1041,9 +1045,11 @@ deleted.
   messages for 15 minutes. The rules put no time limit on the coach, and the
   app shows "Edited" either way.
 - **Deleting and moderation:** the coach can delete any message in any thread
-  through the client SDK. Its attachments stay in Storage under
-  `chat/{cohortId}/{authorUid}/`; delete them through the Admin SDK if they
-  should go too.
+  through the client SDK, and its attachments under
+  `chat/{cohortId}/{authorUid}/` in Storage too. Delete the message first, then
+  the files, so a failure leaves bytes nobody can reach rather than a broken
+  image in the chat. A file left behind stays reachable by anyone who has its
+  download URL. The coach can delete there but can't read or list.
 
 ### Attachments
 
@@ -1119,9 +1125,11 @@ tx.update(messageRef, new FieldPath('reactionCounts', emoji), countChange, ...re
 ### Typing indicator (optional)
 
 To show "Coach is typing…", write `{ name, at: serverTimestamp() }` to
-`…/threads/{threadId}/typing/{coachUid}` while the coach is typing, refresh it
-every 4 seconds, and delete it when they stop. The member app ignores a marker
-older than 10 seconds. The rules allow this through the client SDK.
+`…/threads/{threadId}/typing/{coachUid}` once the coach has been typing for 2
+seconds, refresh it every 12 seconds, and delete it when they stop. The member
+app ignores a marker older than 30 seconds. Every write is read by everyone
+with the thread open, so don't write on each keystroke. The rules allow this
+through the client SDK.
 
 ### A coach inbox (optional)
 

@@ -9,9 +9,9 @@
  * the brand it sits under. amando's own terracotta is reserved for the two
  * moments it is earned — `brand`, and the hover state of the link:
  *
- *   <PoweredBy />                    the credit in the caller's text colour
+ *   <PoweredBy />                    the credit, linking out to amando's site
  *   <PoweredBy brand />              the wordmark in amando's terracotta
- *   <PoweredBy href="https://..." /> the same, as a link out, warming on hover
+ *   <PoweredBy href="" />            the same, as plain text with no link
  *   <PoweredBy inverse ... />        the terracotta a dark ground needs
  *
  * The brand ships this in three flat colourways -- terracotta, black and white
@@ -33,11 +33,10 @@ const props = withDefaults(
      */
     size?: number | string
     /**
-     * Link the credit out to amando. Left off, this renders as a plain `span`,
-     * which is what a surface with no outward links wants -- the app's own
-     * boot splash, an email. Given, it opens in a new tab: it leaves the
-     * product, and `noopener` because a tab you open should not get a handle
-     * back to yours.
+     * Where the credit links out to -- amando's site unless told otherwise.
+     * It opens in a new tab: it leaves the product, and `noopener` because a
+     * tab you open should not get a handle back to yours. Pass `""` for a
+     * plain `span`, which is what a surface with no outward links wants.
      */
     href?: string
     /** Paint the wordmark in amando's terracotta rather than inheriting. */
@@ -53,7 +52,13 @@ const props = withDefaults(
      */
     text?: string
   }>(),
-  { size: 13, brand: false, inverse: false, text: 'Powered by' },
+  {
+    size: 13,
+    href: 'https://amando-website.vercel.app',
+    brand: false,
+    inverse: false,
+    text: 'Powered by',
+  },
 )
 
 /**

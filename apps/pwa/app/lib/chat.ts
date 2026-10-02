@@ -494,14 +494,24 @@ export const toggledReactions = (
 // --- Typing ----------------------------------------------------------------
 
 /**
+ * How long a member has to keep typing before the thread is told.
+ *
+ * Every marker is a document write that fans out to a read on every phone with
+ * the thread open, and most chat messages are typed in a second or two: "lol",
+ * "🔥", "same". Announcing those cost a write, a delete and a read per reader
+ * for an indicator that was gone before anyone could look at it. Somebody
+ * still typing after this is writing something worth waiting for.
+ */
+export const TYPING_DELAY_MS = 2000
+
+/**
  * How often a member who is still typing re-states it.
  *
- * Every refresh is a document write that fans out to a listener on every phone
- * with the thread open, so this is the cost knob. Four seconds is slow enough
- * that a long message costs a handful of writes rather than one per keystroke,
- * and fast enough that the indicator does not flicker between refreshes.
+ * The other cost knob, for the same reason as the delay. Twelve seconds means
+ * nearly every message costs one write at most, and a long one a couple; the
+ * TTL below is what keeps the indicator up in between.
  */
-export const TYPING_REFRESH_MS = 4000
+export const TYPING_REFRESH_MS = 12_000
 
 /**
  * How long a marker is trusted after it was last written.
@@ -509,18 +519,19 @@ export const TYPING_REFRESH_MS = 4000
  * Comfortably more than two refreshes, because the failure it has to tolerate
  * is a slow round trip, not a slow typist. Below two the indicator blinks on a
  * bad connection; far above it, a tab that was closed mid-sentence leaves
- * somebody "typing" long after they have gone.
+ * somebody "typing" long after they have gone. A tab that can still speak
+ * clears its own marker on `TYPING_IDLE_MS`, so this only ever runs out on one
+ * that was killed.
  */
-export const TYPING_TTL_MS = 10_000
+export const TYPING_TTL_MS = 30_000
 
 /**
  * How long the composer can sit untouched before the member counts as stopped.
  *
- * Longer than the refresh, so somebody who is still typing never flickers off
- * between keystrokes, and short enough that walking away from a half-written
- * message clears within a breath of the TTL that would clear it anyway. It is
- * the polite half of the contract: the TTL is the backstop for a tab that
- * cannot say anything, this is for one that can.
+ * Long enough that a pause mid-sentence does not switch the indicator off, and
+ * short enough that walking away from a half-written message clears well before
+ * the TTL would. It is the polite half of the contract: the TTL is the backstop
+ * for a tab that cannot say anything, this is for one that can.
  */
 export const TYPING_IDLE_MS = 5000
 

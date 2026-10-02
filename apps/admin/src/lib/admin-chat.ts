@@ -1,6 +1,9 @@
 import type { User } from "firebase/auth"
 import {
+  arrayRemove,
+  arrayUnion,
   collection,
+  deleteDoc,
   deleteField,
   doc,
   FieldPath,
@@ -19,6 +22,7 @@ import {
   type Unsubscribe,
 } from "firebase/firestore"
 import {
+  deleteObject,
   getDownloadURL,
   ref,
   uploadBytes,
@@ -100,6 +104,23 @@ export type ToggleAdminReactionInput = {
   threadId: string
   messageId: string
   emoji: string
+  /** Whether the coach is taking this emoji back, as the thread on screen shows it. */
+  removing: boolean
+}
+
+export type DeleteAdminMessageInput = {
+  cohortId: string
+  threadId: string
+  messageId: string
+  /** The message's files, deleted from Storage after it. */
+  attachments: AdminChatAttachment[]
+  /**
+   * The message whose preview takes this one's place in the inbox, when the
+   * inbox is previewing this one. `null` clears the preview, for a thread left
+   * empty; `undefined` leaves it alone.
+   */
+  replacePreview?: AdminChatMessage | null
+  user: User
 }
 
 const THREAD_LIMIT = 100
@@ -172,6 +193,24 @@ export function adminReplyRefFor(message: AdminChatMessage): AdminChatReplyRef {
       : text,
     attachmentKind: text ? null : (firstAttachment?.kind ?? null),
   }
+}
+
+/** The inbox's one line for a message: its text, or what it carried. */
+function previewTextOf(text: string, attachments: AdminChatAttachment[]) {
+  return text || (attachments.some((item) => item.kind === "image") ? "Sent an image" : "Sent an attachment")
+}
+
+/**
+ * Whether the inbox's preview of `thread` is of `message`.
+ *
+ * The thread document keeps the preview's words and author, not the message
+ * id, so this compares those. A false match is harmless: deleting a message
+ * that only looks like the previewed one rewrites the preview to the newest
+ * message in the thread, which is what it should show anyway.
+ */
+export function previewIsOf(thread: AdminChatThread, message: AdminChatMessage) {
+  return thread.lastMessageAuthorUid === message.authorUid
+    && thread.lastMessageText === previewTextOf(message.text.trim(), message.attachments)
 }
 
 export function adminReplyPreview(reply: AdminChatReplyRef) {
@@ -333,27 +372,115 @@ export async function toggleAdminReaction(input: ToggleAdminReactionInput) {
     "messages",
     input.messageId,
   )
+  const reactionPath = new FieldPath("reactionCounts", input.emoji)
+
+  // Adding doesn't read the message. A transaction that has read a document is
+  // retried when someone else writes it first, and refused after five tries,
+  // which is what happened when the coach reacted to an announcement while the
+  // cohort was reacting to it too. Unread, the message is only written to, and
+  // Firestore applies those writes one after another without failing anyone.
+  // `arrayUnion` keeps the coach's list right if the screen was a beat behind;
+  // the count trusts the screen.
+  if (!input.removing) {
+    try {
+      await updateDoc(
+        messageRef,
+        reactionPath,
+        increment(1),
+        "adminReactionEmojis",
+        arrayUnion(input.emoji),
+      )
+    } catch (error) {
+      if ((error as { code?: string }).code === "not-found") throw new Error("Message not found.")
+      throw error
+    }
+    return
+  }
+
+  // Taking one back still reads the message, because the last of an emoji
+  // deletes its key rather than leaving a zero, and only the stored count says
+  // whether this is the last.
   await runTransaction(database, async (transaction) => {
     const messageSnapshot = await transaction.get(messageRef)
     if (!messageSnapshot.exists()) throw new Error("Message not found.")
 
     const current = readReactionEmojis({ emojis: messageSnapshot.data().adminReactionEmojis })
-    const removing = current.includes(input.emoji)
-    const next = removing
-      ? current.filter((emoji) => emoji !== input.emoji)
-      : [...current, input.emoji]
+    if (!current.includes(input.emoji)) return
 
     const counts = messageSnapshot.data().reactionCounts as Record<string, number> | undefined
-    const nextCount = Number(counts?.[input.emoji] ?? 0) + (removing ? -1 : 1)
-    const reactionPath = new FieldPath("reactionCounts", input.emoji)
+    const nextCount = Number(counts?.[input.emoji] ?? 0) - 1
     transaction.update(
       messageRef,
       reactionPath,
-      nextCount <= 0 ? deleteField() : increment(removing ? -1 : 1),
+      nextCount <= 0 ? deleteField() : increment(-1),
       "adminReactionEmojis",
-      next,
+      arrayRemove(input.emoji),
     )
   })
+}
+
+/**
+ * Delete any message in a thread: the coach's own, or a member's as moderation.
+ *
+ * The document goes, which takes the message out of the thread and out of
+ * every member's inbox, and then its files, which would otherwise stay
+ * reachable by anyone holding their download URLs. `storage.rules` lets the
+ * coach delete under any member's `chat/{cohortId}/{uid}/`. Replies that
+ * quoted the message keep their quote, since a quote is a copy.
+ *
+ * Files go after the document, so a failure leaves bytes nobody can reach
+ * from either app rather than a broken image in front of the cohort. A file
+ * that is already gone counts as deleted.
+ *
+ * When the inbox was previewing this message, the preview moves to
+ * `replacePreview`. That write is best-effort, like the one after a send.
+ */
+export async function deleteAdminMessage(input: DeleteAdminMessageInput) {
+  const database = requireDatabase()
+  const threadRef = doc(database, "cohorts", input.cohortId, "threads", input.threadId)
+
+  try {
+    await deleteDoc(doc(threadRef, "messages", input.messageId))
+  } catch (error) {
+    if ((error as { code?: string }).code === "permission-denied") {
+      throw new Error("Your admin account does not have permission to delete this message.")
+    }
+    throw new Error("The message could not be deleted.")
+  }
+
+  const paths = input.attachments
+    .map((attachment) => attachment.storagePath)
+    .filter((path) => path.startsWith(`chat/${input.cohortId}/`))
+  const filesRemoved = paths.length === 0 || (
+    firebaseStorage !== null && (
+      await Promise.all(
+        paths.map((path) =>
+          deleteObject(ref(requireStorage(), path)).then(
+            () => true,
+            (error) => (error as { code?: string }).code === "storage/object-not-found",
+          ),
+        ),
+      )
+    ).every(Boolean)
+  )
+
+  if (input.replacePreview === undefined) return { projectionUpdated: true, filesRemoved }
+
+  const next = input.replacePreview
+  try {
+    await updateDoc(threadRef, {
+      lastMessageText: next ? previewTextOf(next.text.trim(), next.attachments) : null,
+      lastMessageAt: next ? Timestamp.fromDate(next.sentAt) : null,
+      lastMessageAuthorUid: next?.authorUid ?? null,
+      lastMessageAuthorName: next ? (next.isCoach ? "Coach" : next.authorName) : null,
+      updatedAt: serverTimestamp(),
+      updatedByUid: input.user.uid,
+      updatedByEmail: input.user.email,
+    })
+    return { projectionUpdated: true, filesRemoved }
+  } catch {
+    return { projectionUpdated: false, filesRemoved }
+  }
 }
 
 async function uploadChatAttachments({
@@ -436,7 +563,7 @@ export async function sendAdminMessage(input: SendAdminMessageInput) {
       memberUid: input.kind === "direct" ? input.threadId : null,
       memberName: input.memberName,
       cohortName: input.cohortName,
-      lastMessageText: text || (attachments.some((item) => item.kind === "image") ? "Sent an image" : "Sent an attachment"),
+      lastMessageText: previewTextOf(text, attachments),
       lastMessageAt: serverTimestamp(),
       lastMessageAuthorUid: input.user.uid,
       lastMessageAuthorName: authorName,

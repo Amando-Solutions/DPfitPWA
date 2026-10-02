@@ -45,10 +45,18 @@ export const SETUP_ROUTES = [
 /** The only screen a member of a cohort that is over can reach, and only they can. */
 export const COHORT_ENDED_ROUTE = '/cohort-ended'
 
+/**
+ * Where the copy icon in the access-code email lands. Outside the gate rather
+ * than in `PUBLIC_ROUTES`, because that list bounces a set-up member to Home,
+ * and the email reaches people in every state.
+ */
+export const COPY_CODE_ROUTE = '/copy-code'
+
 export default defineNuxtRouteMiddleware((to) => {
   // The entry route owns its own decision. See `pages/index.vue`.
    if (
     to.path === '/' ||
+    to.path === COPY_CODE_ROUTE ||
     to.path === '/sw.js' ||
     to.path === '/manifest.webmanifest' ||
     to.path.startsWith('/_nuxt/')

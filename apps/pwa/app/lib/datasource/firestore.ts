@@ -22,6 +22,7 @@ import {
   doc,
   getCountFromServer,
   getDoc,
+  getDocFromCache,
   getDocs,
   increment,
   limit,
@@ -60,12 +61,14 @@ import {
 } from '~/lib/firebase/app'
 import {
   EDIT_WINDOW_MS,
+  TYPING_DELAY_MS,
   TYPING_REFRESH_MS,
   TYPING_TTL_MS,
   addressedUidsOf,
   typingIsFresh,
 } from '~/lib/chat'
 import { withShippedBadges } from '~/data/badges'
+import { forgetThreadCaches } from '~/lib/chat-cache'
 import { daysBetween, isDateKey } from '~/lib/domain/challenge'
 import { liveCallFrom } from '~/lib/domain/liveCall'
 import { storage as webStorage } from '~/lib/storage'
@@ -78,6 +81,7 @@ import {
   type CheckInInput,
   type DataSource,
   type DeviceClaim,
+  type JoinCohortResult,
   type OutgoingMessage,
   type PendingFile,
   type PhotoInput,
@@ -148,6 +152,27 @@ const isEmail = (value: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(va
 
 /** A code as it is stored. The document id is exactly this. */
 const normaliseCode = (code: string): string => code.trim().toUpperCase()
+
+/** The `reason`s `joinCohort` refuses with, each one of `DataSourceError`'s codes. */
+const JOIN_REFUSALS = new Set<string>([
+  'invalid-code',
+  'code-claimed',
+  'code-expired',
+  'code-wrong-email',
+  'already-member',
+])
+
+/**
+ * Whether a log belongs to the cohort the member is active in.
+ *
+ * A member keeps the logs of every cohort they have been in, each tagged with
+ * its `cohortId`, and the app shows only the active one's: nothing from a
+ * cohort they finished appears in the next. One with no tag was written before
+ * the field existed, in the cohort they are still in. Mirrors `ofCohort` in
+ * `apps/functions/src/member-writes.ts`.
+ */
+const ofCohort = (log: { cohortId?: string }, cohortId: string): boolean =>
+  (log.cohortId || cohortId) === cohortId
 
 /**
  * The provider's ways of saying "that email and password don't go together".
@@ -603,8 +628,18 @@ export class FirestoreDataSource implements DataSource {
    * that into one write every few seconds. Cleared on sign-out with the rest,
    * and cleared for a thread the moment typing stops, so the next first
    * keystroke is never swallowed by a limit left over from the last message.
+   *
+   * Present means a marker is up, which is also how `setTyping(false)` knows
+   * whether there is anything to delete.
    */
   private readonly typingWrittenAt = new Map<string, number>()
+
+  /**
+   * When this member's current stretch of typing began, by document path.
+   * Nothing is written until it is `TYPING_DELAY_MS` old. Cleared with
+   * `typingWrittenAt`.
+   */
+  private readonly typingSince = new Map<string, number>()
 
   /** The store's answer to whether the member's cohort is over. Open until it gives one. */
   private cohortOver: () => boolean = () => false
@@ -937,6 +972,7 @@ export class FirestoreDataSource implements DataSource {
     this.weeksCache = null
     this.myReactions.clear()
     this.typingWrittenAt.clear()
+    this.typingSince.clear()
     webStorage.clear()
   }
 
@@ -1184,6 +1220,27 @@ export class FirestoreDataSource implements DataSource {
     this.memberCache = member
     await this.writeLifecycleEvent('member.joined', null, 'onboarding', 'Redeemed access code')
     return member
+  }
+
+  /**
+   * The join itself is `joinCohort` in `apps/functions/src/memberships.ts`.
+   * Sent with the cohort over, which is when it is needed most.
+   *
+   * Afterwards every cache here describes the cohort they left — its program,
+   * its weeks, its threads under the same ids the new cohort's use — so they
+   * go, and the caller reloads.
+   */
+  async joinCohort(code: string): Promise<JoinCohortResult> {
+    const result = await this.call<JoinCohortResult>('joinCohort', { code }, { evenIfOver: true })
+    const user = await this.requireUser()
+    this.memberCache = null
+    this.programCache = null
+    this.weeksCache = null
+    this.myReactions.clear()
+    this.typingWrittenAt.clear()
+    this.typingSince.clear()
+    forgetThreadCaches(['cohort', user.uid])
+    return result
   }
 
   async getMember(): Promise<Member | null> {
@@ -1458,7 +1515,7 @@ export class FirestoreDataSource implements DataSource {
         orderBy('completedAt', 'desc'),
       ),
     )
-    return snap.docs.map((d) => withId<SessionLog>(d))
+    return snap.docs.map((d) => withId<SessionLog>(d)).filter((log) => ofCohort(log, member.cohortId))
   }
 
   async saveSession(log: SessionInput): Promise<SessionLog> {
@@ -1519,7 +1576,7 @@ export class FirestoreDataSource implements DataSource {
         orderBy('weekNumber', 'desc'),
       ),
     )
-    return snap.docs.map((d) => withId<CheckIn>(d))
+    return snap.docs.map((d) => withId<CheckIn>(d)).filter((log) => ofCohort(log, member.cohortId))
   }
 
   async saveCheckIn(input: CheckInInput): Promise<CheckIn> {
@@ -1547,7 +1604,7 @@ export class FirestoreDataSource implements DataSource {
         orderBy('takenAt', 'desc'),
       ),
     )
-    return snap.docs.map((d) => withId<ProgressPhoto>(d))
+    return snap.docs.map((d) => withId<ProgressPhoto>(d)).filter((log) => ofCohort(log, member.cohortId))
   }
 
   async savePhoto(input: PhotoInput): Promise<ProgressPhoto> {
@@ -2033,6 +2090,29 @@ export class FirestoreDataSource implements DataSource {
     }
   }
 
+  /**
+   * One document: the newest with `isCoach`, filtered like the thread.
+   *
+   * Needs the `isCoach` + `sentAt` composite in `firestore.indexes.json`.
+   * Until it has built, the query is refused with `failed-precondition` and
+   * this rejects, which Home answers by leaving the card off.
+   */
+  async getLatestCoachMessage(threadId: ThreadId): Promise<ChatMessageView | null> {
+    const member = await this.requireMember()
+    const ref = await this.messagesRef(threadId)
+    const snap = await getDocs(
+      query(
+        ref,
+        where('isCoach', '==', true),
+        ...sinceJoined(member),
+        orderBy('sentAt', 'desc'),
+        limit(1),
+      ),
+    )
+    const [newest] = snap.docs
+    return newest ? this.viewOf(withId<Message>(newest), member.id, []) : null
+  }
+
   async sendMessage(
     threadId: ThreadId,
     text: string,
@@ -2074,9 +2154,11 @@ export class FirestoreDataSource implements DataSource {
    *
    * Rate-limited here rather than at the call site, because the reason for the
    * limit is the cost of the write and its fan-out, and that is this layer's
-   * concern. `true` writes at most once every `TYPING_REFRESH_MS`; `false`
-   * always deletes, because the one thing that must never be dropped is the
-   * message that somebody has stopped.
+   * concern. `true` writes nothing until the member has been typing for
+   * `TYPING_DELAY_MS`, then at most once every `TYPING_REFRESH_MS`. `false`
+   * deletes whenever a marker is up, because the one thing that must never be
+   * dropped is the message that somebody has stopped — and skips the delete
+   * when this stretch never put one up, which is most short messages.
    *
    * Never throws. A refused marker means an indicator nobody sees; it must not
    * reach the composer, which is in the middle of a keystroke.
@@ -2091,14 +2173,23 @@ export class FirestoreDataSource implements DataSource {
       const key = ref.path
 
       if (!typing) {
-        this.typingWrittenAt.delete(key)
+        this.typingSince.delete(key)
+        if (!this.typingWrittenAt.delete(key)) return
         await deleteDoc(ref)
         return
       }
 
+      const now = Date.now()
+      const since = this.typingSince.get(key)
+      if (since === undefined) {
+        this.typingSince.set(key, now)
+        return
+      }
+      if (now - since < TYPING_DELAY_MS) return
+
       const last = this.typingWrittenAt.get(key) ?? 0
-      if (Date.now() - last < TYPING_REFRESH_MS) return
-      this.typingWrittenAt.set(key, Date.now())
+      if (now - last < TYPING_REFRESH_MS) return
+      this.typingWrittenAt.set(key, now)
 
       const marker: TypingDoc = {
         name: member.profile.displayName || 'Someone',
@@ -2248,6 +2339,60 @@ export class FirestoreDataSource implements DataSource {
     )
   }
 
+  /**
+   * Delete the document, then the files it carried.
+   *
+   * The author check reads this device's copy of the message, which the
+   * thread's listener has already paid for, and goes to the server only when
+   * there is none. The menu offers delete on the member's own messages alone,
+   * so the check is there for a sentence; the rules are what refuse.
+   *
+   * Files go after the document, and on a best-effort basis. A message whose
+   * photo could not be deleted is still gone from every screen, and what is
+   * left is bytes nobody can reach from the app; a photo deleted from under a
+   * message that then failed to go would be a broken image in front of the
+   * whole cohort. Storage lets a member delete under their own
+   * `chat/{cohortId}/{uid}/` only, so nothing outside it is attempted.
+   *
+   * Everyone else's reactions stay behind under `reactions/`, which only they
+   * may write. Nothing reads that collection except through its message, so
+   * they are never read again.
+   */
+  async deleteMessage(threadId: ThreadId, messageId: string): Promise<void> {
+    this.refuseIfOver()
+    const member = await this.requireMember()
+    const messages = await this.messagesRef(threadId)
+    const messageRef = doc(messages, messageId)
+
+    const snap = await getDocFromCache(messageRef).catch(() => getDoc(messageRef))
+    if (!snap.exists()) return
+
+    const stored = withId<Message>(snap)
+    if (stored.authorUid !== member.id) {
+      throw new DataSourceError('You can only delete your own messages.', 'not-author')
+    }
+
+    try {
+      await deleteDoc(messageRef)
+    } catch (cause) {
+      console.error('[chat] the delete was refused', cause)
+      throw new DataSourceError('Couldn’t delete that message. Try again.', 'unknown')
+    }
+    this.myReactions.delete(messageRef.path)
+
+    const own = `chat/${member.cohortId}/${member.id}/`
+    await Promise.all(
+      (stored.attachments ?? [])
+        .map((attachment) => attachment.storagePath)
+        .filter((path) => path?.startsWith(own))
+        .map((path) =>
+          deleteObject(storageRef(firebaseStorage(), path)).catch((cause) => {
+            console.warn('[chat] a deleted message left a file behind', path, cause)
+          }),
+        ),
+    )
+  }
+
   async toggleReaction(
     threadId: ThreadId,
     messageId: string,
@@ -2274,16 +2419,36 @@ export class FirestoreDataSource implements DataSource {
       cached.includes(emoji) ? cached.filter((e) => e !== emoji) : [...cached, emoji],
     )
 
+    // The message as this device already holds it, from the thread's own
+    // listener: free, and no part of the transaction. An added reaction takes
+    // the author from it, which never changes, and the counts it answers with.
+    const local = await getDocFromCache(messageRef)
+      .then((snap) => (snap.exists() ? withId<Message>(snap) : null))
+      .catch(() => null)
+
     const settle = () =>
       runTransaction(firebaseDb(), async (tx) => {
-        const [messageSnap, mineSnap] = await Promise.all([tx.get(messageRef), tx.get(mineRef)])
-        if (!messageSnap.exists()) throw new DataSourceError('Message not found.', 'not-found')
-
+        const mineSnap = await tx.get(mineRef)
         const current: string[] = mineSnap.exists()
           ? ((mineSnap.data() as { emojis: string[] }).emojis ?? [])
           : []
         const on = current.includes(emoji)
         const next = on ? current.filter((e) => e !== emoji) : [...current, emoji]
+
+        // Adding a reaction does not read the message. A transaction that has
+        // read a document is retried when anybody else writes it first, and
+        // refused after five tries, which is how reactions failed when the
+        // coach posted and fifty people answered at once. Unread, the message
+        // is only written to — an increment and this member's own entry — and
+        // Firestore applies those one after another without failing anyone.
+        //
+        // Taking one back still reads it, because the last of an emoji deletes
+        // its key (see below) and only the stored count says whether this is
+        // the last. Removals do not come in bursts, and one that collides
+        // retries against the fresh count, so the count stays right.
+        const fresh = on || !local ? await tx.get(messageRef) : null
+        if (fresh && !fresh.exists()) throw new DataSourceError('Message not found.', 'not-found')
+        const stored = fresh ? withId<Message>(fresh) : (local as Message)
 
         tx.set(mineRef, { emojis: next, updatedAt: serverTimestamp() })
 
@@ -2292,7 +2457,6 @@ export class FirestoreDataSource implements DataSource {
         // `FieldPath` rather than a dotted string because an emoji is not a
         // field name anyone should be parsing.
         const path = new FieldPath('reactionCounts', emoji)
-        const stored = withId<Message>(messageSnap)
         const counts = stored.reactionCounts ?? {}
         const after = (counts[emoji] ?? 0) + (on ? -1 : 1)
 
@@ -2301,7 +2465,10 @@ export class FirestoreDataSource implements DataSource {
         // back to none. Every other toggle leaves it, and `reactedAt`, alone,
         // so a second emoji does not tell the author again. Never the author's
         // own — nobody needs telling they reacted to themselves.
-        const listed = member.id in (stored.reactors ?? {})
+        //
+        // Whether they have an entry is read off the message when it was read,
+        // and otherwise off their own reactions: having any is what put it there.
+        const listed = fresh ? member.id in (stored.reactors ?? {}) : current.length > 0
         const reacting = next.length > 0
         const reactor: unknown[] =
           stored.authorUid === member.id || listed === reacting
@@ -2326,13 +2493,12 @@ export class FirestoreDataSource implements DataSource {
           ...reactor,
         )
 
-        // The message as this write leaves it, assembled from the read the
-        // transaction already had to make. It used to be re-read afterwards,
-        // which is a second round trip on a gesture the member is watching, to
-        // learn a number that was worked out three lines above. Contention is
-        // not a reason to keep it: a snapshot that moved under the transaction
-        // is what makes the transaction retry, so what is returned here is what
-        // committed.
+        // The message as this write leaves it, worked out here rather than read
+        // back, which would be a second round trip on a gesture the member is
+        // watching. Exact when the message was read, since a read that moved
+        // under the transaction makes it retry. From this device's copy when it
+        // was not, so a reaction somebody else landed in the same moment may be
+        // missing; the live thread delivers it a beat later.
         const reactionCounts = { ...counts }
         if (after > 0) reactionCounts[emoji] = after
         else delete reactionCounts[emoji]
@@ -2348,6 +2514,10 @@ export class FirestoreDataSource implements DataSource {
       // reaction the thread does not have and every later toggle of it is
       // computed from a lie.
       this.myReactions.set(messageRef.path, cached)
+      // An unread message that was deleted fails at the commit, not the read.
+      if ((cause as { code?: string }).code === 'not-found') {
+        throw new DataSourceError('Message not found.', 'not-found')
+      }
       throw cause
     }
 
@@ -2364,7 +2534,12 @@ export class FirestoreDataSource implements DataSource {
   async listEarnedBadges(): Promise<Record<string, EarnedBadge>> {
     const member = await this.requireMember()
     const snap = await getDocs(collection(firebaseDb(), 'members', member.id, 'badges'))
-    return Object.fromEntries(snap.docs.map((d) => [d.id, withId<EarnedBadge>(d)]))
+    return Object.fromEntries(
+      snap.docs
+        .map((d) => withId<EarnedBadge>(d))
+        .filter((badge) => ofCohort(badge, member.cohortId))
+        .map((badge) => [badge.id, badge]),
+    )
   }
 
   async awardBadge(id: string): Promise<void> {
@@ -2376,14 +2551,19 @@ export class FirestoreDataSource implements DataSource {
 
     const db = firebaseDb()
     const ref = doc(db, 'members', member.id, 'badges', id)
+    // Where `joinCohort` sets this cohort's badge aside, which a join cut off
+    // half-way leaves in this same cohort.
+    const setAside = doc(db, 'members', member.id, 'badges', `${member.cohortId}~${id}`)
 
     // Keyed by badge id, so awarding twice is a no-op rather than a duplicate.
     // The existence check sits inside the transaction because two screens can
-    // both notice the same unlock in the same tick.
+    // both notice the same unlock in the same tick. Tagged with the cohort, so
+    // the next cohort they join can award it again.
     await runTransaction(db, async (tx) => {
-      if ((await tx.get(ref)).exists()) return
+      const [earned, earnedBefore] = await Promise.all([tx.get(ref), tx.get(setAside)])
+      if (earned.exists() || earnedBefore.exists()) return
       const rewardPoints = program.rewards.badgeTierPoints[def.tier]
-      tx.set(ref, { badgeId: id, earnedAt: Timestamp.now(), rewardPoints })
+      tx.set(ref, { badgeId: id, cohortId: member.cohortId, earnedAt: Timestamp.now(), rewardPoints })
       tx.update(doc(db, 'members', member.id), {
         'stats.points': increment(rewardPoints),
         updatedAt: serverTimestamp(),
@@ -2547,10 +2727,17 @@ export class FirestoreDataSource implements DataSource {
    * session opens on Monday 12 Oct." — so it is passed through as the message.
    * A call that never reached the function says so instead, because the
    * callable SDK's own word for that is "internal".
+   *
+   * `evenIfOver` is for `joinCohort`, the one call whose point is leaving a
+   * cohort that has ended.
    */
-  private async call<T>(name: string, data: Record<string, unknown>): Promise<T> {
-    // Every one of these is a member write, so this covers all four.
-    this.refuseIfOver()
+  private async call<T>(
+    name: string,
+    data: Record<string, unknown>,
+    { evenIfOver = false }: { evenIfOver?: boolean } = {},
+  ): Promise<T> {
+    // Every other one is a member write into the cohort, so this covers them.
+    if (!evenIfOver) this.refuseIfOver()
     await this.requireUser()
     try {
       const run = httpsCallable<Record<string, unknown>, T>(firebaseFunctions(), name)
@@ -2563,6 +2750,9 @@ export class FirestoreDataSource implements DataSource {
       }
       if (reason === 'cohort-ended') {
         throw new DataSourceError(cause.message, 'cohort-ended')
+      }
+      if (reason && JOIN_REFUSALS.has(reason)) {
+        throw new DataSourceError(cause.message, reason as DataSourceError['code'])
       }
       if (cause.code === 'functions/unauthenticated') {
         throw new DataSourceError(cause.message, 'unauthenticated')

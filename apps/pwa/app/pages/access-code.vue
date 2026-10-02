@@ -114,7 +114,13 @@ const fail = (on: Field, cause: unknown) => {
 }
 
 /** Failures that are about the code rather than anything typed on the account step. */
-const CODE_FAILURES: DataSourceError['code'][] = ['invalid-code', 'code-claimed', 'code-expired']
+const CODE_FAILURES: DataSourceError['code'][] = [
+  'invalid-code',
+  'code-claimed',
+  'code-expired',
+  // A member back for another cohort, with one they are in or have been in.
+  'already-member',
+]
 
 const accountFieldFor = (cause: unknown): Field => {
   if (!(cause instanceof DataSourceError)) return 'form'
@@ -284,6 +290,10 @@ const createAccount = async () => {
     if (cause instanceof DataSourceError && CODE_FAILURES.includes(cause.code)) {
       step.value = 'code'
       fail('code', cause)
+    } else if (store.member.value) {
+      // Signed in to a membership already, so this is the redeem step now and
+      // the account fields are gone: the code box is where they try again.
+      fail('code', cause)
     } else {
       fail(accountFieldFor(cause), cause)
     }
@@ -291,13 +301,20 @@ const createAccount = async () => {
   busy.value = ''
 }
 
-/** Signed in without a membership: spend the code on the session there is. */
+/**
+ * Signed in: spend the code on the session there is.
+ *
+ * Usually an account with no membership, which the code makes one for. The
+ * other way here is a member back for another cohort whose join failed on the
+ * way through sign-up; they join with it instead, as sign-up would have.
+ */
 const redeem = async () => {
   if (busy.value) return
   busy.value = 'redeem'
   failure.value = null
   try {
-    await store.redeemAccessCode(code.value)
+    if (store.member.value) await store.joinCohort(code.value)
+    else await store.redeemAccessCode(code.value)
     if (await settle()) return
   } catch (cause) {
     fail('code', cause)
@@ -522,19 +539,24 @@ watch([code, email, password, confirm], () => {
           :class="busy !== '' && 'opacity-60'"
           :inert="busy !== ''"
         >
-          <TextField
-            v-if="askingForCode"
-            v-model="code"
-            label="Access code"
-            placeholder="ENTER YOUR CODE"
-            autocomplete="off"
-            mono
-            :error="errorOn('code')"
-          />
-          <p v-if="askingForCode && codeFailed && supportContact" class="m-0 -mt-2 text-[13px] leading-normal text-muted">
-            Still stuck? Check it and try again, or
-            <a :href="whatsappHref" target="_blank" rel="noopener noreferrer" class="access__link font-semibold text-primary">message {{ supportContact.name }} on WhatsApp</a>.
-          </p>
+          <!-- One branch with its support line, so the line cannot break the
+               `v-if` / `v-else-if` / `v-else` chain below. Standing as a sibling
+               `v-if`, it did, and `blocked`'s connection hint printed under the
+               code field on every ordinary visit. -->
+          <template v-if="askingForCode">
+            <TextField
+              v-model="code"
+              label="Access code"
+              placeholder="ENTER YOUR CODE"
+              autocomplete="off"
+              mono
+              :error="errorOn('code')"
+            />
+            <p v-if="codeFailed && supportContact" class="m-0 -mt-2 text-[13px] leading-normal text-muted">
+              Still stuck? Check it and try again, or
+              <a :href="whatsappHref" target="_blank" rel="noopener noreferrer" class="access__link font-semibold text-primary">message {{ supportContact.name }} on WhatsApp</a>.
+            </p>
+          </template>
 
           <!-- Three fields and nothing else. The code that got the member here
                is held in `checkedCode` and neither shown nor editable: it has

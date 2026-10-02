@@ -138,7 +138,8 @@ export async function activeCohort(db: Firestore, fallbackId?: string) {
   if (!id) return null
   if (id.includes('/')) throw new Error('The fallback cohort ID must be a document ID.')
   const configured = await db.doc(`cohorts/${id}`).get()
-  if (!configured.exists || configured.get('status') === 'archived') return null
+  // A cohort that has finished, or been archived, has nothing left to sell.
+  if (!configured.exists || ['archived', 'completed'].includes(configured.get('status'))) return null
   return configured
 }
 

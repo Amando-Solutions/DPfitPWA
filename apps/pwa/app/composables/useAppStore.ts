@@ -1563,13 +1563,27 @@ const buildStore = () => {
    * without a membership, which is `needs-code`, and the access-code screen
    * redeems for exactly that session when they try again — deleting the account
    * would only make them choose a password a second time.
+   *
+   * An account that already holds a membership under another code is a member
+   * back for another cohort, so the code is joined with rather than dropped.
+   * It used to be dropped: the sign-in went through, the new code was never
+   * spent, and they landed back in the cohort they had come to leave.
    */
   const createAccount = async (code: string, email: string, password: string) => {
     startupError.value = ''
     await data.createAccount(code, email, password)
     const hasMember = await identify()
     if (gate.value === 'needs-code') await redeemAccessCode(code)
-    else if (hasMember) void loadContent()
+    else if (hasMember && state.value.member?.accessCode !== code) {
+      try {
+        await joinCohort(code)
+      } catch (cause) {
+        // Signed in and a member whatever the code said, so the app behind the
+        // screen loads as it would have; the screen shows why the code did not.
+        void loadContent()
+        throw cause
+      }
+    } else if (hasMember) void loadContent()
   }
 
   /**
@@ -1609,6 +1623,19 @@ const buildStore = () => {
     // just committed by this client, so the read below sees it.
     await hydrate(true)
     return account
+  }
+
+  /**
+   * Join another cohort with `code`. See `DataSource.joinCohort`.
+   *
+   * Reloads whole: the active cohort changes every path the app reads through
+   * — cohort, program, logs, board. `gate` is settled by the time this
+   * resolves, so the caller can route on it.
+   */
+  const joinCohort = async (code: string) => {
+    const result = await data.joinCohort(code)
+    await hydrate(true)
+    return result
   }
 
   const saveProfile = async (patch: Partial<MemberProfile>) => {
@@ -2123,6 +2150,7 @@ const buildStore = () => {
     signInWithPassword,
     sendPasswordReset,
     redeemAccessCode,
+    joinCohort,
     saveProfile,
     completeSetup,
     setRegion,

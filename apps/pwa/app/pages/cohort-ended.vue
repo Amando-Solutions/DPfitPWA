@@ -73,6 +73,13 @@ const whatsappHref = computed(() =>
 const signedInAs = computed(() => store.authUser.value?.email ?? '')
 
 /**
+ * The way on to another cohort, which this screen is the door to: the code
+ * from their confirmation email. `JoinCohortForm` makes it the active cohort
+ * and takes them into it; this one stays theirs, in its results.
+ */
+const joining = ref(false)
+
+/**
  * The one way out. Frozen for the length of it, as every sign-out is: the
  * session is already going, and there is nothing on the card worth pressing
  * twice. Left frozen on success, because the screen is on its way out.
@@ -80,7 +87,7 @@ const signedInAs = computed(() => store.authUser.value?.email ?? '')
 const signingOut = ref(false)
 const signOutFailed = ref(false)
 const signOut = async () => {
-  if (signingOut.value) return
+  if (signingOut.value || joining.value) return
   signingOut.value = true
   signOutFailed.value = false
   try {
@@ -133,7 +140,12 @@ const signOut = async () => {
           </dl>
         </section>
 
-        <AppButton variant="secondary" :disabled="signingOut" @click="signOut">
+        <section aria-labelledby="ended-join" class="flex flex-col gap-2.5">
+          <h2 id="ended-join" class="m-0 text-[13px] font-semibold text-muted">Joining another cohort?</h2>
+          <JoinCohortForm v-model:busy="joining" />
+        </section>
+
+        <AppButton variant="secondary" :disabled="signingOut || joining" @click="signOut">
           {{ signingOut ? 'Signing out…' : 'Sign out' }}
         </AppButton>
       </div>

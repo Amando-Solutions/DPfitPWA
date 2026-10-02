@@ -186,14 +186,36 @@ const editMessage = async (payload: {
 }
 
 /**
+ * Take a message back, off the screen first and then out of the thread. See
+ * the cohort chat's `deleteMessage`, which this mirrors.
+ */
+const deleteMessage = async (messageId: string) => {
+  const before = messages.value.find((m) => m.id === messageId)
+  if (!before) return
+
+  messages.value = messages.value.filter((m) => m.id !== messageId)
+
+  try {
+    await data.deleteMessage('coach', messageId)
+  } catch (cause) {
+    if (!messages.value.some((m) => m.id === messageId)) {
+      messages.value = [...messages.value, before].sort(
+        (a, b) => a.sentAt.toMillis() - b.sentAt.toMillis(),
+      )
+    }
+    throw cause
+  }
+}
+
+/**
  * Hold a message to react.
  *
  * Drawn before it is written. The toggle is decided by the chip the member
  * tapped and nothing else — see `toggledReactions` — so waiting on a two
- * document transaction and its confirming read before moving the count put a
- * visible beat between the tap and anything happening. The write still settles
- * the real counts, including whatever anyone else did in the meantime, and the
- * chips move to those when it lands.
+ * document transaction before moving the count put a visible beat between the
+ * tap and anything happening. The chips move to the counts the write answers
+ * with when it lands, and the live thread brings in whatever anyone else did
+ * in the meantime.
  */
 const react = async (payload: { messageId: string; emoji: string }) => {
   const before = messages.value.find((m) => m.id === payload.messageId)
@@ -236,6 +258,7 @@ const react = async (payload: { messageId: string; emoji: string }) => {
         :storage-full="storageFull"
         :send="send"
         :edit="editMessage"
+        :remove="deleteMessage"
         @react="react"
         @retry="outbox.retry"
         @discard="outbox.discard"

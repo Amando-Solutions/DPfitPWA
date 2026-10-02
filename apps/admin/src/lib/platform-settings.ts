@@ -1,5 +1,6 @@
 import type { User } from "firebase/auth"
 import { doc, onSnapshot, serverTimestamp, setDoc, Timestamp, updateDoc, type Unsubscribe } from "firebase/firestore"
+import { cohortZone, dayIn, formatDayKey, isDayKey, lastDayOf, startOfDay, type DayKey } from "@/lib/cohort-calendar"
 import type { CohortRecord } from "@/lib/cohorts"
 import { firebaseDb } from "@/lib/firebase"
 
@@ -65,17 +66,36 @@ export async function savePublicSettings({ coachName, coachWhatsapp, user }: Pub
 /**
  * Moves a cohort's start. Everything counts from it: the member app's current
  * week and phase, the leaderboard reveal, and the landing page's "starts" badge
- * for the cohort registrations join. The date is midnight in Lagos, as when the
- * cohort was created.
+ * for the cohort registrations join. The last day moves with it, to the end of
+ * the cohort's final week. Both are midnight at the start of the day, in the
+ * cohort's zone.
  */
-export async function saveCohortStartDate(cohort: CohortRecord, date: string, user: User) {
+export async function saveCohortStartDate(cohort: CohortRecord, day: DayKey, user: User) {
   const database = requireDatabase()
   if (cohort.status === "archived") throw new Error("Archived cohorts cannot be changed.")
-  const startDate = new Date(`${date}T00:00:00+01:00`)
-  if (Number.isNaN(startDate.getTime())) throw new Error("Choose a valid start date.")
-  const endDate = new Date(startDate)
-  endDate.setUTCDate(endDate.getUTCDate() + cohort.durationWeeks * 7)
+  if (!isDayKey(day)) throw new Error("Choose a valid start date.")
+  const zone = cohortZone(cohort.timezone)
   await updateDoc(doc(database, "cohorts", cohort.id), {
-    startDate: Timestamp.fromDate(startDate), endDate: Timestamp.fromDate(endDate), ...audit(user),
+    startDate: Timestamp.fromDate(startOfDay(day, zone)),
+    endDate: Timestamp.fromDate(startOfDay(lastDayOf(day, cohort.durationWeeks), zone)),
+    ...audit(user),
+  })
+}
+
+/**
+ * Moves a cohort's last day, and nothing else. The cohort runs to the end of
+ * it and closes at the midnight after, in its zone. A day already past ends the
+ * cohort for its members as soon as this lands; a later one lets them back in.
+ */
+export async function saveCohortLastDay(cohort: CohortRecord, day: DayKey, user: User) {
+  const database = requireDatabase()
+  if (cohort.status === "archived") throw new Error("Reopen this cohort before changing its last day.")
+  if (!isDayKey(day)) throw new Error("Choose a valid last day.")
+  const zone = cohortZone(cohort.timezone)
+  const startDay = dayIn(cohort.startDate, zone)
+  if (day < startDay) throw new Error(`The last day can't be before the start, ${formatDayKey(startDay)}.`)
+  await updateDoc(doc(database, "cohorts", cohort.id), {
+    endDate: Timestamp.fromDate(startOfDay(day, zone)),
+    ...audit(user),
   })
 }

@@ -22,6 +22,7 @@
 // =============================================================================
 import { cohortFallbacks, loadChallenge } from '../utils/cohort'
 import { firestore } from '../utils/firebase'
+import { enrolmentRefusal } from '../utils/membership'
 import { checkoutUrl, newReference, SelarError } from '../utils/selar'
 import type { Registration } from '../utils/access-code'
 
@@ -172,6 +173,18 @@ export default defineEventHandler(async (event) => {
   if (body.cohortId !== challenge.id || body.amountMinor !== price.minor || body.currency !== price.currency) {
     throw createError({ statusCode: 409, statusMessage: 'The cohort or price has changed. Refresh this page before continuing.' })
   }
+
+  // A member trains in one cohort at a time, and is not sold another while
+  // theirs is running. Asked now because nothing can be after they pay. A
+  // lookup that fails does not stop the sale: redeeming the code it ends in
+  // ends their part in the running cohort, which is the rare case it is for.
+  let enrolled: string | null = null
+  try {
+    enrolled = await enrolmentRefusal(firestore(), registration.email, challenge.id)
+  } catch (cause) {
+    console.error('[register] could not check whether the buyer is already in a cohort:', cause)
+  }
+  if (enrolled) throw createError({ statusCode: 409, statusMessage: enrolled })
 
   // A second thing worth failing loudly on. The form would work without it —
   // a buyer could register and pay — but no notification could ever be

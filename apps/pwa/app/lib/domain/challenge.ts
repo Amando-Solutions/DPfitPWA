@@ -196,7 +196,8 @@ export const challengeClock = (
  * An instant would close it at whatever time of day the console happened to
  * store, and a date picker stores the *start* of the day, which would cost
  * members their last one. No usable `endDate` is no end on the calendar;
- * archiving still closes it.
+ * archiving still closes it, and so does `completed`, which is written once
+ * the last day has passed.
  *
  * Mirrors `cohortOver` in `apps/functions/src/calendar.ts`, which refuses the
  * day-locked writes by the same rule. `firestore.rules` holds every other
@@ -207,7 +208,7 @@ export const cohortOver = (
   now: Date,
 ): boolean => {
   if (!cohort) return false
-  if (cohort.status === 'archived') return true
+  if (cohort.status === 'archived' || cohort.status === 'completed') return true
   const end = cohort.endDate
   if (typeof end?.toDate !== 'function') return false
   const zone = canonicalZone(cohort.timezone) ?? COHORT_ZONE_FALLBACK

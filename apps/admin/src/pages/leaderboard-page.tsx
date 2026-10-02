@@ -12,6 +12,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useCohortsQuery, useMembersQuery, useProgramsQuery } from "@/hooks/use-admin-queries"
 import { cohortWeek, fetchCohortGamification } from "@/lib/leaderboard"
+import { membersOf } from "@/lib/members"
 import { memberBadgeDefinitions, memberRank } from "@/lib/member-dashboard"
 import { cn } from "@/lib/utils"
 import { useSelectedCohort } from "@/hooks/use-selected-cohort"
@@ -28,15 +29,15 @@ export function LeaderboardPage() {
   const currentWeek = cohort ? cohortWeek(cohort.startDate, cohort.durationWeeks, now) : 0
 
   // Ranked by qualifying sessions: the same count the PWA's board projection mirrors.
-  const members = useMemo(() => (membersQuery.data ?? [])
-    .filter((member) => cohort && member.cohortId === cohort.id)
+  // Its members now, and anybody who has since joined another cohort, as they were here.
+  const members = useMemo(() => (cohort ? membersOf(membersQuery.data ?? [], cohort.id) : [])
     .sort((a, b) => b.stats.sessionsQualified - a.stats.sessionsQualified || a.profile.displayName.localeCompare(b.profile.displayName)),
   [membersQuery.data, cohort])
   const memberIds = members.map((member) => member.id)
 
   const gamification = useQuery({
     queryKey: ["leaderboard-gamification", cohort?.id, memberIds.join(","), currentWeek],
-    queryFn: () => fetchCohortGamification(memberIds, currentWeek),
+    queryFn: () => fetchCohortGamification(cohort!.id, members, currentWeek),
     enabled: !!cohort && memberIds.length > 0,
     staleTime: 5 * 60 * 1000,
   })

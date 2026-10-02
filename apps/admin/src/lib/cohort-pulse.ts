@@ -1,7 +1,7 @@
 import { collection, collectionGroup, getDocs, orderBy, query, where } from "firebase/firestore"
 import { readCheckIn, reportsPain, type FeedbackRow } from "@/lib/feedback"
 import { firebaseDb } from "@/lib/firebase"
-import type { MemberRecord } from "@/lib/members"
+import { logInCohort, redeemedCodes, type MemberRecord } from "@/lib/members"
 import type { ProgramRecord } from "@/lib/programs"
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -21,12 +21,21 @@ export type CohortPulseData = {
  * member's check-ins (at most one per week), the current week's sessions, and the
  * cohort's registrations. A one-off read, cached by the caller.
  */
-export async function fetchCohortPulse(cohortId: string, memberIds: string[], currentWeek: number): Promise<CohortPulseData> {
+export async function fetchCohortPulse(
+  cohortId: string,
+  members: Pick<MemberRecord, "id" | "activeCohortId">[],
+  currentWeek: number,
+): Promise<CohortPulseData> {
   if (!firebaseDb) throw new Error("Cohort pulse is not configured.")
   const database = firebaseDb
-  const ids = new Set(memberIds)
+  // Only this cohort's logs count; a member who has been in another keeps its logs too.
+  const activeCohortOf = new Map(members.map((member) => [member.id, member.activeCohortId]))
+  const here = (memberId: string, data: Record<string, unknown>) =>
+    activeCohortOf.has(memberId) && logInCohort(data, cohortId, activeCohortOf.get(memberId)!)
   const [checkIns, sessions, registrations] = await Promise.all([
-    Promise.all(memberIds.map((memberId) => getDocs(collection(database, "members", memberId, "checkIns")))),
+    Promise.all(members.map(({ id: memberId }) =>
+      getDocs(collection(database, "members", memberId, "checkIns"))
+        .then((snapshot) => snapshot.docs.filter((item) => here(memberId, item.data()))))),
     // Every cohort in the same week shares this query; members of other cohorts are dropped below.
     currentWeek > 0
       ? getDocs(query(collectionGroup(database, "sessions"), where("weekNumber", "==", currentWeek), orderBy("completedAt", "desc")))
@@ -35,8 +44,8 @@ export async function fetchCohortPulse(cohortId: string, memberIds: string[], cu
   ])
   const codes = registrations.docs.map((item) => item.data().code).filter((code): code is string => typeof code === "string" && !!code)
   return {
-    checkIns: checkIns.flatMap((snapshot) => snapshot.docs.map(readCheckIn)),
-    sessionsThisWeek: sessions?.docs.filter((item) => ids.has(item.ref.parent.parent?.id ?? "")).length ?? 0,
+    checkIns: checkIns.flatMap((docs) => docs.map(readCheckIn)),
+    sessionsThisWeek: sessions?.docs.filter((item) => here(item.ref.parent.parent?.id ?? "", item.data())).length ?? 0,
     registrationCodes: codes.map((code) => code.toUpperCase()),
     registrationsWithoutCode: registrations.size - codes.length,
   }
@@ -63,14 +72,19 @@ export type PulseIssue = {
   detail: string
 }
 
-export function pulseIssues({ members, checkIns, startDate, weekOwed, now }: {
+export function pulseIssues({ members, checkIns, startDate, weekOwed, now, over = false }: {
   members: MemberRecord[]
   checkIns: FeedbackRow[]
   startDate: Date
   weekOwed: number
   now: number
+  /**
+   * The cohort is over: members can no longer train or check in, so there is
+   * nothing to chase them for. A flagged or painful check-in still wants review.
+   */
+  over?: boolean
 }): PulseIssue[] {
-  const started = now >= startDate.getTime()
+  const started = now >= startDate.getTime() && !over
   return members.filter((member) => member.status === "active").flatMap((member) => {
     const issues: PulseIssue[] = []
     const base = { memberId: member.id, memberName: member.profile.displayName }
@@ -83,7 +97,7 @@ export function pulseIssues({ members, checkIns, startDate, weekOwed, now }: {
     if (started && idle > INACTIVE_AFTER_DAYS) {
       issues.push({ ...base, kind: "inactive", title: "Inactive", detail: member.stats.lastSessionAt ? `No workout logged in ${idle} days` : `No workout logged yet, ${idle} days in` })
     }
-    if (weekOwed > 0 && !mine.some((row) => row.weekNumber === weekOwed)) {
+    if (!over && weekOwed > 0 && !mine.some((row) => row.weekNumber === weekOwed)) {
       issues.push({ ...base, kind: "missing-check-in", title: "Missing check-in", detail: `No check-in submitted for Week ${weekOwed}` })
     }
     if (latest?.reviewStatus === "needs-attention") {
@@ -109,6 +123,6 @@ export function programPhases(program: ProgramRecord | null, durationWeeks: numb
 
 /** Registrations for the cohort that haven't become a member yet: no code, or a code nobody has redeemed. */
 export function pendingSignups(data: CohortPulseData, members: MemberRecord[]) {
-  const memberCodes = new Set(members.map((member) => member.accessCode.toUpperCase()).filter(Boolean))
+  const memberCodes = redeemedCodes(members)
   return data.registrationsWithoutCode + data.registrationCodes.filter((code) => !memberCodes.has(code)).length
 }

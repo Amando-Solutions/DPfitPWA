@@ -7,10 +7,9 @@ import { APP_NAME, EQUIPMENT, NEXT_STEPS, TRAINING_SPLIT } from '~/data/landing'
  *
  * The form records the registration (`POST /api/register`), which answers with
  * a Selar checkout URL. Payment happens on Selar's own page, so the moment the
- * URL is in hand this card turns into the design's "one last step" panel and
- * the browser leaves for Selar — the panel's own link is there for anyone
- * whose navigation is slow or blocked. What happens after payment belongs to
- * `pages/registration/complete.vue`.
+ * URL is in hand the browser leaves for it, with the form still locked and its
+ * button reading "taking you to payment…" until Selar loads. What happens
+ * after payment belongs to `pages/registration/complete.vue`.
  *
  * Nothing about the access code passes through this component. It is minted
  * when Selar reports the sale, emailed, and never shown to the browser.
@@ -121,14 +120,21 @@ const otherFields = FIELDS.slice(2)
 const errors = reactive<Partial<Record<FieldName, string>>>({})
 const attempted = ref(false)
 
-/** In flight, and stays true once a checkout URL is in hand. */
+/** In flight, and stays true while the browser is on its way to Selar. */
 const submitting = ref(false)
-/** The Selar URL, once the registration is recorded. Swaps the card's contents. */
-const checkoutUrl = ref<string | null>(null)
 const failure = ref('')
 
 /** True while the timezone is still the one the browser guessed. */
 const tzDetected = ref(false)
+
+/**
+ * Back from Selar can restore this page from the back/forward cache exactly as
+ * it was left: locked, and still saying it is taking somebody to payment.
+ * Whoever comes back has chosen not to pay yet, so the form is theirs again.
+ */
+function onPageShow(event: PageTransitionEvent) {
+  if (event.persisted) submitting.value = false
+}
 
 onMounted(() => {
   // On mount rather than in the initial state: a zone resolved during SSR is
@@ -137,7 +143,10 @@ onMounted(() => {
     form.timezone = detectTimezone()
     tzDetected.value = Boolean(form.timezone)
   }
+  window.addEventListener('pageshow', onPageShow)
 })
+
+onBeforeUnmount(() => window.removeEventListener('pageshow', onPageShow))
 
 const open = computed(() => Boolean(challenge.value?.registrationOpen && rawPrice.value))
 
@@ -187,7 +196,7 @@ const failureMessage = (cause: unknown) => {
 }
 
 async function onSubmit() {
-  if (submitting.value || checkoutUrl.value || !open.value || !challenge.value || !rawPrice.value) return
+  if (submitting.value || !open.value || !challenge.value || !rawPrice.value) return
 
   attempted.value = true
   failure.value = ''
@@ -211,7 +220,6 @@ async function onSubmit() {
     })
 
     emit('submit', { ...form })
-    checkoutUrl.value = result.checkoutUrl
     // `assign`, not `replace`: Back from Selar should land on this page.
     window.location.assign(result.checkoutUrl)
   } catch (cause) {
@@ -287,7 +295,7 @@ const inputClass = (name: FieldName) => [
       <div
         class="lp-reveal rounded-[28px] border border-lp-edge bg-white p-[clamp(24px,4vw,40px)] shadow-[0_30px_60px_-40px_rgba(29,22,40,0.25)]"
       >
-        <form v-if="!checkoutUrl" novalidate class="flex flex-col gap-5" @submit.prevent="onSubmit">
+        <form novalidate class="flex flex-col gap-5" @submit.prevent="onSubmit">
           <!-- `inert` while the request is out: the answers are read once, and
                a field still taking input after that would let somebody "fix"
                an email that is no longer going anywhere. -->
@@ -407,18 +415,6 @@ const inputClass = (name: FieldName) => [
             {{ failure }}
           </p>
         </form>
-
-        <div v-else role="status" class="flex flex-col gap-4.5 py-4">
-          <span class="lp-eyebrow">almost there</span>
-          <h3 class="m-0 text-[30px] leading-[1.1] font-medium tracking-[-0.02em] sm:text-[34px]">
-            one last step<template v-if="form.firstName.trim()">, <span class="serif-accent">{{ form.firstName.trim() }}</span></template>.
-          </h3>
-          <p class="m-0 text-[15px] leading-[1.65] text-lp-soft">
-            Complete your payment on Selar to secure your slot. Once it's done,
-            your next steps and app access details are sent to your email.
-          </p>
-          <CtaButton :href="checkoutUrl" class="self-start">continue to selar ↗</CtaButton>
-        </div>
       </div>
     </div>
   </section>

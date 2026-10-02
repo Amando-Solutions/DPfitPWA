@@ -6,13 +6,22 @@
  * Deployment metadata, read at build time to make absolute share-card URLs.
  * Cohort and offer content is fetched separately at request time.
  *
- * Unset, the tags fall back to site-relative paths. Most scrapers resolve
- * those against the page they found them on and the card still renders, but
- * the spec asks for absolute and some of them hold it to that — so set
- * `NUXT_PUBLIC_SITE_URL` in production.
+ * Unset, a Vercel build falls back to the project's production domain, which
+ * Vercel hands every build as `VERCEL_PROJECT_PRODUCTION_URL` (bare host, no
+ * scheme). Anywhere else the tags fall back to site-relative paths. Most
+ * scrapers resolve those against the page they found them on, but Facebook and
+ * LinkedIn hold the spec to its word and drop a relative image — so set
+ * `NUXT_PUBLIC_SITE_URL` whenever the custom domain is not the one Vercel picks.
  */
-const siteUrl = (process.env.NUXT_PUBLIC_SITE_URL || '').replace(/\/+$/, '')
+const vercelHost = process.env.VERCEL_PROJECT_PRODUCTION_URL
+const siteUrl = (
+  process.env.NUXT_PUBLIC_SITE_URL || (vercelHost ? `https://${vercelHost}` : '')
+).replace(/\/+$/, '')
 const absolute = (path: string) => `${siteUrl}${path}`
+
+const OG_IMAGE = '/og/card.png'
+const OG_IMAGE_ALT =
+  'The DP Fitness Body Recomp Challenge page: a 6-week coaching challenge for women to build muscle and lose fat at the same time.'
 
 export default defineNuxtConfig({
   // Same design system as the member app in `apps/pwa`: tokens, type ramp,
@@ -214,16 +223,30 @@ export default defineNuxtConfig({
          * slot and then has nothing to put in it, so every shared link
          * unfurled to a blank rectangle.
          *
-         * `/brand/og.png` comes from the shared layer like the rest of the
-         * artwork. The dimensions are stated because a scraper that knows the
-         * size up front can lay the card out without fetching the image first.
+         * `/og/card.png` is this site's own card: the landing page's opening
+         * screen, rendered by `scripts/generate-og-image.mjs` from a running
+         * copy of the site, without the countdown or the row of cohort dates,
+         * which a card cached for weeks would carry past their cohort. Rerun
+         * that script after changing the hero rather than editing the PNG.
+         * It is 1200 x 630, the 1.91:1 every platform lays a large card out
+         * at, so none of them crops it differently. It is kept a PNG for the
+         * type and well under WhatsApp's ~300KB ceiling, past which WhatsApp
+         * unfurls the link with no image at all. The dimensions are stated
+         * because a scraper that knows the size up front can lay the card out
+         * without fetching the image first.
+         *
+         * Scrapers cache the image by URL, for weeks in Facebook's and
+         * WhatsApp's case, so a new card wants a new filename, not the old one
+         * overwritten.
          */
         { name: 'twitter:card', content: 'summary_large_image' },
-        { property: 'og:image', content: absolute('/brand/og.png') },
+        { property: 'og:image', content: absolute(OG_IMAGE) },
+        { property: 'og:image:type', content: 'image/png' },
         { property: 'og:image:width', content: '1200' },
         { property: 'og:image:height', content: '630' },
-        { property: 'og:image:alt', content: 'DP Fitness' },
-        { name: 'twitter:image', content: absolute('/brand/og.png') },
+        { property: 'og:image:alt', content: OG_IMAGE_ALT },
+        { name: 'twitter:image', content: absolute(OG_IMAGE) },
+        { name: 'twitter:image:alt', content: OG_IMAGE_ALT },
         { property: 'og:site_name', content: 'DP Fitness' },
         // Only when the origin is actually known: a relative `og:url` is
         // meaningless, where a relative `og:image` at least resolves.

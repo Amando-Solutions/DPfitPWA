@@ -9,6 +9,7 @@ import {
   serverTimestamp,
   Timestamp,
   updateDoc,
+  writeBatch,
   type Unsubscribe,
 } from "firebase/firestore"
 import { httpsCallable } from "firebase/functions"
@@ -30,16 +31,38 @@ export type AccessCodeRecord = {
   status: StoredCodeStatus
   createdAt: Date
   expiresAt: Date
+  /** Who may redeem it. `null` only on codes from before every code had one. */
+  issuedToEmail: string | null
   claimedByName: string | null
+  /** The program it gives the member who redeems it, pinned when it was issued. `null` on codes from before every code had one. */
+  programId: string | null
 }
 
-type GenerateAccessCodesInput = {
-  quantity: number
+export type IssueAccessCodeInput = {
   cohortId: string
+  /** Whole days, 1–365: how long it can be redeemed. */
   expiryDays: number
+  /** The only address that can redeem it. */
+  email: string
+  /** Copied into the member's profile. Optional, but it's how the coach reaches them. */
+  whatsapp: string
+}
+
+/** What `createAccessCode` in `apps/functions` resolves to. */
+export type IssuedAccessCode = {
+  code: string
+  /** The email already held a live code for this cohort, and this is it. */
+  reused: boolean
+  database: string
+  cohortId: string
+  cohortName: string
+  issuedToEmail: string
+  /** ISO 8601. */
+  expiresAt: string
 }
 
 const ACCESS_CODE_LIMIT = 200
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 function requireDatabase() {
   if (!firebaseDb) {
@@ -53,8 +76,13 @@ function readDate(value: unknown) {
   return value instanceof Timestamp ? value.toDate() : new Date(0)
 }
 
-export function effectiveCodeStatus(record: AccessCodeRecord): CodeStatus {
-  if (record.status === "unused" && record.expiresAt.getTime() <= Date.now()) {
+/**
+ * The status to show. An unused code reads as expired once its redeem-by date
+ * passes, and once its cohort is over: it would still redeem, but only onto the
+ * ended screen.
+ */
+export function effectiveCodeStatus(record: AccessCodeRecord, cohortEnded = false): CodeStatus {
+  if (record.status === "unused" && (cohortEnded || record.expiresAt.getTime() <= Date.now())) {
     return "expired"
   }
 
@@ -94,8 +122,12 @@ export function subscribeToAccessCodes(
           status: data.status as StoredCodeStatus,
           createdAt: readDate(data.createdAt),
           expiresAt: readDate(data.expiresAt),
+          issuedToEmail:
+            typeof data.issuedToEmail === "string" && data.issuedToEmail ? data.issuedToEmail : null,
           claimedByName:
             typeof data.claimedByName === "string" ? data.claimedByName : null,
+          programId:
+            typeof data.programId === "string" && data.programId ? data.programId : null,
         } satisfies AccessCodeRecord
       })
 
@@ -105,51 +137,54 @@ export function subscribeToAccessCodes(
   )
 }
 
-export async function generateAccessCodes({
-  quantity,
-  cohortId,
-  expiryDays,
-}: GenerateAccessCodesInput) {
+/**
+ * Issue one code to one person through `createAccessCode`, the only writer of
+ * codes. If the email already holds a live code for the cohort, that code comes
+ * back with `reused: true` instead of a second one. Nothing is sent: the code
+ * reaches the person only if the admin passes it on.
+ */
+export async function issueAccessCode({ cohortId, expiryDays, email, whatsapp }: IssueAccessCodeInput) {
   if (!firebaseFunctions) throw new Error("Firebase Functions is not configured.")
 
-  const safeQuantity = Math.min(20, Math.max(1, Math.trunc(quantity)))
+  const address = email.trim().toLowerCase()
+  if (!EMAIL.test(address)) throw new Error("Enter the email address the person will sign up with.")
+
   const createAccessCode = httpsCallable<
-    {
-      database: string
-      cohortId: string
-      expiryDays: number
-      quantity: number
-    },
-    { codes: string[] }
+    { database: string; cohortId: string; expiryDays: number; email: string; whatsapp?: string },
+    IssuedAccessCode
   >(firebaseFunctions, "createAccessCode")
 
+  const number = whatsapp.trim()
   const result = await createAccessCode({
     database: firebaseDatabaseId,
     cohortId,
     expiryDays,
-    quantity: safeQuantity,
+    email: address,
+    ...(number ? { whatsapp: number } : {}),
   })
-
-  if (
-    !Array.isArray(result.data.codes) ||
-    result.data.codes.length !== safeQuantity
-  ) {
-    throw new Error(
-      "The access-code service returned an incompatible response. Deploy the shared function before using batch generation.",
-    )
-  }
-
-  return result.data.codes
+  return result.data
 }
+
+/** The only fields a revoke writes: the rules let the coach change anything on a code. */
+const revoked = (user: User) => ({
+  status: "revoked",
+  revokedAt: serverTimestamp(),
+  updatedAt: serverTimestamp(),
+  updatedByUid: user.uid,
+  updatedByEmail: user.email ?? "",
+})
 
 export async function revokeAccessCode(codeId: string, user: User) {
   const database = requireDatabase()
+  await updateDoc(doc(database, "accessCodes", codeId), revoked(user))
+}
 
-  await updateDoc(doc(database, "accessCodes", codeId), {
-    status: "revoked",
-    revokedAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-    updatedByUid: user.uid,
-    updatedByEmail: user.email ?? "",
-  })
+/** Revoke several codes together, all or none. At most 500, one batch's worth. */
+export async function revokeAccessCodes(codeIds: string[], user: User) {
+  if (codeIds.length === 0) return
+  if (codeIds.length > 500) throw new Error("Revoke at most 500 codes at a time.")
+  const database = requireDatabase()
+  const batch = writeBatch(database)
+  for (const codeId of codeIds) batch.update(doc(database, "accessCodes", codeId), revoked(user))
+  await batch.commit()
 }

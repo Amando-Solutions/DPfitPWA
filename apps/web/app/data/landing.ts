@@ -31,7 +31,7 @@ export const NAV_LINKS: NavLink[] = [
 ]
 
 /** Social proof beside the hero buttons. */
-export const PROOF = { strong: '500+ women', rest: 'coached since 2024' }
+export const PROOF = { strong: '100+ women', rest: 'coached since 2024' }
 
 /**
  * PLACEHOLDER: stock portraits for the avatar stack beside `PROOF`, until there
@@ -183,10 +183,10 @@ export const NOT_FOR_YOU: string[] = [
 export const COACH = {
   first: 'Dayo',
   last: 'Pius',
-  bio: 'Dayo has been training since 2023 and has coached over 500 women since 2024. Her approach is simple: science-based training, research-proven methods and no gimmicks. Programs that fit real lives and build results you keep.',
+  bio: 'Dayo has been training since 2023 and has coached over 100 women since 2024. Her approach is simple: science-based training, research-proven methods and no gimmicks. Programs that fit real lives and build results you keep.',
   stats: [
     { value: '3+ years', caption: 'Training, since 2023' },
-    { value: '500+', caption: 'Women coached since 2024' },
+    { value: '100+', caption: 'Women coached since 2024' },
   ],
 }
 

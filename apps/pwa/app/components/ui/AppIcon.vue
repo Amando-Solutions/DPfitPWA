@@ -90,6 +90,9 @@ const fallbacks: Record<string, string> = {
   minus: '<path d="M5 12h14"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
   check: '<path d="M5 13l4 4L19 7"/>',
+  // The same two sheets as `copy-*.png` in `packages/theme/public/brand/`, so
+  // the icon in the access-code email and the button it leads to match.
+  copy: '<rect x="8.5" y="8.5" width="12.5" height="12.5" rx="2.2"/><path d="M15.5 8.5V5.2A2.2 2.2 0 0 0 13.3 3H5.2A2.2 2.2 0 0 0 3 5.2v8.1a2.2 2.2 0 0 0 2.2 2.2h3.3"/>',
   settings:
     '<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
@@ -110,6 +113,8 @@ const fallbacks: Record<string, string> = {
   phone:
     '<path d="M5 4h4l1.5 4-2 1.5a11 11 0 0 0 6 6l1.5-2 4 1.5V19a2 2 0 0 1-2 2A16 16 0 0 1 4 6a2 2 0 0 1 1-2Z"/>',
   edit: '<path d="M4 20h4L18 10l-4-4L4 16v4Z"/><path d="M13.5 6.5l4 4"/>',
+  trash:
+    '<path d="M4 7h16M10 11v6M14 11v6"/><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/><path d="M9 7V4h6v3"/>',
   heart:
     '<path d="M12 20s-7-4.5-7-9.5A3.5 3.5 0 0 1 12 8a3.5 3.5 0 0 1 7 2.5c0 5-7 9.5-7 9.5Z"/>',
   star: '<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9L3.5 9.7l5.9-.9L12 3.5Z"/>',

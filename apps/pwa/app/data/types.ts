@@ -294,7 +294,11 @@ export interface LiveCall {
 
 export interface CohortDoc extends Audited {
   name: string
-  status: 'draft' | 'active' | 'archived'
+  /**
+   * `completed` is written once the last day has passed (`completeCohorts` in
+   * `apps/functions`), and only one cohort is `active` at a time.
+   */
+  status: 'draft' | 'active' | 'completed' | 'archived'
   /** Public website offer. Missing fields may use configured environment fallbacks. */
   registration?: {
     amountMinor: number
@@ -734,10 +738,18 @@ export interface MemberDoc extends UpdatedBy {
   cohortName: string
   programId: string
   programVersion: number
-  /** The code they redeemed. One member, one code. */
+  /** The code that put them in this cohort. Each cohort they join has its own. */
   accessCode: string
   /** When the challenge clock starts for this member. */
   joinedAt: Timestamp
+  /**
+   * Every cohort the member was in before this one, by cohort id, with the
+   * stats each ended on. A member can belong to several cohorts and appears in
+   * each one's results, but trains in one at a time: the fields above are the
+   * active one. Written only by the `joinCohort` function as they join
+   * another; the rules refuse it from a client. See `PreviousCohort`.
+   */
+  previousCohorts?: Record<string, PreviousCohort>
   /**
    * Absent until the member picks one at setup, and on every membership from
    * before regions existed. Absent reads as the cohort's own zone — WAT — which
@@ -751,6 +763,28 @@ export interface MemberDoc extends UpdatedBy {
 }
 
 export type Member = WithId<MemberDoc>
+
+/**
+ * A membership the member has moved on from: `MemberDoc.previousCohorts`.
+ *
+ * Their part in it is over — the cohort finished, or was still running when
+ * they joined another, which ends it for them early. Its logs stay on the
+ * account, tagged with its `cohortId`. Mirrored by `PreviousCohort` in
+ * `apps/functions/src/memberships.ts`.
+ */
+export interface PreviousCohort {
+  cohortId: string
+  cohortName: string
+  accessCode: string
+  programId: string
+  programVersion: number
+  joinedAt: Timestamp | null
+  leftAt: Timestamp
+  status: 'completed'
+  /** The cohort was still running when they joined another. */
+  leftEarly: boolean
+  stats: MemberStats
+}
 
 // --- Lifecycle events -------------- `members/{uid}/lifecycleEvents/{eventId}`
 //
@@ -851,6 +885,13 @@ export interface StoredImage {
  * two finishes racing. Sessions from before have random ids.
  */
 export interface SessionLogDoc {
+  /**
+   * The cohort it was logged in. A member keeps every cohort's logs and the
+   * app reads only the active one's; see `ofCohort` in the data source. Absent
+   * on logs from before the field, which belong to the cohort the member was
+   * in then.
+   */
+  cohortId?: string
   /** The `days` document this session was logged against. Shared across weeks. */
   dayId: string
   dayNumber: number
@@ -944,6 +985,13 @@ export type ActiveSession = WithId<ActiveSessionDoc>
 export type TrainingFeel = 'too-easy' | 'just-right' | 'too-hard'
 
 export interface CheckInDoc {
+  /**
+   * The cohort it was logged in. A member keeps every cohort's logs and the
+   * app reads only the active one's; see `ofCohort` in the data source. Absent
+   * on logs from before the field, which belong to the cohort the member was
+   * in then.
+   */
+  cohortId?: string
   weekNumber: number
   submittedAt: Timestamp
   /** Sessions they say they completed: their count, not ours. */
@@ -969,6 +1017,13 @@ export type CheckIn = WithId<CheckInDoc>
 export type PhotoPose = 'front' | 'side' | 'back'
 
 export interface ProgressPhotoDoc {
+  /**
+   * The cohort it was logged in. A member keeps every cohort's logs and the
+   * app reads only the active one's; see `ofCohort` in the data source. Absent
+   * on logs from before the field, which belong to the cohort the member was
+   * in then.
+   */
+  cohortId?: string
   weekNumber: number
   pose: PhotoPose
   image: StoredImage
@@ -980,8 +1035,16 @@ export type ProgressPhoto = WithId<ProgressPhotoDoc>
 // --- Badges ------------------------------- `members/{uid}/badges/{badgeId}` -
 //
 // Keyed by badge id, so awarding twice is a no-op write rather than a duplicate.
+// A cohort the member has left keeps its badges at `{cohortId}~{badgeId}`.
 
 export interface EarnedBadgeDoc {
+  /**
+   * The cohort it was logged in. A member keeps every cohort's logs and the
+   * app reads only the active one's; see `ofCohort` in the data source. Absent
+   * on logs from before the field, which belong to the cohort the member was
+   * in then.
+   */
+  cohortId?: string
   badgeId: BadgeRuleId
   earnedAt: Timestamp
   /** RP this badge paid out, at the tier rate in force when it was earned. */

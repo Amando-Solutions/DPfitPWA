@@ -116,7 +116,12 @@ export const cohortWeekAt = (weeks: DatedWeek[], at: Date, cohortZone: string): 
   weekAt(weeks, dateKeyIn(at, cohortZone))?.weekNumber ?? 1
 
 /**
- * Whether a cohort is over: archived, or past the last day its `endDate` names.
+ * Whether a cohort is over: `completed` or `archived`, or past the last day its
+ * `endDate` names.
+ *
+ * `completed` is what `completeCohorts` writes once the last day has passed, so
+ * the date says the same thing a moment earlier; it is read here so a cohort
+ * marked by hand is over too.
  *
  * `endDate` is read as a day on the cohort's calendar, the way `startDate` is:
  * the cohort runs to the end of that day and closes at the midnight after it,
@@ -135,7 +140,7 @@ export const cohortOver = (
   cohort: { status?: unknown; endDate?: unknown; timezone?: unknown },
   now: Date,
 ): boolean => {
-  if (cohort.status === 'archived') return true
+  if (cohort.status === 'archived' || cohort.status === 'completed') return true
   const end = instantOf(cohort.endDate)
   if (!end) return false
   const zone = cohortZoneOf(cohort.timezone)

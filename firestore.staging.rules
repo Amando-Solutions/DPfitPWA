@@ -207,7 +207,7 @@ service cloud.firestore {
     }
 
     /**
-     * Whether the cohort is still running: not archived, and not past the last
+     * Whether the cohort is still running: not completed or archived, and not past the last
      * day its `endDate` names.
      *
      * Once it is over a member can still read, because the ended screen shows
@@ -244,7 +244,7 @@ service cloud.firestore {
      * `null + duration` even behind the `is timestamp` check that rules it out.
      */
     function cohortStillOn(cohort) {
-      return cohort.get('status', '') != 'archived'
+      return !(cohort.get('status', '') in ['archived', 'completed'])
         && !(cohort.get('endDate', null) is timestamp
              && request.time >= cohort.endDate + duration.value(1, 'd'));
     }
@@ -777,10 +777,23 @@ service cloud.firestore {
           );
       }
 
+      // An archived cohort is frozen but for one write: the admin's "Reopen
+      // cohort". It goes back to active (draft with no program) and clears
+      // `archivedAt`. A cohort past its last day may get a later one in the
+      // same write, or its members stay on "Your cohort has ended".
+      function isReopen() {
+        return request.resource.data.status in ['draft', 'active']
+          && request.resource.data.get('archivedAt', null) == null
+          && changed().hasOnly([
+            'status', 'archivedAt', 'endDate', 'updatedAt', 'updatedByUid', 'updatedByEmail'
+          ])
+          && (!changed().hasAny(['endDate']) || request.resource.data.endDate is timestamp);
+      }
+
       allow create: if isOperator();
       allow update: if isOperator()
-        && resource.data.status != 'archived'
-        && request.resource.data.status in ['draft', 'active', 'archived']
+        && (resource.data.status != 'archived' || isReopen())
+        && request.resource.data.status in ['draft', 'active', 'completed', 'archived']
         && keepsActiveProgramPin()
         && hasOperatorUpdateAudit();
       allow delete: if isOperator()
@@ -1063,6 +1076,8 @@ service cloud.firestore {
         && request.resource.data.stats.sessionsQualified == 0
         // A region's floor is `setRegion`'s to stamp.
         && !('region' in request.resource.data)
+        // Cohorts already finished are `joinCohort`'s to record.
+        && !('previousCohorts' in request.resource.data)
         // The membership and claim are one transaction, including rebuilds
         // where the code was already claimed by this uid.
         && code.data.status == 'claimed'
@@ -1095,6 +1110,9 @@ service cloud.firestore {
         // region change forward-only.
         && request.resource.data.get('region', null)
              == resource.data.get('region', null)
+        // Written only by `joinCohort`, as the member joins another cohort.
+        && request.resource.data.get('previousCohorts', null)
+             == resource.data.get('previousCohorts', null)
         && (request.resource.data.status == resource.data.status
             || (resource.data.status == 'onboarding'
                 && request.resource.data.status == 'active'))

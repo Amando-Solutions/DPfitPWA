@@ -21,6 +21,14 @@
 //                    Nothing is sent when a call is scheduled. See
 //                    `live-call-reminders.ts`.
 //
+// joinCohort         An access code redeemed by somebody who already has a
+//                    membership. Its cohort becomes the active one; the one
+//                    they were in stays theirs, in its results, and ends early
+//                    for them if it is still running. See `memberships.ts`.
+//
+// completeCohorts    Every 15 minutes. Marks an active cohort `completed` once
+//                    its last day has passed. See `cohort-status.ts`.
+//
 // setRegion, logSession, submitCheckIn, logPhoto
 //                    The member writes locked to a day or a week. The day is
 //                    the server's time in the member's stored region; the week
@@ -42,8 +50,10 @@ import {
   setRegionHandler,
   submitCheckInHandler,
 } from './member-writes.js'
+import { joinCohortHandler } from './memberships.js'
 import { clonePublishedProgram } from './programs.js'
 import { pushCohortMessage, pushCohortNotification } from './push.js'
+export { completeCohorts } from './cohort-status.js'
 export { remindLiveCalls } from './live-call-reminders.js'
 export { releasePreorderCodes } from './release.js'
 
@@ -73,8 +83,14 @@ setGlobalOptions({ region: REGION, maxInstances: 10 })
  * `expiryDays` from now if it would end sooner.
  *
  * Refuses with `unauthenticated`, `permission-denied`, `invalid-argument`,
- * `failed-precondition` (the cohort is missing, archived or has no program) or
- * `aborted` (no free code after four draws).
+ * `failed-precondition` (the cohort is missing, completed, archived or has no program; or,
+ * from the console, the address belongs to a member whose cohort is still
+ * running) or `aborted` (no free code after four draws).
+ *
+ * The landing site is not asked the enrolment question here. It asks before
+ * the buyer pays (`register.post.ts`), and a code it requests now is for a sale
+ * that has been paid: refusing it would strand the money, and `joinCohort`
+ * takes the member in whenever they redeem it.
  *
  * From the admin console:
  *
@@ -84,7 +100,9 @@ export const createAccessCode = onCall(async (request): Promise<CreateAccessCode
   const caller = await identifyCaller(request)
   const input = readInput(request.data)
   const batchId = `${caller.batchPrefix}-${new Date().toISOString().slice(0, 7)}`
-  return mintAccessCode(input, caller.actor, batchId)
+  return mintAccessCode(input, caller.actor, batchId, {
+    checkEnrolment: caller.batchPrefix === 'console',
+  })
 })
 
 /**
@@ -101,6 +119,7 @@ export const setRegion = onCall(setRegionHandler)
 export const logSession = onCall(logSessionHandler)
 export const submitCheckIn = onCall(submitCheckInHandler)
 export const logPhoto = onCall(logPhotoHandler)
+export const joinCohort = onCall(joinCohortHandler)
 
 // --- Push -------------------------------------------------------------------
 // Staging gets its own pair so the whole path can be tried there first: a

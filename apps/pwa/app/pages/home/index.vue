@@ -102,11 +102,15 @@ const doneThisWeek = computed(
   () => store.days.value.filter((d) => d.status === 'completed').length,
 )
 
-// The latest thing the coach said, surfaced on Home.
+// The latest thing the coach said, surfaced on Home. One document — see
+// `getLatestCoachMessage`. A failed read leaves the card off; Home is the
+// screen everybody opens, and a missing coach note is no reason to show an error.
 const coachNote = ref<ChatMessageView | null>(null)
 onMounted(async () => {
-  const messages = await data.listMessages('cohort')
-  coachNote.value = [...messages].reverse().find((m) => m.isCoach) ?? null
+  coachNote.value = await data.getLatestCoachMessage('cohort').catch((cause) => {
+    console.warn('[home] the coach note could not be read', cause)
+    return null
+  })
 })
 
 const CARD = 'rounded-card bg-raised p-4'
