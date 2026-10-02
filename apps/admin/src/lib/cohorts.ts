@@ -19,8 +19,10 @@ import {
   dayIn,
   DEFAULT_TIMEZONE,
   formatDayKey,
+  instantOfLocal,
   isDayKey,
   lastDayOf,
+  localDateTimeIn,
   startOfDay,
   type DayKey,
 } from "@/lib/cohort-calendar"
@@ -34,6 +36,20 @@ export type CohortCoach = {
   name: string
   title: string
   avatarUrl: string
+}
+
+/**
+ * The landing site's offer for a cohort, `cohorts/{id}.registration`. `null` is
+ * a field the cohort doesn't set, where the landing site falls back to its own
+ * environment (FIREBASE.md → "Firestore setup").
+ */
+export type CohortRegistration = {
+  amountMinor: number | null
+  currency: string | null
+  codeTtlDays: number | null
+  /** Seats are sold only between these two. Both or neither. */
+  preorderStartsAt: Date | null
+  preorderEndsAt: Date | null
 }
 
 export type CohortRecord = {
@@ -53,15 +69,34 @@ export type CohortRecord = {
   programName: string | null
   programVersion: number | null
   coach: CohortCoach | null
+  registration: CohortRegistration
   leaderboardVisible: boolean
   leaderboardRevealWeek: number
   createdAt: Date
 }
 
+export type CohortCoachInput = {
+  name: string
+  title: string
+  avatarUrl: string
+}
+
+/**
+ * The offer as its form holds it: the price in major units (naira, not kobo),
+ * and each end of the pre-order as a `datetime-local` value on the cohort's
+ * clock. An empty field is one the cohort doesn't set.
+ */
+export type CohortRegistrationInput = {
+  price: string
+  currency: string
+  codeTtlDays: string
+  preorderStartsAt: string
+  preorderEndsAt: string
+}
+
 export type CohortExperienceInput = {
-  coachName: string
-  coachTitle: string
-  coachAvatarUrl: string
+  coach: CohortCoachInput
+  registration: CohortRegistrationInput
   leaderboardVisible: boolean
   leaderboardRevealWeek: number
 }
@@ -73,6 +108,8 @@ type CreateCohortInput = {
   startDay: DayKey
   durationWeeks: number
   program: ProgramRecord
+  coach: CohortCoachInput
+  registration: CohortRegistrationInput
   user: User
 }
 
@@ -89,6 +126,105 @@ function requireDatabase() {
 
 function readDate(value: unknown) {
   return value instanceof Timestamp ? value.toDate() : new Date(0)
+}
+
+const CURRENCY = /^[A-Z]{3}$/
+
+/** Minor units to the major one: 100 kobo to the naira. Mirrors `currencyScale` in apps/web. */
+export const currencyScale = (currency: string) =>
+  10 ** (new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions().maximumFractionDigits ?? 2)
+
+/** A price in minor units as the landing page shows it, such as "₦30,000.00". */
+export const formatPrice = (amountMinor: number, currency: string) =>
+  new Intl.NumberFormat("en-NG", { style: "currency", currency }).format(amountMinor / currencyScale(currency))
+
+function readRegistration(value: unknown): CohortRegistration {
+  const data = value && typeof value === "object" ? value as Record<string, unknown> : {}
+  return {
+    amountMinor: Number.isSafeInteger(data.amountMinor) ? data.amountMinor as number : null,
+    currency: typeof data.currency === "string" && CURRENCY.test(data.currency) ? data.currency : null,
+    codeTtlDays: Number.isInteger(data.codeTtlDays) ? data.codeTtlDays as number : null,
+    preorderStartsAt: data.preorderStartsAt instanceof Timestamp ? data.preorderStartsAt.toDate() : null,
+    preorderEndsAt: data.preorderEndsAt instanceof Timestamp ? data.preorderEndsAt.toDate() : null,
+  }
+}
+
+/** A cohort's offer as its form holds it, with the pre-order on the cohort's clock. */
+export function registrationInputOf(registration: CohortRegistration, zone: string): CohortRegistrationInput {
+  const { amountMinor, currency, codeTtlDays, preorderStartsAt, preorderEndsAt } = registration
+  return {
+    price: amountMinor === null ? "" : String(amountMinor / currencyScale(currency ?? "NGN")),
+    currency: currency ?? "",
+    codeTtlDays: codeTtlDays === null ? "" : String(codeTtlDays),
+    preorderStartsAt: preorderStartsAt ? localDateTimeIn(preorderStartsAt, zone) : "",
+    preorderEndsAt: preorderEndsAt ? localDateTimeIn(preorderEndsAt, zone) : "",
+  }
+}
+
+/**
+ * `registration` as the landing site reads it (`readRegistration` and
+ * `preorderWindow` in apps/web), from its form. Throws on anything the site
+ * would refuse, rather than saving an offer that quietly closes checkout.
+ * Empty fields are left out, so the site's fallback applies to them.
+ */
+function registrationFrom(input: CohortRegistrationInput, zone: string) {
+  const registration: Record<string, unknown> = {}
+  const currency = input.currency.trim().toUpperCase()
+  const price = input.price.replace(/,/g, "").trim()
+  const days = input.codeTtlDays.trim()
+
+  if (currency) {
+    if (!CURRENCY.test(currency)) throw new Error("Enter the currency as a three-letter code, such as NGN.")
+    registration.currency = currency
+  }
+  if (price) {
+    if (!currency) throw new Error("Enter the currency the price is in.")
+    const amountMinor = Math.round(Number(price) * currencyScale(currency))
+    if (!Number.isSafeInteger(amountMinor) || amountMinor < 0) {
+      throw new Error("Enter the price as a number, such as 30000.")
+    }
+    registration.amountMinor = amountMinor
+  }
+  if (days) {
+    const codeTtlDays = Number(days)
+    if (!Number.isInteger(codeTtlDays) || codeTtlDays < 1 || codeTtlDays > 365) {
+      throw new Error("Codes must last a whole number of days, from 1 to 365.")
+    }
+    registration.codeTtlDays = codeTtlDays
+  }
+
+  const opens = input.preorderStartsAt.trim()
+  const closes = input.preorderEndsAt.trim()
+  if (opens || closes) {
+    if (!opens || !closes) throw new Error("Set both ends of the pre-order, or neither.")
+    const startsAt = instantOfLocal(opens, zone)
+    const endsAt = instantOfLocal(closes, zone)
+    if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) {
+      throw new Error("Choose a date and time for each end of the pre-order.")
+    }
+    if (endsAt.getTime() <= startsAt.getTime()) throw new Error("The pre-order must close after it opens.")
+    registration.preorderStartsAt = Timestamp.fromDate(startsAt)
+    registration.preorderEndsAt = Timestamp.fromDate(endsAt)
+  }
+  return registration
+}
+
+/** The coach members see on their private thread and in @mentions. */
+function coachFrom(input: CohortCoachInput, uid: string): CohortCoach {
+  const name = input.name.trim()
+  const title = input.title.trim()
+  const avatarUrl = input.avatarUrl.trim()
+
+  if (name.length < 2 || name.length > 80) {
+    throw new Error("Coach name must be between 2 and 80 characters.")
+  }
+  if (title.length < 2 || title.length > 80) {
+    throw new Error("Coach title must be between 2 and 80 characters.")
+  }
+  if (avatarUrl && !/^https:\/\//i.test(avatarUrl)) {
+    throw new Error("Coach avatar must use an HTTPS URL.")
+  }
+  return { uid, name, title, avatarUrl }
 }
 
 function readCoach(value: unknown): CohortCoach | null {
@@ -143,6 +279,7 @@ export function subscribeToCohorts(
             programVersion:
               typeof data.programVersion === "number" ? data.programVersion : null,
             coach: readCoach(data.coach),
+            registration: readRegistration(data.registration),
             leaderboardVisible: data.leaderboardVisible === true,
             leaderboardRevealWeek:
               typeof data.leaderboardRevealWeek === "number"
@@ -163,6 +300,8 @@ export async function createCohort({
   startDay,
   durationWeeks,
   program,
+  coach,
+  registration,
   user,
 }: CreateCohortInput) {
   const database = requireDatabase()
@@ -177,6 +316,11 @@ export async function createCohort({
   }
   if (safeDuration < 1 || safeDuration > 52) {
     throw new Error("Duration must be between 1 and 52 weeks.")
+  }
+  const offer = registrationFrom(registration, DEFAULT_TIMEZONE)
+  // A new cohort carries its own offer. Only older ones lean on the landing site's environment.
+  if (offer.amountMinor === undefined || offer.codeTtlDays === undefined) {
+    throw new Error("Enter the price, its currency and how long codes last.")
   }
 
   // Both dates are days on the cohort's calendar, stored as midnight at the
@@ -193,12 +337,8 @@ export async function createCohort({
     durationWeeks: safeDuration,
     timezone: DEFAULT_TIMEZONE,
     memberCount: 0,
-    coach: {
-      uid: user.uid,
-      name: "DP Fit Coach",
-      title: "Coach",
-      avatarUrl: "",
-    },
+    coach: coachFrom(coach, user.uid),
+    registration: offer,
     leaderboardVisible: false,
     leaderboardRevealWeek: 1,
     programId: program.id,
@@ -310,31 +450,17 @@ export async function saveCohortExperience(
     throw new Error("Archived cohorts cannot be changed.")
   }
 
-  const coachName = input.coachName.trim()
-  const coachTitle = input.coachTitle.trim()
-  const coachAvatarUrl = input.coachAvatarUrl.trim()
+  const coach = coachFrom(input.coach, cohort.coach?.uid || user.uid)
+  const registration = registrationFrom(input.registration, cohortZone(cohort.timezone))
   const revealWeek = Math.trunc(input.leaderboardRevealWeek)
 
-  if (coachName.length < 2 || coachName.length > 80) {
-    throw new Error("Coach name must be between 2 and 80 characters.")
-  }
-  if (coachTitle.length < 2 || coachTitle.length > 80) {
-    throw new Error("Coach title must be between 2 and 80 characters.")
-  }
-  if (coachAvatarUrl && !/^https:\/\//i.test(coachAvatarUrl)) {
-    throw new Error("Coach avatar must use an HTTPS URL.")
-  }
   if (!Number.isFinite(revealWeek) || revealWeek < 1 || revealWeek > cohort.durationWeeks) {
     throw new Error(`Leaderboard reveal week must be between 1 and ${cohort.durationWeeks}.`)
   }
 
   await updateDoc(doc(database, "cohorts", cohort.id), {
-    coach: {
-      uid: cohort.coach?.uid || user.uid,
-      name: coachName,
-      title: coachTitle,
-      avatarUrl: coachAvatarUrl,
-    },
+    coach,
+    registration,
     leaderboardVisible: input.leaderboardVisible,
     leaderboardRevealWeek: revealWeek,
     updatedAt: serverTimestamp(),

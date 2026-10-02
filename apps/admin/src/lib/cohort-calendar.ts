@@ -104,6 +104,15 @@ export function zonedInstant(day: DayKey, time: string, zone: string): Date {
   return new Date(wall - offsetAt(guess, zone))
 }
 
+/** `date` as a `datetime-local` field's value, `YYYY-MM-DDTHH:MM`, on `zone`'s clock. */
+export const localDateTimeIn = (date: Date, zone: string) => `${dayIn(date, zone)}T${timeIn(date, zone)}`
+
+/** The instant a `datetime-local` field's value names on `zone`'s clock, or an invalid `Date`. */
+export function instantOfLocal(value: string, zone: string): Date {
+  const [day = "", time = ""] = value.split("T")
+  return zonedInstant(day, time.slice(0, 5), zone)
+}
+
 /** Midnight at the start of `day` in `zone`: how a cohort stores `startDate` and `endDate`. */
 export const startOfDay = (day: DayKey, zone: string) => zonedInstant(day, "00:00", zone)
 

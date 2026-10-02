@@ -18,6 +18,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
+import { CohortCoachFields, CohortSalesFields } from "@/components/cohort-fields"
 import { DataTable } from "@/components/data-table/data-table"
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"
 import type { DataTableFeatures } from "@/components/data-table/data-table-features"
@@ -105,11 +106,14 @@ import {
   assignProgramToCohort,
   cohortInProgress,
   createCohort,
+  registrationInputOf,
   reopenCohort,
   saveCohortExperience,
   setCohortStatus,
+  type CohortCoachInput,
   type CohortExperienceInput,
   type CohortRecord,
+  type CohortRegistrationInput,
 } from "@/lib/cohorts"
 import type { ProgramRecord } from "@/lib/programs"
 
@@ -137,11 +141,28 @@ type EffectiveStatus = "draft" | "active" | "ended"
 const effectiveStatusOf = (cohort: CohortRecord, now: Date): EffectiveStatus =>
   cohortOver(cohort, now) ? "ended" : cohort.status === "active" ? "active" : "draft"
 
+const coachInputOf = (cohort: CohortRecord | undefined): CohortCoachInput => ({
+  name: cohort?.coach?.name || "DP Fit Coach",
+  title: cohort?.coach?.title || "Coach",
+  avatarUrl: cohort?.coach?.avatarUrl || "",
+})
+
+/** A new cohort's price and code lifetime start as the newest cohort's; its pre-order is its own. */
+function newOfferFrom(latest: CohortRecord | undefined): CohortRegistrationInput {
+  const offer = latest ? registrationInputOf(latest.registration, cohortZone(latest.timezone)) : null
+  return {
+    price: offer?.price ?? "",
+    currency: offer?.currency || "NGN",
+    codeTtlDays: offer?.codeTtlDays ?? "",
+    preorderStartsAt: "",
+    preorderEndsAt: "",
+  }
+}
+
 function experienceFormOf(cohort: CohortRecord): CohortExperienceInput {
   return {
-    coachName: cohort.coach?.name || "DP Fit Coach",
-    coachTitle: cohort.coach?.title || "Coach",
-    coachAvatarUrl: cohort.coach?.avatarUrl || "",
+    coach: coachInputOf(cohort),
+    registration: registrationInputOf(cohort.registration, cohortZone(cohort.timezone)),
     leaderboardVisible: cohort.leaderboardVisible,
     leaderboardRevealWeek: cohort.leaderboardRevealWeek,
   }
@@ -205,6 +226,9 @@ export function CohortsPage() {
   const [durationWeeks, setDurationWeeks] = useState("6")
   const [status, setStatus] = useState("active")
   const [selectedProgramId, setSelectedProgramId] = useState("")
+  // `null` until edited: the form shows the newest cohort's coach and offer, as they load.
+  const [coach, setCoach] = useState<CohortCoachInput | null>(null)
+  const [offer, setOffer] = useState<CohortRegistrationInput | null>(null)
   const [assignmentTarget, setAssignmentTarget] = useState<CohortRecord | null>(null)
   const [assignmentProgramId, setAssignmentProgramId] = useState("")
   const [archiveTarget, setArchiveTarget] = useState<CohortRecord | null>(null)
@@ -213,6 +237,8 @@ export function CohortsPage() {
   const [reopenLastDay, setReopenLastDay] = useState("")
   const [experienceTarget, setExperienceTarget] = useState<CohortRecord | null>(null)
   const [experienceForm, setExperienceForm] = useState<CohortExperienceInput | null>(null)
+  const coachValue = coach ?? coachInputOf(cohorts[0])
+  const offerValue = offer ?? newOfferFrom(cohorts[0])
   const effectiveProgramId = programs.some((program) => program.id === selectedProgramId)
     ? selectedProgramId
     : (programs[0]?.id ?? "")
@@ -226,6 +252,8 @@ export function CohortsPage() {
       setDurationWeeks("6")
       setStatus("active")
       setSelectedProgramId(programs[0]?.id ?? "")
+      setCoach(null)
+      setOffer(null)
       toast.success("Cohort created")
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Cohort could not be created."),
@@ -347,6 +375,8 @@ export function CohortsPage() {
       durationWeeks: Number.parseInt(durationWeeks, 10),
       status: status as "active" | "draft",
       program: selectedProgram,
+      coach: coachValue,
+      registration: offerValue,
       user,
     })
   }
@@ -524,7 +554,7 @@ export function CohortsPage() {
           <DialogTrigger render={<Button className="min-h-11 sm:min-h-8" disabled={!!singleCohortBlock} title={singleCohortBlock ?? undefined} />}>
             <PlusIcon data-icon="inline-start" /> Create cohort
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl">
             <form onSubmit={handleCreate} className="contents">
               <DialogHeader>
                 <DialogTitle>Create cohort</DialogTitle>
@@ -544,83 +574,95 @@ export function CohortsPage() {
                     className="h-11 sm:h-8"
                   />
                 </Field>
-                <Field data-disabled={isCreating || undefined}>
-                  <FieldLabel htmlFor="cohort-start-date">Start date</FieldLabel>
-                  <Input
-                    id="cohort-start-date"
-                    type="date"
-                    value={startDate}
-                    onChange={(event) => setStartDate(event.target.value)}
-                    disabled={isCreating}
-                    required
-                    className="h-11 sm:h-8"
-                  />
-                  <FieldDescription>
-                    {zoneLabel(DEFAULT_TIMEZONE)}.{lastDayPreview && <> Its last day is {lastDayPreview}; members are in until the end of it.</>}
-                  </FieldDescription>
-                </Field>
-                <Field data-disabled={isCreating || undefined}>
-                  <FieldLabel htmlFor="cohort-duration">Duration in weeks</FieldLabel>
-                  <Input
-                    id="cohort-duration"
-                    type="number"
-                    min="1"
-                    max="52"
-                    inputMode="numeric"
-                    value={durationWeeks}
-                    onChange={(event) => setDurationWeeks(event.target.value)}
-                    disabled={isCreating}
-                    required
-                    className="h-11 sm:h-8"
-                  />
-                </Field>
-                <Field data-disabled={isCreating || undefined}>
-                  <FieldLabel htmlFor="cohort-program">Program</FieldLabel>
-                  <Select
-                    items={programs.map((program) => ({
-                      label: `${program.name} · v${program.version}`,
-                      value: program.id,
-                    }))}
-                    value={effectiveProgramId}
-                    onValueChange={(value) => value && setSelectedProgramId(value)}
-                    disabled={isCreating || programs.length === 0}
-                  >
-                    <SelectTrigger id="cohort-program" className="h-11 w-full sm:h-8">
-                      <SelectValue placeholder="Select a published program" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {programs.map((program) => (
-                          <SelectItem key={program.id} value={program.id}>
-                            {program.name} · v{program.version}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <Field data-disabled={isCreating || undefined}>
-                  <FieldLabel htmlFor="cohort-status">Status</FieldLabel>
-                  <Select
-                    items={statusItems}
-                    value={status}
-                    onValueChange={(value) => value && setStatus(value)}
-                    disabled={isCreating}
-                  >
-                    <SelectTrigger id="cohort-status" className="h-11 w-full sm:h-8">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {statusItems.map((item) => (
-                          <SelectItem key={item.value} value={item.value}>
-                            {item.label}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </Field>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field data-disabled={isCreating || undefined}>
+                    <FieldLabel htmlFor="cohort-start-date">Start date</FieldLabel>
+                    <Input
+                      id="cohort-start-date"
+                      type="date"
+                      value={startDate}
+                      onChange={(event) => setStartDate(event.target.value)}
+                      disabled={isCreating}
+                      required
+                      className="h-11 sm:h-8"
+                    />
+                    <FieldDescription>
+                      {zoneLabel(DEFAULT_TIMEZONE)}.{lastDayPreview && <> Its last day is {lastDayPreview}; members are in until the end of it.</>}
+                    </FieldDescription>
+                  </Field>
+                  <Field data-disabled={isCreating || undefined}>
+                    <FieldLabel htmlFor="cohort-duration">Duration in weeks</FieldLabel>
+                    <Input
+                      id="cohort-duration"
+                      type="number"
+                      min="1"
+                      max="52"
+                      inputMode="numeric"
+                      value={durationWeeks}
+                      onChange={(event) => setDurationWeeks(event.target.value)}
+                      disabled={isCreating}
+                      required
+                      className="h-11 sm:h-8"
+                    />
+                  </Field>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field data-disabled={isCreating || undefined}>
+                    <FieldLabel htmlFor="cohort-program">Program</FieldLabel>
+                    <Select
+                      items={programs.map((program) => ({
+                        label: `${program.name} · v${program.version}`,
+                        value: program.id,
+                      }))}
+                      value={effectiveProgramId}
+                      onValueChange={(value) => value && setSelectedProgramId(value)}
+                      disabled={isCreating || programs.length === 0}
+                    >
+                      <SelectTrigger id="cohort-program" className="h-11 w-full sm:h-8">
+                        <SelectValue placeholder="Select a published program" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          {programs.map((program) => (
+                            <SelectItem key={program.id} value={program.id}>
+                              {program.name} · v{program.version}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field data-disabled={isCreating || undefined}>
+                    <FieldLabel htmlFor="cohort-status">Status</FieldLabel>
+                    <Select
+                      items={statusItems}
+                      value={status}
+                      onValueChange={(value) => value && setStatus(value)}
+                      disabled={isCreating}
+                    >
+                      <SelectTrigger id="cohort-status" className="h-11 w-full sm:h-8">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          {statusItems.map((item) => (
+                            <SelectItem key={item.value} value={item.value}>
+                              {item.label}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
+                <Card size="sm">
+                  <CardHeader><CardTitle>Sales</CardTitle><CardDescription>What the landing page sells this cohort for, and when.</CardDescription></CardHeader>
+                  <CardContent><CohortSalesFields id="cohort-sales" value={offerValue} onChange={setOffer} zone={DEFAULT_TIMEZONE} disabled={isCreating} required /></CardContent>
+                </Card>
+                <Card size="sm">
+                  <CardHeader><CardTitle>Coach identity</CardTitle><CardDescription>Shown in the member’s private coach conversation.</CardDescription></CardHeader>
+                  <CardContent><CohortCoachFields id="cohort-coach" value={coachValue} onChange={setCoach} disabled={isCreating} /></CardContent>
+                </Card>
               </FieldGroup>
               <DialogFooter>
                 <DialogClose render={<Button type="button" variant="outline" disabled={isCreating} />}>
@@ -795,13 +837,12 @@ export function CohortsPage() {
               <FieldGroup>
                 <Card size="sm">
                   <CardHeader><CardTitle>Coach identity</CardTitle><CardDescription>Shown in the member’s private coach conversation.</CardDescription></CardHeader>
-                  <CardContent><FieldGroup>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <Field data-disabled={isUpdating || undefined}><FieldLabel htmlFor="coach-name">Name</FieldLabel><Input id="coach-name" value={experienceForm.coachName} maxLength={80} disabled={isUpdating} required onChange={(event) => setExperienceForm((current) => current ? { ...current, coachName: event.target.value } : current)} /></Field>
-                      <Field data-disabled={isUpdating || undefined}><FieldLabel htmlFor="coach-title">Title</FieldLabel><Input id="coach-title" value={experienceForm.coachTitle} maxLength={80} disabled={isUpdating} required onChange={(event) => setExperienceForm((current) => current ? { ...current, coachTitle: event.target.value } : current)} /></Field>
-                    </div>
-                    <Field data-disabled={isUpdating || undefined}><FieldLabel htmlFor="coach-avatar">Avatar URL</FieldLabel><Input id="coach-avatar" type="url" value={experienceForm.coachAvatarUrl} maxLength={2048} disabled={isUpdating} placeholder="https://…" onChange={(event) => setExperienceForm((current) => current ? { ...current, coachAvatarUrl: event.target.value } : current)} /></Field>
-                  </FieldGroup></CardContent>
+                  <CardContent><CohortCoachFields id="coach" value={experienceForm.coach} disabled={isUpdating} onChange={(value) => setExperienceForm((current) => current ? { ...current, coach: value } : current)} /></CardContent>
+                </Card>
+
+                <Card size="sm">
+                  <CardHeader><CardTitle>Sales</CardTitle><CardDescription>What the landing page sells this cohort for, and when. Either pre-order date can move at any time.</CardDescription></CardHeader>
+                  <CardContent><CohortSalesFields id="sales" value={experienceForm.registration} zone={cohortZone(experienceTarget.timezone)} disabled={isUpdating} onChange={(value) => setExperienceForm((current) => current ? { ...current, registration: value } : current)} /></CardContent>
                 </Card>
 
                 <Card size="sm">

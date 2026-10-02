@@ -478,7 +478,7 @@ apps without a reload.
 | `status` | `'draft'` \| `'active'` \| `'archived'` | Website, member app (watched), rules, functions | Website selects the active cohort. `archived` ends the cohort at once for its members; see [Closing a cohort](#closing-a-cohort). Codes cannot be issued for archived cohorts. |
 | `startDate`, `endDate` | Timestamp | Member app (watched), rules, functions, scripts | Each names a **day** in the cohort's `timezone`; store midnight at the start of it. Training opens on `startDate`. The cohort runs to the end of `endDate` and closes at the midnight after it. The calendar itself comes from the program's weeks; the seed and migration scripts place week 1 on `startDate`. |
 | `durationWeeks` | number | Website | Displayed directly from Firestore. |
-| `registration` | map | Website | `amountMinor`, `currency`, `codeTtlDays`; see Firestore setup. |
+| `registration` | map | Website | `amountMinor`, `currency`, `codeTtlDays`, `preorderStartsAt`, `preorderEndsAt`; see Firestore setup. Set on Create cohort and in the cohort's Settings. |
 | `timezone` | string | Scripts, live call reminders, and you | An IANA zone such as `Africa/Lagos`. Build live-call times in it; reminders go out on the call's day in it. |
 | `coach` | map | Member app, watched | `{ uid, name, title, avatarUrl }`. See below. |
 | `programId`, `programName`, `programVersion` | string, string, number, or `null` each | `createAccessCode`; member app as a fallback | Must be set before codes can be issued. |
@@ -590,7 +590,10 @@ in, read their totals and sign out.
 Both signals are watched, so an open app changes screen as soon as either
 lands: an archive within a second or two, and the end date at the cohort's
 midnight. Both can be undone: un-archive the cohort, or move `endDate` later,
-and members go back into the app.
+and members go back into the app. Un-archiving is one write: `status` back to
+`active` (or `draft`), `archivedAt` to `null`, a later `endDate` if the last day
+has passed, and the audit fields. The staging rules allow nothing else in it,
+and no other change to a cohort while it is archived.
 
 - **Store `endDate` as midnight at the start of the last day, in the cohort's
   `timezone`.** Build it with `fromZonedTime('2026-11-08T00:00', cohort.timezone)`

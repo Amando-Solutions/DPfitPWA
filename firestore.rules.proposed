@@ -731,9 +731,22 @@ service cloud.firestore {
           );
       }
 
+      // An archived cohort is frozen but for one write: the admin's "Reopen
+      // cohort". It goes back to active (draft with no program) and clears
+      // `archivedAt`. A cohort past its last day may get a later one in the
+      // same write, or its members stay on "Your cohort has ended".
+      function isReopen() {
+        return request.resource.data.status in ['draft', 'active']
+          && request.resource.data.get('archivedAt', null) == null
+          && changed().hasOnly([
+            'status', 'archivedAt', 'endDate', 'updatedAt', 'updatedByUid', 'updatedByEmail'
+          ])
+          && (!changed().hasAny(['endDate']) || request.resource.data.endDate is timestamp);
+      }
+
       allow create: if isOperator();
       allow update: if isOperator()
-        && resource.data.status != 'archived'
+        && (resource.data.status != 'archived' || isReopen())
         && request.resource.data.status in ['draft', 'active', 'archived']
         && keepsActiveProgramPin()
         && hasOperatorUpdateAudit();

@@ -65,7 +65,8 @@ must exist, be published and match that version to open registration. The websit
 reads the program name, week outline and guide metadata from the same documents
 the PWA uses; private guide bodies and workout prescriptions are not public.
 
-Set this map on the active cohort using the actual offer (values below are examples):
+The admin console writes this map: Create cohort sets it (the pre-order may wait), and the
+cohort's Settings dialog edits it later. Its shape (values below are examples):
 
 ```js
 registration: {
