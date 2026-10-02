@@ -19,7 +19,7 @@
     "build:functions": "bun run --filter dp-fitness-functions build",
     "typecheck": "bun run --filter '*' typecheck",
     "brand:assets": "bun run --filter @dpfit/theme brand:assets",
-    "postinstall": "bun run --filter '*' postinstall",
+    "postinstall": "case \"$npm_config_user_agent\" in bun/*) bun run --filter '*' postinstall ;; esac",
     "backfill:codes": "bun run --filter dp-fitness-pwa backfill:codes",
     "rules:diff": "diff firestore.rules firestore.staging.rules && echo '✓ staging rules are identical to production' || echo '↑ staging has diverged from production'",
     "deploy:staging": "firebase deploy --only firestore:staging",

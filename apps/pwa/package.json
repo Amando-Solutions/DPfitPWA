@@ -19,7 +19,7 @@
     "og:image": "node scripts/generate-og-image.mjs"
   },
   "dependencies": {
-    "@dpfit/theme": "workspace:*",
+    "@dpfit/theme": "*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "firebase": "^12.18.0",
