@@ -207,6 +207,18 @@ export interface RegistrationDoc {
   /** Which checkout took the money. `undefined` on documents from before Selar. */
   provider?: 'selar'
   /**
+   * The `TERMS_VERSION` the buyer ticked the box for, and when. Absent on
+   * registrations taken before the form asked.
+   */
+  termsVersion?: string
+  termsAcceptedAt?: Timestamp
+  /**
+   * The optional box: whether their before and after photos and results may be
+   * used, face blurred, to promote the coaching. Worded under `termsVersion`.
+   * Absent on registrations taken before the form asked, which is a no.
+   */
+  marketingConsent?: boolean
+  /**
    * Minor units — kobo for NGN. What the page advertised, not what arrived.
    *
    * The distinction is new with Selar and it is real: the price lives in
