@@ -14,16 +14,20 @@ const { challenge, weeks, startsLong, enrolmentLine } = useCohortLabels()
       class="relative flex min-h-130 items-end justify-end overflow-hidden rounded-3xl bg-lp-ink px-[clamp(16px,5vw,80px)] pt-12 pb-4 sm:min-h-140 sm:items-center sm:rounded-[28px] sm:pb-12"
     >
       <!--
-        Decorative: the card carries the meaning. The subject sits left of
-        centre, so narrow panels crop toward her rather than the machine, and
-        on phones the card drops to the bottom to keep her face clear.
+        Decorative: the card carries the meaning. Cut down from
+        `hero-coach-original.png`, where she stands at the centre with her
+        hands at the top. On phones the card drops to the bottom, so she stays
+        centred above it. From `sm` it sits on the right, and until the panel
+        is wide enough to show the whole frame the crop slides right to put her
+        left of the card. Wider still, only the height is cropped, and from
+        the top so her hands stay in.
       -->
       <img
-        src="/landing/gallery-dumbbell-floor.jpg"
+        src="/landing/hero-coach.jpg"
         alt=""
-        width="2000"
-        height="1328"
-        class="absolute inset-0 size-full object-cover object-[28%_50%]"
+        width="1800"
+        height="1004"
+        class="absolute inset-0 size-full object-cover object-[46%_10%] sm:object-[85%_10%]"
       >
 
       <div
