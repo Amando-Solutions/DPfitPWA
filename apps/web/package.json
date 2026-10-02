@@ -15,7 +15,7 @@
     "og:image": "node scripts/generate-og-image.mjs"
   },
   "dependencies": {
-    "@dpfit/theme": "workspace:*",
+    "@dpfit/theme": "*",
     "@vvo/tzdb": "^6.198.0",
     "firebase-admin": "^14.3.0",
     "google-auth-library": "^10.6.2",
