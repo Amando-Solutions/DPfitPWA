@@ -29,8 +29,5 @@
   "devDependencies": {
     "firebase-tools": "^15.28.2",
     "typescript": "^5.9.0"
-  },
-  "dependencies": {
-    "@vercel/analytics": "^2.0.1"
   }
 }

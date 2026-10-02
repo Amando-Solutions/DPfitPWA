@@ -53,7 +53,7 @@ export default defineNuxtConfig({
       headers: { 'X-Robots-Tag': 'noindex, nofollow' },
     },
   },
-  modules: ['@vercel/analytics'],
+
   // A server runtime is required for current Firestore content and checkout.
   // `nuxt generate` cannot provide these API handlers.
 
