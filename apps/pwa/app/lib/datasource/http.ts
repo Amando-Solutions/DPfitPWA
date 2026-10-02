@@ -444,6 +444,15 @@ export class HttpDataSource implements DataSource {
   }
 
   /**
+   * Off the thread, which costs this backend a request either way. One that
+   * grows a filtered endpoint should answer it there instead.
+   */
+  async getLatestCoachMessage(threadId: ThreadId) {
+    const messages = await this.listMessages(threadId)
+    return [...messages].reverse().find((m) => m.isCoach) ?? null
+  }
+
+  /**
    * Polled, because REST has nothing to push down.
    *
    * The other two implementations get this for free — Firestore holds a stream
@@ -626,6 +635,11 @@ export class HttpDataSource implements DataSource {
       'PATCH',
       { text, mentions },
     )
+  }
+
+  /** Authorship is the backend's to enforce, as with an edit. */
+  async deleteMessage(threadId: ThreadId, messageId: string) {
+    await this.send(`/threads/${threadId}/messages/${messageId}`, 'DELETE')
   }
 
   toggleReaction(threadId: ThreadId, messageId: string, emoji: string) {

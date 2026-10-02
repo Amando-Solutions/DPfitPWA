@@ -1122,9 +1122,11 @@ tx.update(messageRef, new FieldPath('reactionCounts', emoji), countChange, ...re
 ### Typing indicator (optional)
 
 To show "Coach is typing…", write `{ name, at: serverTimestamp() }` to
-`…/threads/{threadId}/typing/{coachUid}` while the coach is typing, refresh it
-every 4 seconds, and delete it when they stop. The member app ignores a marker
-older than 10 seconds. The rules allow this through the client SDK.
+`…/threads/{threadId}/typing/{coachUid}` once the coach has been typing for 2
+seconds, refresh it every 12 seconds, and delete it when they stop. The member
+app ignores a marker older than 30 seconds. Every write is read by everyone
+with the thread open, so don't write on each keystroke. The rules allow this
+through the client SDK.
 
 ### A coach inbox (optional)
 

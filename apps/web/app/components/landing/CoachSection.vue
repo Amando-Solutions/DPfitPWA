@@ -6,19 +6,19 @@ import { COACH } from '~/data/landing'
   <section id="coach" class="mx-auto max-w-300 px-6 pt-20 pb-10 md:pt-30">
     <div class="grid grid-cols-1 items-center gap-x-20 gap-y-8 md:grid-cols-2 md:gap-y-12">
       <!--
-        She sits right of centre with her feet near the right edge, so narrow
-        panels crop toward her, and wide ones drop slightly to keep her shoes.
-        Downsized from `meet-the-coach-original.jpg`. A portrait 4:5 on a phone,
-        where the fixed desktop height came out nearly twice as tall as wide.
+        A square cut from the landscape `meet-the-coach-original.png`, centred
+        on her. The panel is never wider than square — 4:5 on a phone, and the
+        fixed desktop height runs from about 0.55 to 0.9 as wide as tall — so it
+        only ever trims the sides, and the default centre keeps her in frame.
       -->
       <img
         src="/landing/meet-the-coach.jpg"
         :alt="`Coach ${COACH.first} ${COACH.last}`"
-        width="1080"
-        height="1440"
+        width="1280"
+        height="1280"
         loading="lazy"
         decoding="async"
-        class="lp-reveal aspect-4/5 w-full rounded-3xl bg-lp-lilac-300 object-cover object-[72%_55%] md:aspect-auto md:h-145 md:rounded-[28px]"
+        class="lp-reveal aspect-4/5 w-full rounded-3xl bg-lp-lilac-300 object-cover md:aspect-auto md:h-145 md:rounded-[28px]"
       >
 
       <div class="lp-reveal flex flex-col gap-5 md:gap-6">

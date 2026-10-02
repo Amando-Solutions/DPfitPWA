@@ -62,11 +62,11 @@ function WeekStrip() {
 }
 
 function CohortPicker() {
-  const { cohort, cohorts, multipleCohorts, setCohortId } = useSelectedCohort()
+  const { cohort, cohorts, setCohortId } = useSelectedCohort()
   const [now] = useState(() => new Date())
-  // Shown whenever several cohorts may run, even with one so far, so it's always clear which cohort the console is showing.
-  if (!multipleCohorts || !cohort) return null
-  const items = cohorts.map((item) => ({ value: item.id, label: cohortOver(item, now) ? `${item.name} · ended` : item.name }))
+  // Always shown, so it's clear which cohort the console is showing and a completed one can be opened.
+  if (!cohort) return null
+  const items = cohorts.map((item) => ({ value: item.id, label: cohortOver(item, now) ? `${item.name} · completed` : item.name }))
   return <Select items={items} value={cohort.id} onValueChange={(value) => value && setCohortId(value)}>
     <SelectTrigger size="sm" className="w-40 shrink-0" aria-label="Cohort"><SelectValue /></SelectTrigger>
     <SelectContent><SelectGroup>{items.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectGroup></SelectContent>

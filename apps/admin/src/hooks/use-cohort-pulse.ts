@@ -5,6 +5,7 @@ import { cohortOver } from "@/lib/cohort-calendar"
 import type { CohortRecord } from "@/lib/cohorts"
 import { checkInWeekOwed, fetchCohortPulse, pulseIssues } from "@/lib/cohort-pulse"
 import { cohortWeek } from "@/lib/leaderboard"
+import { membersOf } from "@/lib/members"
 
 /**
  * A cohort's members, current week, and the check-in/session read behind the
@@ -15,7 +16,8 @@ import { cohortWeek } from "@/lib/leaderboard"
 export function useCohortPulse(cohort: CohortRecord | null) {
   const membersQuery = useMembersQuery()
   const [now] = useState(() => Date.now())
-  const members = useMemo(() => (membersQuery.data ?? []).filter((member) => cohort && member.cohortId === cohort.id), [membersQuery.data, cohort])
+  // Its members now, and anybody who has since joined another cohort, as they were here.
+  const members = useMemo(() => (cohort ? membersOf(membersQuery.data ?? [], cohort.id) : []), [membersQuery.data, cohort])
   const memberIds = members.map((member) => member.id)
   const durationWeeks = cohort?.durationWeeks ?? 0
   const currentWeek = cohort ? cohortWeek(cohort.startDate, durationWeeks, now) : 0
@@ -23,7 +25,7 @@ export function useCohortPulse(cohort: CohortRecord | null) {
 
   const query = useQuery({
     queryKey: ["cohort-pulse", cohort?.id, memberIds.join(","), currentWeek],
-    queryFn: () => fetchCohortPulse(cohort!.id, memberIds, currentWeek),
+    queryFn: () => fetchCohortPulse(cohort!.id, members, currentWeek),
     enabled: !!cohort && !membersQuery.isPending,
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,

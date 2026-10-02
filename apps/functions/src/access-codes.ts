@@ -298,7 +298,7 @@ const extendToCover = async (
  * collision, not for a full collection.
  *
  * `checkEnrolment` refuses a new code to somebody whose cohort is still
- * running, or who already holds their next one. See `enrolmentRefusal`.
+ * running, or for a cohort they are in or have been in. See `enrolmentRefusal`.
  */
 export const mintAccessCode = async (
   input: CreateAccessCodeInput,

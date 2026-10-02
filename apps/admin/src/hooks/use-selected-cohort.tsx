@@ -1,8 +1,7 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react"
-import { useCohortsQuery, usePlatformSettingsQuery, useProgramsQuery } from "@/hooks/use-admin-queries"
+import { useCohortsQuery, useProgramsQuery } from "@/hooks/use-admin-queries"
 import { cohortOver } from "@/lib/cohort-calendar"
 import { cohortInProgress, type CohortRecord } from "@/lib/cohorts"
-import { defaultPlatformSettings } from "@/lib/platform-settings"
 import type { ProgramRecord } from "@/lib/programs"
 
 type SelectedCohort = {
@@ -12,13 +11,11 @@ type SelectedCohort = {
   cohortEnded: boolean
   program: ProgramRecord | null
   /**
-   * Cohorts that can be picked: everything not archived. One past its last day
-   * stays, after the rest, so its results can still be read and its last day
-   * moved to reopen it.
+   * Cohorts that can be picked: everything not archived. A completed one stays,
+   * after the rest, so its results can still be read — a member who has moved
+   * on to another cohort is in both — and its last day moved to reopen it.
    */
   cohorts: CohortRecord[]
-  /** Settings → "Multiple simultaneous challenges". Off pins the header to the active cohort. */
-  multipleCohorts: boolean
   setCohortId: (id: string) => void
   isPending: boolean
 }
@@ -29,9 +26,7 @@ const STORAGE_KEY = "dpfit-admin:selected-cohort"
 export function SelectedCohortProvider({ children }: { children: ReactNode }) {
   const cohortsQuery = useCohortsQuery()
   const programsQuery = useProgramsQuery()
-  const settingsQuery = usePlatformSettingsQuery()
   const [pickedId, setPickedId] = useState<string | null>(() => localStorage.getItem(STORAGE_KEY))
-  const multipleCohorts = settingsQuery.data?.multipleCohorts ?? defaultPlatformSettings.multipleCohorts
 
   const [now] = useState(() => new Date())
 
@@ -45,18 +40,17 @@ export function SelectedCohortProvider({ children }: { children: ReactNode }) {
       ?? cohorts.find((cohort) => cohort.status === "active")
       ?? cohorts[0]
       ?? null
-    // With one challenge at a time there is nothing to pick: it's always the active one.
-    const cohort = multipleCohorts ? (cohorts.find((item) => item.id === pickedId) ?? active) : active
+    // One cohort runs at a time, but any can be opened: a finished one's results stay readable.
+    const cohort = cohorts.find((item) => item.id === pickedId) ?? active
     return {
       cohort,
       cohortEnded: cohort ? cohortOver(cohort, now) : false,
       program: (programsQuery.data ?? []).find((program) => program.id === cohort?.programId) ?? null,
       cohorts,
-      multipleCohorts,
       setCohortId: (id) => { setPickedId(id); localStorage.setItem(STORAGE_KEY, id) },
       isPending: cohortsQuery.isPending,
     }
-  }, [cohortsQuery.data, cohortsQuery.isPending, programsQuery.data, multipleCohorts, pickedId, now])
+  }, [cohortsQuery.data, cohortsQuery.isPending, programsQuery.data, pickedId, now])
 
   return <SelectedCohortContext.Provider value={value}>{children}</SelectedCohortContext.Provider>
 }

@@ -22,6 +22,7 @@ import {
   weeksDue,
 } from "@/lib/analytics"
 import { cohortWeek } from "@/lib/leaderboard"
+import { membersOf, redeemedCodes } from "@/lib/members"
 import { defaultMemberRanks, humanizeMemberValue, isParticipating, memberBadgeDefinitions, memberGoalLabel } from "@/lib/member-dashboard"
 import { PALETTE } from "@/lib/phase-colors"
 import { cn } from "@/lib/utils"
@@ -118,14 +119,15 @@ export function AnalyticsPage() {
   const [now] = useState(() => Date.now())
 
   const { cohort, program } = useSelectedCohort()
-  const members = useMemo(() => (membersQuery.data ?? []).filter((member) => cohort && member.cohortId === cohort.id), [membersQuery.data, cohort])
+  // Its members now, and anybody who has since joined another cohort, as they were here.
+  const members = useMemo(() => (cohort ? membersOf(membersQuery.data ?? [], cohort.id) : []), [membersQuery.data, cohort])
   const memberIds = members.map((member) => member.id)
 
   // One cached read of the cohort's activity. No listener and no refetch on focus:
   // it only reloads when the cohort changes or someone presses Refresh.
   const activity = useQuery({
     queryKey: ["analytics", cohort?.id, memberIds.join(",")],
-    queryFn: () => fetchCohortActivity(cohort!.id, memberIds),
+    queryFn: () => fetchCohortActivity(cohort!.id, members),
     enabled: !!cohort && !membersQuery.isPending,
     staleTime: 15 * 60 * 1000,
     refetchOnWindowFocus: false,
@@ -177,7 +179,7 @@ export function AnalyticsPage() {
     const sessions = data.sessions.filter((session) => session.weekNumber >= 1 && session.weekNumber <= durationWeeks)
     const qualified = sessions.filter((session) => session.qualifies).length
     const checkIns = data.checkIns.filter((row) => row.weekNumber >= 1 && row.weekNumber <= durationWeeks)
-    const memberCodes = new Set((membersQuery.data ?? []).map((member) => member.accessCode.toUpperCase()).filter(Boolean))
+    const memberCodes = redeemedCodes(membersQuery.data ?? [])
     const funnel = registrationFunnel(data.registrations, memberCodes)
     const registeredCodes = new Set(data.registrations.map((item) => item.code).filter(Boolean))
     const joinedByHand = members.filter((member) => member.accessCode && !registeredCodes.has(member.accessCode.toUpperCase())).length

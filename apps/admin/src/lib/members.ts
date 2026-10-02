@@ -57,6 +57,30 @@ export type MemberRecord = {
   activitySummary: MemberActivitySummary
   stats: MemberStats
   profile: MemberProfile
+  /**
+   * The cohort the member is active in. Equal to `cohortId` on the record as
+   * read; on a record from `membersOf` for a cohort they have left, `cohortId`
+   * is that cohort and this is still the one they train in now — which is
+   * what a log with no `cohortId` of its own belongs to. See `logInCohort`.
+   */
+  activeCohortId: string
+  /** Every cohort they were in before the active one, by cohort id. */
+  previousCohorts: Record<string, PreviousMembership>
+  /** On a record for a cohort they have left: it was still running when they joined another. */
+  leftEarly: boolean
+}
+
+/** `members/{uid}.previousCohorts[cohortId]`: a membership the member has moved on from. */
+export type PreviousMembership = {
+  cohortId: string
+  cohortName: string
+  accessCode: string
+  programId: string
+  programVersion: number
+  joinedAt: Date
+  leftAt: Date | null
+  leftEarly: boolean
+  stats: MemberStats
 }
 
 export type MemberStats = {
@@ -360,7 +384,85 @@ function readMemberRecord(
           : null),
     ),
     profile: readProfile(data.profile),
+    activeCohortId: String(data.cohortId ?? ""),
+    previousCohorts: readPreviousCohorts(data.previousCohorts),
+    leftEarly: false,
   }
+}
+
+function readPreviousCohorts(value: unknown): Record<string, PreviousMembership> {
+  if (!value || typeof value !== "object") return {}
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([cohortId, raw]) => {
+    const data = raw && typeof raw === "object" ? raw as Record<string, unknown> : {}
+    return [cohortId, {
+      cohortId,
+      cohortName: String(data.cohortName ?? ""),
+      accessCode: String(data.accessCode ?? ""),
+      programId: String(data.programId ?? ""),
+      programVersion: Number(data.programVersion ?? 1),
+      joinedAt: readDate(data.joinedAt),
+      leftAt: readNullableDate(data.leftAt),
+      leftEarly: data.leftEarly === true,
+      stats: readStats(data.stats, null),
+    } satisfies PreviousMembership]
+  }))
+}
+
+/**
+ * Everyone in a cohort's results: its current members as they are, and anybody
+ * who has since joined another cohort as they were when they left it.
+ *
+ * A member can belong to several cohorts but trains in one at a time
+ * (`joinCohort` in apps/functions). A record for a cohort they have left
+ * carries that cohort's code, program, join date and the stats it ended on,
+ * with status `completed`; `activeCohortId` still names the one they are in.
+ */
+export function membersOf(members: MemberRecord[], cohortId: string): MemberRecord[] {
+  return members.flatMap((member) => {
+    if (member.cohortId === cohortId) return [member]
+    const previous = member.previousCohorts[cohortId]
+    if (!previous) return []
+    return [{
+      ...member,
+      cohortId,
+      cohortName: previous.cohortName || member.cohortName,
+      accessCode: previous.accessCode,
+      programId: previous.programId,
+      programVersion: previous.programVersion,
+      status: "completed",
+      previousStatus: null,
+      pauseReason: null,
+      pausedAt: null,
+      joinedAt: previous.joinedAt,
+      stats: previous.stats,
+      leftEarly: previous.leftEarly,
+    } satisfies MemberRecord]
+  })
+}
+
+/**
+ * Every access code a member has redeemed, upper-cased: the active cohort's,
+ * and each one they joined before it. A registration whose code is here has
+ * become a member, whichever cohort that member is in now.
+ */
+export function redeemedCodes(members: MemberRecord[]): Set<string> {
+  return new Set(members.flatMap((member) => [
+    member.accessCode,
+    ...Object.values(member.previousCohorts).map((previous) => previous.accessCode),
+  ]).map((code) => code.toUpperCase()).filter(Boolean))
+}
+
+/**
+ * Whether a log under `members/{uid}` belongs to `cohortId`.
+ *
+ * Each log names its cohort in `cohortId`. One written before the field
+ * existed has none, and belongs to the cohort the member is active in: when
+ * they join another, `joinCohort` tags everything untagged with the cohort
+ * they are leaving. Mirrors `ofCohort` in the member app and the functions.
+ */
+export function logInCohort(log: Record<string, unknown>, cohortId: string, activeCohortId: string) {
+  const tagged = typeof log.cohortId === "string" && log.cohortId ? log.cohortId : activeCohortId
+  return tagged === cohortId
 }
 
 export function subscribeToMembers(

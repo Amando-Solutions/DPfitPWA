@@ -199,31 +199,21 @@ function CodeIssuance({ settings }: { settings: PlatformSettings }) {
   </>
 }
 
-function MultipleCohorts({ settings }: { settings: PlatformSettings }) {
-  const { user } = useAdminAuth()
+/**
+ * How cohorts run, stated rather than switched. There used to be a toggle here
+ * for several cohorts running at once; one at a time is now the rule, kept by
+ * the cohort screens and the `completeCohorts` function.
+ */
+function CohortRules() {
   const { cohorts } = useSelectedCohort()
-  const mutation = useMutation({
-    mutationFn: savePlatformSettings,
-    onSuccess: (_, input) => toast.success(input.multipleCohorts ? "Multiple cohorts can run at once" : "One active cohort at a time"),
-    onError: (error) => toast.error(error.message),
-  })
-  const on = mutation.isPending ? !!mutation.variables?.multipleCohorts : settings.multipleCohorts
   const [now] = useState(() => new Date())
-  // A cohort past its last day is over whatever its status says, so it doesn't count as running.
-  const active = cohorts.filter((cohort) => cohortInProgress(cohort, now))
+  const running = cohorts.find((cohort) => cohortInProgress(cohort, now))
   return <>
-    <div className="flex items-center justify-between gap-4 border-b pb-4">
-      <div className="grid gap-0.5">
-        <p className="text-sm font-medium">Multiple simultaneous challenges</p>
-        <p className="text-xs text-muted-foreground">{on ? "On — several cohorts can run at once; pick one from the header." : "Off — one active cohort at a time; this whole console reflects that."}</p>
-      </div>
-      <Switch checked={on} disabled={mutation.isPending || !user} aria-label="Multiple simultaneous challenges" onCheckedChange={(checked) => user && mutation.mutate({ ...settings, multipleCohorts: checked, user })} />
+    <div className="grid gap-0.5 border-b pb-4">
+      <p className="text-sm font-medium">One cohort at a time</p>
+      <p className="text-xs text-muted-foreground">{running ? <>Running now: <strong className="text-foreground">{running.name}</strong>.</> : "No cohort is running right now."}</p>
     </div>
-    <Note>{on
-      ? "The header's cohort picker switches every cohort page, including this page's start date, between running cohorts."
-      : active.length > 1
-        ? <>{active.length} cohorts are active right now, so the header shows <strong className="text-foreground">{active[0]!.name}</strong>. Archive the others to get back to one. No new cohort can be created or activated until then.</>
-        : "The header shows the active cohort, with no picker. No new cohort can be created or activated while one is active."}</Note>
+    <Note>No two cohorts’ dates can overlap. A cohort made while another runs starts as a draft, and can be activated once that one has ended or been archived. A cohort becomes completed when its last day passes. Members who join another cohort stay in the old one’s results, and the header’s cohort picker opens any cohort’s.</Note>
   </>
 }
 
@@ -251,7 +241,7 @@ export function SettingsPage() {
           {platform.data ? <IntegritySettings key={platform.data.qualifyingSetPercent} settings={platform.data} /> : <Skeleton className="h-24" />}
         </SettingsCard>
         <SettingsCard title="Cohorts">
-          {platform.data ? <MultipleCohorts settings={platform.data} /> : <Skeleton className="h-24" />}
+          <CohortRules />
         </SettingsCard>
       </div>
       <div className="grid gap-4">

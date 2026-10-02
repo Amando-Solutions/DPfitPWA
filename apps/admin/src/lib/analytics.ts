@@ -1,7 +1,7 @@
 import { collection, getDocs, query, where, type QuerySnapshot } from "firebase/firestore"
 import { readCheckIn, reportsPain, type FeedbackRow } from "@/lib/feedback"
 import { firebaseDb } from "@/lib/firebase"
-import type { MemberRecord } from "@/lib/members"
+import { logInCohort, type MemberRecord } from "@/lib/members"
 
 export type AnalyticsSession = {
   memberId: string
@@ -40,19 +40,30 @@ const number = (value: unknown) => typeof value === "number" && Number.isFinite(
  * sessions, check-ins and badges, plus the cohort's registrations. A one-off read
  * cached by the caller, never a listener, so it costs one read per document once
  * per load rather than on every change.
+ *
+ * `members` is `membersOf` the cohort, and only their logs from this cohort
+ * count: a member who has been in another keeps its logs too. See `logInCohort`.
  */
-export async function fetchCohortActivity(cohortId: string, memberIds: string[]): Promise<CohortActivity> {
+export async function fetchCohortActivity(
+  cohortId: string,
+  members: Pick<MemberRecord, "id" | "activeCohortId">[],
+): Promise<CohortActivity> {
   if (!firebaseDb) throw new Error("Analytics are not configured.")
   const database = firebaseDb
   let reads = 0
   const count = <T extends QuerySnapshot>(snapshot: T) => { reads += Math.max(1, snapshot.size); return snapshot }
 
-  const perMember = await Promise.all(memberIds.map(async (memberId) => {
-    const [sessions, checkIns, badges] = await Promise.all([
+  const perMember = await Promise.all(members.map(async ({ id: memberId, activeCohortId }) => {
+    const [allSessions, allCheckIns, allBadges] = await Promise.all([
       getDocs(collection(database, "members", memberId, "sessions")).then(count),
       getDocs(collection(database, "members", memberId, "checkIns")).then(count),
       getDocs(collection(database, "members", memberId, "badges")).then(count),
     ])
+    const here = <T extends { data: () => Record<string, unknown> }>(docs: T[]) =>
+      docs.filter((item) => logInCohort(item.data(), cohortId, activeCohortId))
+    const sessions = { docs: here(allSessions.docs) }
+    const checkIns = { docs: here(allCheckIns.docs) }
+    const badges = { docs: here(allBadges.docs) }
     return {
       sessions: sessions.docs.map((item): AnalyticsSession => {
         const data = item.data()
@@ -68,7 +79,8 @@ export async function fetchCohortActivity(cohortId: string, memberIds: string[])
         }
       }),
       checkIns: checkIns.docs.map(readCheckIn),
-      badges: [memberId, new Set(badges.docs.map((item) => item.id))] as const,
+      // By `badgeId`: a cohort the member has left keeps its badges at `{cohortId}~{badgeId}`.
+      badges: [memberId, new Set(badges.docs.map((item) => String(item.data().badgeId ?? item.id)))] as const,
     }
   }))
 

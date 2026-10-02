@@ -1,7 +1,7 @@
 import { collection, collectionGroup, getDocs, orderBy, query, where } from "firebase/firestore"
 import { readCheckIn, reportsPain, type FeedbackRow } from "@/lib/feedback"
 import { firebaseDb } from "@/lib/firebase"
-import type { MemberRecord } from "@/lib/members"
+import { logInCohort, redeemedCodes, type MemberRecord } from "@/lib/members"
 import type { ProgramRecord } from "@/lib/programs"
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -21,12 +21,21 @@ export type CohortPulseData = {
  * member's check-ins (at most one per week), the current week's sessions, and the
  * cohort's registrations. A one-off read, cached by the caller.
  */
-export async function fetchCohortPulse(cohortId: string, memberIds: string[], currentWeek: number): Promise<CohortPulseData> {
+export async function fetchCohortPulse(
+  cohortId: string,
+  members: Pick<MemberRecord, "id" | "activeCohortId">[],
+  currentWeek: number,
+): Promise<CohortPulseData> {
   if (!firebaseDb) throw new Error("Cohort pulse is not configured.")
   const database = firebaseDb
-  const ids = new Set(memberIds)
+  // Only this cohort's logs count; a member who has been in another keeps its logs too.
+  const activeCohortOf = new Map(members.map((member) => [member.id, member.activeCohortId]))
+  const here = (memberId: string, data: Record<string, unknown>) =>
+    activeCohortOf.has(memberId) && logInCohort(data, cohortId, activeCohortOf.get(memberId)!)
   const [checkIns, sessions, registrations] = await Promise.all([
-    Promise.all(memberIds.map((memberId) => getDocs(collection(database, "members", memberId, "checkIns")))),
+    Promise.all(members.map(({ id: memberId }) =>
+      getDocs(collection(database, "members", memberId, "checkIns"))
+        .then((snapshot) => snapshot.docs.filter((item) => here(memberId, item.data()))))),
     // Every cohort in the same week shares this query; members of other cohorts are dropped below.
     currentWeek > 0
       ? getDocs(query(collectionGroup(database, "sessions"), where("weekNumber", "==", currentWeek), orderBy("completedAt", "desc")))
@@ -35,8 +44,8 @@ export async function fetchCohortPulse(cohortId: string, memberIds: string[], cu
   ])
   const codes = registrations.docs.map((item) => item.data().code).filter((code): code is string => typeof code === "string" && !!code)
   return {
-    checkIns: checkIns.flatMap((snapshot) => snapshot.docs.map(readCheckIn)),
-    sessionsThisWeek: sessions?.docs.filter((item) => ids.has(item.ref.parent.parent?.id ?? "")).length ?? 0,
+    checkIns: checkIns.flatMap((docs) => docs.map(readCheckIn)),
+    sessionsThisWeek: sessions?.docs.filter((item) => here(item.ref.parent.parent?.id ?? "", item.data())).length ?? 0,
     registrationCodes: codes.map((code) => code.toUpperCase()),
     registrationsWithoutCode: registrations.size - codes.length,
   }
@@ -114,6 +123,6 @@ export function programPhases(program: ProgramRecord | null, durationWeeks: numb
 
 /** Registrations for the cohort that haven't become a member yet: no code, or a code nobody has redeemed. */
 export function pendingSignups(data: CohortPulseData, members: MemberRecord[]) {
-  const memberCodes = new Set(members.map((member) => member.accessCode.toUpperCase()).filter(Boolean))
+  const memberCodes = redeemedCodes(members)
   return data.registrationsWithoutCode + data.registrationCodes.filter((code) => !memberCodes.has(code)).length
 }

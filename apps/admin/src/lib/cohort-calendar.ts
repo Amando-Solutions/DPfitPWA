@@ -153,13 +153,14 @@ export type CohortClock = {
 }
 
 /**
- * Whether a cohort is over: archived, or past the last day its `endDate` names,
- * on its own calendar. Once it is, its members get the ended screen and every
- * member write is refused. No usable `endDate` is no end on the calendar;
- * archiving still closes it.
+ * Whether a cohort is over: completed or archived, or past the last day its
+ * `endDate` names, on its own calendar. Once it is, its members get the ended
+ * screen and every member write is refused. No usable `endDate` is no end on
+ * the calendar; archiving still closes it. `completed` is written by the
+ * `completeCohorts` function once the last day has passed.
  */
 export function cohortOver(cohort: CohortClock, now: Date): boolean {
-  if (cohort.status === "archived") return true
+  if (cohort.status === "archived" || cohort.status === "completed") return true
   if (!cohort.endDate || Number.isNaN(cohort.endDate.getTime())) return false
   const zone = cohortZone(cohort.timezone)
   return dayIn(now, zone) > dayIn(cohort.endDate, zone)

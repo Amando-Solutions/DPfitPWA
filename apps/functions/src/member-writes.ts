@@ -75,7 +75,7 @@ const readDatabase = (raw: unknown): DatabaseId => {
  * email the membership was made with, and a sign-in the account trusts.
  *
  * Shared with `joinCohort` in `memberships.ts`, which asks the same of a member
- * moving to their next cohort.
+ * joining another cohort.
  */
 export const identifyMember = async (request: CallableRequest): Promise<MemberCaller> => {
   const auth = request.auth

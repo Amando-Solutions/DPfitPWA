@@ -30,7 +30,13 @@ import {
 import { firebaseDb } from "@/lib/firebase"
 import type { ProgramRecord } from "@/lib/programs"
 
-export type CohortStatus = "draft" | "active" | "archived"
+/**
+ * Where a cohort is in its life. Only one cohort is `active` at a time, and no
+ * two cohorts' days overlap; a cohort made while another runs starts as a
+ * `draft`. `completed` is written by the `completeCohorts` function once an
+ * active cohort's last day has passed. `archived` is closed by hand.
+ */
+export type CohortStatus = "draft" | "active" | "completed" | "archived"
 
 export type CohortCoach = {
   uid: string
@@ -110,7 +116,7 @@ export type CohortExperienceInput = {
 
 type CreateCohortInput = {
   name: string
-  status: Exclude<CohortStatus, "archived">
+  status: Extract<CohortStatus, "draft" | "active">
   /** The first day, `YYYY-MM-DD`, on the new cohort's calendar (Lagos). */
   startDay: DayKey
   durationWeeks: number
@@ -118,13 +124,64 @@ type CreateCohortInput = {
   coach: CohortCoachInput
   registration: CohortRegistrationInput
   user: User
+  /** Every cohort there is, for the overlap and one-at-a-time checks. */
+  cohorts: CohortRecord[]
 }
 
 const COHORT_LIMIT = 100
+const DAY_MS = 24 * 60 * 60 * 1000
 
 /** Active and not yet over: the cohort its members are training in right now. */
 export const cohortInProgress = (cohort: CohortRecord, now: Date) =>
   cohort.status === "active" && !cohortOver(cohort, now)
+
+/** The cohort running now, other than `exceptId`, or `null`. Only one may run at a time. */
+export const runningCohort = (cohorts: CohortRecord[], now: Date, exceptId?: string) =>
+  cohorts.find((cohort) => cohort.id !== exceptId && cohortInProgress(cohort, now)) ?? null
+
+/**
+ * A cohort's days as instants: the midnight it starts, and the midnight after
+ * its last day. No last day runs on for good.
+ */
+type Span = { start: number; end: number }
+
+const spanOf = (startDate: Date, endDate: Date | null): Span => ({
+  start: startDate.getTime(),
+  end: endDate ? endDate.getTime() + DAY_MS : Number.POSITIVE_INFINITY,
+})
+
+/**
+ * The first other cohort whose days overlap `span`, or `null`. Archived
+ * cohorts are left out: they are closed, whatever their dates say.
+ */
+export function overlappingCohort(cohorts: CohortRecord[], span: Span, exceptId?: string) {
+  return cohorts.find((cohort) => {
+    if (cohort.id === exceptId || cohort.status === "archived") return false
+    const other = spanOf(cohort.startDate, cohort.endDate)
+    return span.start < other.end && other.start < span.end
+  }) ?? null
+}
+
+/** "Cohort 3 (Mon, Nov 2, 2026 – Sun, Dec 13, 2026)" */
+function nameWithDates(cohort: CohortRecord) {
+  const zone = cohortZone(cohort.timezone)
+  const last = lastDayOfCohort(cohort)
+  return `${cohort.name} (${formatDayKey(dayIn(cohort.startDate, zone))} – ${last ? formatDayKey(last) : "no last day"})`
+}
+
+/** Throws when `span` would overlap another cohort's days. */
+function refuseOverlap(cohorts: CohortRecord[], span: Span, exceptId?: string) {
+  const other = overlappingCohort(cohorts, span, exceptId)
+  if (other) throw new Error(`Those dates overlap ${nameWithDates(other)}. Cohorts can't run at the same time.`)
+}
+
+/** Throws when another cohort is running, which keeps this one from becoming active. */
+function refuseWhileRunning(cohorts: CohortRecord[], now: Date, exceptId?: string) {
+  const running = runningCohort(cohorts, now, exceptId)
+  if (running) {
+    throw new Error(`${running.name} is running. Only one cohort can be active at a time, so this one can be activated once ${running.name} has ended or been archived.`)
+  }
+}
 
 /** A draft that hasn't reached its first day: the only cohort whose start can still move. */
 export const cohortStartEditable = (cohort: CohortRecord, now: Date) =>
@@ -321,6 +378,7 @@ export async function createCohort({
   coach,
   registration,
   user,
+  cohorts,
 }: CreateCohortInput) {
   const database = requireDatabase()
   const safeName = name.trim()
@@ -345,6 +403,9 @@ export async function createCohort({
   // start of each. The last day is the end of the final week, not the day after.
   const startDate = startOfDay(startDay, DEFAULT_TIMEZONE)
   const endDate = startOfDay(lastDayOf(startDay, safeDuration), DEFAULT_TIMEZONE)
+  refuseOverlap(cohorts, spanOf(startDate, endDate))
+  // One running at a time: a cohort made while another runs is a draft.
+  if (status === "active") refuseWhileRunning(cohorts, new Date())
   const reference = doc(collection(database, "cohorts"))
   const batch = writeBatch(database)
   batch.set(reference, {
@@ -381,8 +442,8 @@ export async function createCohort({
  * code carried.
  */
 function programPin(cohort: CohortRecord, program: ProgramRecord) {
-  if (cohort.status === "archived") {
-    throw new Error("Archived cohorts cannot be changed.")
+  if (cohort.status === "archived" || cohort.status === "completed") {
+    throw new Error(`${cohort.status === "archived" ? "Archived" : "Completed"} cohorts cannot change program.`)
   }
   if (!cohortProgramEditable(cohort)) {
     throw new Error("The program for an active cohort is locked.")
@@ -416,6 +477,7 @@ export async function setCohortStatus(
   cohort: CohortRecord,
   status: Extract<CohortStatus, "active" | "archived">,
   user: User,
+  cohorts: CohortRecord[],
 ) {
   const database = requireDatabase()
 
@@ -428,6 +490,10 @@ export async function setCohortStatus(
   }
   if (status === "active" && !cohort.programId) {
     throw new Error("Assign a program before activating this cohort.")
+  }
+  if (status === "active") {
+    refuseWhileRunning(cohorts, new Date(), cohort.id)
+    refuseOverlap(cohorts, spanOf(cohort.startDate, cohort.endDate), cohort.id)
   }
 
   await updateDoc(doc(database, "cohorts", cohort.id), {
@@ -442,38 +508,51 @@ export async function setCohortStatus(
 /**
  * Un-archive a cohort. Its members go back into the app as soon as this lands,
  * unless its last day has passed too: then pass `lastDay` to move it, in the
- * same write, or they stay on the ended screen. A cohort with no program goes
- * back to draft, since an active one needs a program for codes to be issued.
+ * same write, or it comes back `completed` and they stay on the ended screen.
+ *
+ * It comes back `active` only when nothing else is running, and with a
+ * program, which codes need; otherwise as a draft, to be activated later. Its
+ * days, moved or not, can't overlap another cohort's.
  */
-export async function reopenCohort(cohort: CohortRecord, user: User, lastDay?: DayKey) {
+export async function reopenCohort(cohort: CohortRecord, user: User, cohorts: CohortRecord[], lastDay?: DayKey) {
   const database = requireDatabase()
   if (cohort.status !== "archived") return
 
   const zone = cohortZone(cohort.timezone)
-  const patch: Record<string, unknown> = {
-    status: cohort.programId ? "active" : "draft",
-    archivedAt: null,
-    updatedAt: serverTimestamp(),
-    updatedByUid: user.uid,
-    updatedByEmail: user.email,
-  }
+  const now = new Date()
+  let endDate = cohort.endDate
   if (lastDay) {
     if (!isDayKey(lastDay)) throw new Error("Choose a valid last day.")
     const startDay = dayIn(cohort.startDate, zone)
     if (lastDay < startDay) {
       throw new Error(`The last day can't be before the start, ${formatDayKey(startDay)}.`)
     }
-    patch.endDate = Timestamp.fromDate(startOfDay(lastDay, zone))
+    endDate = startOfDay(lastDay, zone)
   }
-  await updateDoc(doc(database, "cohorts", cohort.id), patch)
+  refuseOverlap(cohorts, spanOf(cohort.startDate, endDate), cohort.id)
+
+  const pastLastDay = !!endDate && cohortOver({ ...cohort, status: "active", endDate }, now)
+  const status: CohortStatus = pastLastDay ? "completed"
+    : cohort.programId && !runningCohort(cohorts, now, cohort.id) ? "active"
+    : "draft"
+  await updateDoc(doc(database, "cohorts", cohort.id), {
+    status,
+    archivedAt: null,
+    ...(lastDay ? { endDate: Timestamp.fromDate(endDate!) } : {}),
+    updatedAt: serverTimestamp(),
+    updatedByUid: user.uid,
+    updatedByEmail: user.email,
+  })
 }
 
 /**
  * The dates the settings form moved, and only those, so an untouched date
  * never trips the start's lock. A last day already past ends the cohort for
- * its members as soon as this lands; a later one lets them back in.
+ * its members as soon as this lands; a later one lets them back in — and on a
+ * cohort already `completed`, makes it `active` again, which only one cohort
+ * may be at a time. Moved days can't overlap another cohort's.
  */
-function datesPatch(cohort: CohortRecord, { startDay, lastDay }: CohortExperienceInput) {
+function datesPatch(cohort: CohortRecord, { startDay, lastDay }: CohortExperienceInput, cohorts: CohortRecord[]) {
   const zone = cohortZone(cohort.timezone)
   const now = new Date()
   const patch: Record<string, unknown> = {}
@@ -492,6 +571,15 @@ function datesPatch(cohort: CohortRecord, { startDay, lastDay }: CohortExperienc
     if (lastDay < startDay) throw new Error(`The last day can't be before the start, ${formatDayKey(startDay)}.`)
     patch.endDate = Timestamp.fromDate(startOfDay(lastDay, zone))
   }
+  if (patch.startDate || patch.endDate) {
+    const startDate = patch.startDate instanceof Timestamp ? patch.startDate.toDate() : cohort.startDate
+    const endDate = patch.endDate instanceof Timestamp ? patch.endDate.toDate() : cohort.endDate
+    refuseOverlap(cohorts, spanOf(startDate, endDate), cohort.id)
+    if (cohort.status === "completed" && !cohortOver({ ...cohort, status: "active", endDate }, now)) {
+      refuseWhileRunning(cohorts, now, cohort.id)
+      patch.status = "active"
+    }
+  }
   return patch
 }
 
@@ -499,6 +587,7 @@ export async function saveCohortExperience(
   cohort: CohortRecord,
   input: CohortExperienceInput,
   user: User,
+  cohorts: CohortRecord[],
 ) {
   const database = requireDatabase()
   if (cohort.status === "archived") {
@@ -517,7 +606,7 @@ export async function saveCohortExperience(
   const program = input.program && input.program.id !== cohort.programId ? programPin(cohort, input.program) : {}
 
   await updateDoc(doc(database, "cohorts", cohort.id), {
-    ...datesPatch(cohort, input),
+    ...datesPatch(cohort, input, cohorts),
     ...program,
     coach,
     registration,

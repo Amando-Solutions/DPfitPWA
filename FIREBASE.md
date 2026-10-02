@@ -22,7 +22,7 @@ one. Read them before changing anything in `app/lib/datasource/firestore.ts`.
 | `programs/{id}/weeks/{weekId}` | One week of the block: its number, title and dates. `week-1`, `week-2`, … — see **The schedule**. |
 | `programs/{id}/weeks/{weekId}/days/{dayId}` | One training day in that week, with the date it falls on. |
 | `programs/{id}/guides/{guideId}` | The guide library. |
-| `members/{uid}` | The member. Keyed by the Firebase Auth uid, so rules are `request.auth.uid == uid` with no lookup. `region` is written only by `setRegion` — see **Days and regions**. `nextCohort` only by `joinCohort` — see **One cohort after another**. |
+| `members/{uid}` | The member. Keyed by the Firebase Auth uid, so rules are `request.auth.uid == uid` with no lookup. `region` is written only by `setRegion` — see **Days and regions**. `previousCohorts` only by `joinCohort` — see **One cohort after another**. |
 | `members/{uid}/sessions/{id}` | Workout logs. Written only by `logSession`. |
 | `members/{uid}/state/activeSession` | The workout in progress. A fixed id, because there is only ever one. |
 | `members/{uid}/checkIns/week-{n}` | One per week, enforced by the key. Written only by `submitCheckIn`. |
@@ -306,6 +306,9 @@ lives here.
   reactions: the member's own messages others have reacted to, most recently
   reacted to first. Same failure mode: until it has built, the inbox has no
   reactions in it and nothing else is affected.
+- **`messages` composite (`isCoach` asc, `sentAt` desc)** — Home's coach card:
+  the coach's newest message in the cohort chat, one document. Until it has
+  built, Home leaves the card off and nothing else is affected.
 - **`sessions.exercises` unindexed** — a session log embeds every set of every
   exercise. Nothing queries inside that array, and indexing it costs an index
   write per element on every save.
@@ -699,8 +702,9 @@ What the function settles so no caller has to:
   instead of a second one. That is what makes Zapier replaying a sale safe, and
   it means a replacement for a live code starts with revoking it.
 - **No new code while their cohort is running.** From the console, an address
-  whose member is in a cohort that has not ended — or already holds their next
-  one — is refused with `failed-precondition` and a sentence naming the cohort.
+  whose member is in a cohort that has not ended — or the code is for a cohort
+  they are in or have been in — is refused with `failed-precondition` and a
+  sentence naming the cohort. Nor is a code issued for a `completed` cohort.
   The landing site is not asked here: `register.post.ts` asks before the buyer
   pays, and a paid sale always gets its code. See **One cohort after another**.
 
@@ -747,43 +751,62 @@ next launch).
 
 ## One cohort after another
 
-An account is in one cohort at a time: `members/{uid}.cohortId` names it, and
-every rule and function resolves the cohort through it. A member joining
-another cohort is moved, by the `joinCohort` callable (`apps/functions/src/memberships.ts`):
+A member can belong to several cohorts and appears in each one's results, but
+trains in one at a time, and only one cohort runs at a time.
 
-- **Their current cohort is over:** the move happens at once. That cohort's
-  `sessions`, `checkIns`, `photos`, `badges` and `state` are deleted, with the
-  progress and proof photos they point at, so none of it shows in the new
-  cohort. Nothing of the old cohort is kept on the account; its board keeps
-  their row. The member document is pointed at the new cohort with fresh
-  `stats` and a new `joinedAt`, and a row goes on the new cohort's board. The
-  profile (name, region, body metrics, goal) carries over, so there is no
-  second setup.
-- **It is still running:** the code is claimed anyway (the seat was paid for)
-  and held as `members/{uid}.nextCohort`. The member stays where they are, and
-  the ended screen moves them on it once the cohort is over.
+**Cohort status** is `draft`, `active`, `completed` or `archived`. A cohort's
+days can't overlap another's (archived ones aside). One made while another is
+running starts as a `draft`, and the console won't activate it until the running
+one has completed or been archived. `completed` is written by `completeCohorts`
+(`apps/functions/src/cohort-status.ts`, every 15 minutes) once an active
+cohort's last day passes; everything reads a completed cohort as over, the same
+as a past `endDate`. Moving a completed cohort's last day later in the console
+makes it `active` again, if nothing else is running. Reopening an archived one
+brings it back `active`, `draft` while another runs, or `completed` if its last
+day has passed.
 
-A code should not reach somebody whose cohort is running. The landing form
-refuses one with a single sentence that names no cohort, since anybody can type
-any address. The console refuses with the cohort's name. The hold is for what
-gets through anyway: a code issued before either check existed, or a purchase
-for two cohorts at once.
+**Membership.** `members/{uid}` holds the active membership: `cohortId`, the
+code, `joinedAt`, `stats`. A member joining another cohort goes through the
+`joinCohort` callable (`apps/functions/src/memberships.ts`):
 
-Where a member enters one: the access-code screen (an existing account signing
-back in with a new code joins with it), and the ended screen.
+- The cohort they were in goes into `members/{uid}.previousCohorts`, keyed by
+  cohort id, with its code, program, `joinedAt`, `leftAt` and the stats it ended
+  on. The admin console reads it to keep them in that cohort's results, as
+  `completed` (`membersOf` in `apps/admin/src/lib/members.ts`).
+- Their logs stay. Each one names its cohort in `cohortId`; one with no tag was
+  written before the field existed and belongs to the cohort they were in then.
+  On joining, the old cohort's `sessions`, `checkIns`, `photos` and `badges` are
+  tagged and renamed to `{cohortId}~{id}`, because the new cohort reuses their
+  ids (`w{week}-{day}`, `week-{n}`, the badge id). The workout in progress in
+  `state` is dropped.
+- The member document points at the new cohort with fresh `stats` and a new
+  `joinedAt`, and a row goes on the new cohort's board. The old board keeps
+  theirs. The profile (name, region, body metrics, goal) carries over, so there
+  is no second setup.
 
-The move runs in three steps, each safe to repeat: claim and hold, delete the
-old logs, re-point the member. A call cut off between two is finished by the
-next. The held code is checked before anything is deleted, so a revoked one
-cannot leave a member with no logs and no new cohort.
+The member app, `logSession`, `submitCheckIn` and `logPhoto` read only the
+active cohort's logs (`ofCohort`), so nothing from the old cohort shows in the
+new one. The admin's analytics, pulse and leaderboard count a cohort's logs by
+the same rule (`logInCohort`).
 
-**Deploy order:** `joinCohort` first, then the member app and `apps/web`, then
-both rules files. Until the rules land a member could write `nextCohort` on
-their own document; the function re-reads the held code before moving anyone
-on it, so that buys nothing, but the rules are what make the field theirs alone.
+If the old cohort is still running, joining ends their part in it there and
+then (`leftEarly` on the record). A code should not reach them while it runs:
+the landing form refuses one with a single sentence that names no cohort, since
+anybody can type any address, and the console refuses with the cohort's name.
+A cohort they have been in before can't be joined again.
 
-The admin console lists members by `members/{uid}.cohortId`, so a member who
-has moved shows under their new cohort only.
+Where a member enters a code: the access-code screen (an existing account
+signing back in with a new code joins with it), and the ended screen.
+
+The join runs in two steps, each safe to repeat: set the old logs aside, then
+claim the code and switch, in one transaction. The code is checked before
+anything moves. A call cut off between the two leaves the member where they
+were, since the logs set aside still carry the active cohort's id.
+
+**Deploy order:** the functions first (`joinCohort`, `completeCohorts`, and the
+member writes that tag logs), then the member app, `apps/web` and the admin
+console, then both Firestore rules files and `storage.rules`. Until the rules
+land, a member could write `previousCohorts` on their own document.
 
 ## What a code contains
 

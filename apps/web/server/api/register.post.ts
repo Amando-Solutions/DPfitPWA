@@ -174,10 +174,10 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 409, statusMessage: 'The cohort or price has changed. Refresh this page before continuing.' })
   }
 
-  // A member is in one cohort at a time, and not sold the next while theirs
-  // is running. Asked now because nothing can be after they pay. A lookup that
-  // fails does not stop the sale: the code it ends in is held at redemption
-  // until their cohort is over, which is the same outcome, later.
+  // A member trains in one cohort at a time, and is not sold another while
+  // theirs is running. Asked now because nothing can be after they pay. A
+  // lookup that fails does not stop the sale: redeeming the code it ends in
+  // ends their part in the running cohort, which is the rare case it is for.
   let enrolled: string | null = null
   try {
     enrolled = await enrolmentRefusal(firestore(), registration.email, challenge.id)

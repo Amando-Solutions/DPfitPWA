@@ -10,6 +10,7 @@ import {
   ReplyIcon,
   SendIcon,
   SmilePlusIcon,
+  Trash2Icon,
   UsersIcon,
   XIcon,
 } from "lucide-react"
@@ -18,6 +19,17 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -45,7 +57,9 @@ import {
   ADMIN_CHAT_REACTIONS,
   adminReplyPreview,
   adminReplyRefFor,
+  deleteAdminMessage,
   markThreadRead,
+  previewIsOf,
   sendAdminMessage,
   toggleAdminReaction,
   type AdminChatMessage,
@@ -119,6 +133,7 @@ export function AdminChatPage() {
   const [text, setText] = useState("")
   const [files, setFiles] = useState<File[]>([])
   const [replyingTo, setReplyingTo] = useState<AdminChatMessage | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<AdminChatMessage | null>(null)
   const [failedMessages, setFailedMessages] = useState<AdminChatMessage[]>([])
   const activeKind = (searchParams.get("kind") || "group") as AdminChatThreadKind
   const activeCohortId = searchParams.get("cohortId") || ""
@@ -275,11 +290,10 @@ export function AdminChatPage() {
       queryClient.setQueryData<AdminChatMessage[]>(queryKey, previous.map((message) => {
         if (message.id !== input.messageId) return message
         const current = message.reactions.find((reaction) => reaction.emoji === input.emoji)
-        const removing = current?.mine === true
-        const nextCount = Math.max(0, (current?.count ?? 0) + (removing ? -1 : 1))
+        const nextCount = Math.max(0, (current?.count ?? 0) + (input.removing ? -1 : 1))
         const reactions = message.reactions
           .filter((reaction) => reaction.emoji !== input.emoji)
-          .concat(nextCount > 0 ? [{ emoji: input.emoji, count: nextCount, mine: !removing }] : [])
+          .concat(nextCount > 0 ? [{ emoji: input.emoji, count: nextCount, mine: !input.removing }] : [])
         return { ...message, reactions }
       }))
       return { previous, queryKey }
@@ -295,7 +309,22 @@ export function AdminChatPage() {
       })
     },
   })
+  // No optimistic removal: the live thread drops the message as soon as the
+  // delete is queued, and puts it back if the write is refused.
+  const deleteMutation = useMutation({
+    mutationFn: deleteAdminMessage,
+    onSuccess: (result, input) => {
+      toast.success("Message deleted")
+      if (!result.projectionUpdated) {
+        toast.warning("Message deleted, but the inbox preview could not be updated.")
+      }
+      if (replyingTo?.id === input.messageId) setReplyingTo(null)
+      setDeleteTarget(null)
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Message could not be deleted."),
+  })
   const isSending = sendMutation.isPending
+  const isDeleting = deleteMutation.isPending
 
   function selectThread(option: ThreadOption) {
     setReplyingTo(null)
@@ -348,11 +377,34 @@ export function AdminChatPage() {
 
   function handleReaction(messageId: string, emoji: string) {
     if (!activeThread || !user) return
+    const message = allMessages.find((item) => item.id === messageId)
     reactionMutation.mutate({
       cohortId: activeThread.cohortId,
       threadId: activeThread.threadId,
       messageId,
       emoji,
+      removing: message?.reactions.some((reaction) => reaction.emoji === emoji && reaction.mine) ?? false,
+    })
+  }
+
+  function handleDelete() {
+    if (!deleteTarget || !activeThread) return
+    if (!user) {
+      toast.error("Your admin session has expired. Sign in again.")
+      return
+    }
+    // When the inbox is previewing this message, the newest message left in
+    // the thread takes its place.
+    const preview = activeThread.projectedThread
+    const remaining = allMessages.filter(
+      (message) => message.id !== deleteTarget.id && !message.isFailed && !message.id.startsWith("temp-"),
+    )
+    deleteMutation.mutate({
+      cohortId: activeThread.cohortId,
+      threadId: activeThread.threadId,
+      messageId: deleteTarget.id,
+      replacePreview: preview && previewIsOf(preview, deleteTarget) ? (remaining.at(-1) ?? null) : undefined,
+      user,
     })
   }
 
@@ -481,6 +533,7 @@ export function AdminChatPage() {
                     onRetry={() => handleRetry(message)}
                     onReply={() => setReplyingTo(message)}
                     onReact={(emoji) => handleReaction(message.id, emoji)}
+                    onDelete={() => setDeleteTarget(message)}
                     reactionPending={
                       reactionMutation.isPending
                       && reactionMutation.variables?.messageId === message.id
@@ -560,6 +613,50 @@ export function AdminChatPage() {
           </div>
         )}
       </main>
+
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => !open && !isDeleting && setDeleteTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia>
+              <Trash2Icon />
+            </AlertDialogMedia>
+            <AlertDialogTitle>
+              {deleteTarget && !deleteTarget.isCoach
+                ? `Delete ${deleteTarget.authorName}'s message?`
+                : "Delete this message?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              It's removed for everyone in the thread and from members' inboxes.
+              Replies that quote it keep the quote.
+              {deleteTarget && deleteTarget.attachments.length > 0
+                && " Its attachments stay in storage."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={isDeleting}
+            >
+              {isDeleting ? (
+                <>
+                  <Spinner data-icon="inline-start" />
+                  Deleting
+                </>
+              ) : (
+                <>
+                  <Trash2Icon data-icon="inline-start" />
+                  Delete message
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -611,6 +708,7 @@ function MessageBubble({
   onRetry,
   onReply,
   onReact,
+  onDelete,
   reactionPending,
 }: {
   message: AdminChatMessage
@@ -619,6 +717,7 @@ function MessageBubble({
   onRetry?: () => void
   onReply: () => void
   onReact: (emoji: string) => void
+  onDelete: () => void
   reactionPending: boolean
 }) {
   const authorName = message.isCoach ? "Coach" : message.authorName
@@ -669,10 +768,25 @@ function MessageBubble({
       </DropdownMenuContent>
     </DropdownMenu>
   ) : null
+  // Any message, not only the coach's: deleting a member's is moderation.
+  const deleteButton = canActOnMessage ? (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      title="Delete message"
+      aria-label="Delete message"
+      className="shrink-0 rounded-full text-muted-foreground opacity-70 hover:text-destructive hover:opacity-100"
+      onClick={onDelete}
+    >
+      <Trash2Icon />
+    </Button>
+  ) : null
   const messageActions = canActOnMessage ? (
     <div className="flex shrink-0 items-center">
       {replyButton}
       {reactionMenu}
+      {deleteButton}
     </div>
   ) : null
 

@@ -85,7 +85,6 @@ import {
   useCohortsQuery,
   useLiveCallsQuery,
   useMembersQuery,
-  usePlatformSettingsQuery,
   useProgramsQuery,
 } from "@/hooks/use-admin-queries"
 import { effectiveCodeStatus, revokeAccessCodes } from "@/lib/access-codes"
@@ -110,6 +109,7 @@ import {
   createCohort,
   registrationInputOf,
   reopenCohort,
+  runningCohort,
   saveCohortExperience,
   setCohortStatus,
   type CohortCoachInput,
@@ -137,11 +137,17 @@ const todayInLagos = () => dayIn(new Date(), DEFAULT_TIMEZONE)
 /** A cohort's date as the day it names on the cohort's own calendar. */
 const formatCohortDay = (cohort: CohortRecord, value: Date | null) => formatDayIn(value, cohortZone(cohort.timezone))
 
-type EffectiveStatus = "draft" | "active" | "ended"
+type EffectiveStatus = "draft" | "active" | "completed" | "archived"
 
-/** What a cohort is to its members now: a cohort past its last day is over, whatever `status` says. */
+/**
+ * What a cohort is to its members now. An active cohort past its last day has
+ * completed, whatever `status` says: the `completeCohorts` function writes it
+ * within 15 minutes, and this shows it the moment it happens.
+ */
 const effectiveStatusOf = (cohort: CohortRecord, now: Date): EffectiveStatus =>
-  cohortOver(cohort, now) ? "ended" : cohort.status === "active" ? "active" : "draft"
+  cohort.status === "archived" ? "archived"
+    : cohort.status === "completed" || cohortOver(cohort, now) ? "completed"
+    : cohort.status
 
 const coachInputOf = (cohort: CohortRecord | undefined): CohortCoachInput => ({
   name: cohort?.coach?.name || "DP Fit Coach",
@@ -182,21 +188,24 @@ function membersAndCodes(members: number, codes: number) {
   ].filter(Boolean).join(" and ")
 }
 
-/** "Ended" covers both ways a cohort closes; the stored `status` stays visible beside it. */
+/** One badge per status. A draft whose last day passed before it ever ran says so beside it. */
 function statusBadge(cohort: CohortRecord, now: Date) {
-  if (cohort.status === "archived" || cohortOver(cohort, now)) {
+  const status = effectiveStatusOf(cohort, now)
+  if (status === "archived") {
     return (
-      <span className="inline-flex items-center gap-1.5">
-        <Badge variant="outline">
-          {cohort.status === "archived" ? <ArchiveIcon data-icon="inline-start" /> : <FlagIcon data-icon="inline-start" />} Ended
-        </Badge>
-        <span className="text-xs text-muted-foreground">
-          {cohort.status === "archived" ? "archived" : `last day passed · ${cohort.status}`}
-        </span>
-      </span>
+      <Badge variant="outline">
+        <ArchiveIcon data-icon="inline-start" /> Archived
+      </Badge>
     )
   }
-  if (cohort.status === "active") {
+  if (status === "completed") {
+    return (
+      <Badge variant="outline">
+        <FlagIcon data-icon="inline-start" /> Completed
+      </Badge>
+    )
+  }
+  if (status === "active") {
     return (
       <Badge variant="secondary">
         <CheckCircle2Icon data-icon="inline-start" /> Active
@@ -224,7 +233,6 @@ export function CohortsPage() {
   const { user } = useAdminAuth()
   const cohortsQuery = useCohortsQuery()
   const programsQuery = useProgramsQuery()
-  const settingsQuery = usePlatformSettingsQuery()
   const codesQuery = useAccessCodesQuery()
   const membersQuery = useMembersQuery()
   const cohorts = useMemo(() => cohortsQuery.data ?? [], [cohortsQuery.data])
@@ -238,7 +246,7 @@ export function CohortsPage() {
   const [name, setName] = useState("")
   const [startDate, setStartDate] = useState(todayInLagos)
   const [durationWeeks, setDurationWeeks] = useState("6")
-  const [status, setStatus] = useState("active")
+  const [status, setStatus] = useState<"active" | "draft">("active")
   const [selectedProgramId, setSelectedProgramId] = useState("")
   // `null` until edited: the form shows the newest cohort's coach and offer, as they load.
   const [coach, setCoach] = useState<CohortCoachInput | null>(null)
@@ -283,7 +291,7 @@ export function CohortsPage() {
   })
   const statusMutation = useMutation({
     mutationFn: ({ cohort, currentUser }: { cohort: CohortRecord; currentUser: NonNullable<typeof user> }) =>
-      setCohortStatus(cohort, "active", currentUser),
+      setCohortStatus(cohort, "active", currentUser, cohorts),
     onSuccess: (_, variables) => toast.success(`${variables.cohort.name} activated`),
     onError: (error) => toast.error(error instanceof Error ? error.message : "Cohort status could not be updated."),
   })
@@ -291,7 +299,7 @@ export function CohortsPage() {
   // codes would still redeem, onto the ended screen, so they can go with it.
   const archiveMutation = useMutation({
     mutationFn: async ({ cohort, codeIds, currentUser }: { cohort: CohortRecord; codeIds: string[]; currentUser: NonNullable<typeof user> }) => {
-      await setCohortStatus(cohort, "archived", currentUser)
+      await setCohortStatus(cohort, "archived", currentUser, cohorts)
       await revokeAccessCodes(codeIds, currentUser)
     },
     onSuccess: (_, variables) => {
@@ -303,7 +311,7 @@ export function CohortsPage() {
   })
   const reopenMutation = useMutation({
     mutationFn: ({ cohort, lastDay, currentUser }: { cohort: CohortRecord; lastDay: string; currentUser: NonNullable<typeof user> }) =>
-      reopenCohort(cohort, currentUser, lastDay || undefined),
+      reopenCohort(cohort, currentUser, cohorts, lastDay || undefined),
     onSuccess: (_, variables) => {
       toast.success(`${variables.cohort.name} reopened`)
       setReopenTarget(null)
@@ -312,7 +320,7 @@ export function CohortsPage() {
   })
   const experienceMutation = useMutation({
     mutationFn: ({ cohort, experience, currentUser }: { cohort: CohortRecord; experience: CohortExperienceInput; currentUser: NonNullable<typeof user> }) =>
-      saveCohortExperience(cohort, experience, currentUser),
+      saveCohortExperience(cohort, experience, currentUser, cohorts),
     onSuccess: (_, variables) => {
       toast.success(`${variables.cohort.name} settings saved`)
       setExperienceTarget(null)
@@ -329,10 +337,14 @@ export function CohortsPage() {
     () => cohorts.filter((cohort) => cohortInProgress(cohort, now)).length,
     [cohorts, now],
   )
-  // Settings → "Multiple simultaneous challenges" off: one active cohort at a time.
-  const singleCohortBlock = settingsQuery.data?.multipleCohorts === false && activeCount > 0
-    ? "Only one cohort can run at a time. Wait for the running cohort's last day to pass, archive it, or allow multiple simultaneous challenges in Settings."
+  // One cohort runs at a time. Another can be made meanwhile, as a draft, and
+  // activated once the running one has ended or been archived.
+  const running = useMemo(() => runningCohort(cohorts, now), [cohorts, now])
+  const runningBlock = running
+    ? `${running.name} is running. New cohorts start as drafts, and can be activated once it has ended or been archived.`
     : null
+  const createStatus = running ? "draft" : status
+  const createStatusItems = running ? statusItems.filter((item) => item.value === "draft") : statusItems
   const memberCount = useMemo(
     () => cohorts.reduce((total, cohort) => total + cohort.memberCount, 0),
     [cohorts],
@@ -427,11 +439,12 @@ export function CohortsPage() {
       name,
       startDay: startDate,
       durationWeeks: Number.parseInt(durationWeeks, 10),
-      status: status as "active" | "draft",
+      status: createStatus,
       program: selectedProgram,
       coach: coachValue,
       registration: offerValue,
       user,
+      cohorts,
     })
   }
 
@@ -566,7 +579,7 @@ export function CohortsPage() {
           actions.push({
             label: "Activate cohort",
             icon: PlayCircleIcon,
-            disabled: isUpdating || !!singleCohortBlock,
+            disabled: isUpdating || !!runningBlock,
             onSelect: () => void handleActivate(cohort),
           })
         }
@@ -584,7 +597,7 @@ export function CohortsPage() {
           actions.push({
             label: "Reopen cohort",
             icon: ArchiveRestoreIcon,
-            disabled: isUpdating || !!singleCohortBlock,
+            disabled: isUpdating,
             onSelect: () => openReopen(cohort),
           })
         }
@@ -601,11 +614,11 @@ export function CohortsPage() {
       <section className="flex flex-col gap-4 border-b pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Cohorts</h1>
-          {singleCohortBlock && <p className="mt-1 max-w-xl text-sm text-muted-foreground">{singleCohortBlock}</p>}
+          {runningBlock && <p className="mt-1 max-w-xl text-sm text-muted-foreground">{runningBlock}</p>}
         </div>
 
         <Dialog open={dialogOpen} onOpenChange={(open) => !isCreating && setDialogOpen(open)}>
-          <DialogTrigger render={<Button className="min-h-11 sm:min-h-8" disabled={!!singleCohortBlock} title={singleCohortBlock ?? undefined} />}>
+          <DialogTrigger render={<Button className="min-h-11 sm:min-h-8" />}>
             <PlusIcon data-icon="inline-start" /> Create cohort
           </DialogTrigger>
           <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl">
@@ -689,17 +702,17 @@ export function CohortsPage() {
                   <Field data-disabled={isCreating || undefined}>
                     <FieldLabel htmlFor="cohort-status">Status</FieldLabel>
                     <Select
-                      items={statusItems}
-                      value={status}
-                      onValueChange={(value) => value && setStatus(value)}
-                      disabled={isCreating}
+                      items={createStatusItems}
+                      value={createStatus}
+                      onValueChange={(value) => (value === "active" || value === "draft") && setStatus(value)}
+                      disabled={isCreating || !!running}
                     >
                       <SelectTrigger id="cohort-status" className="h-11 w-full sm:h-8">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectGroup>
-                          {statusItems.map((item) => (
+                          {createStatusItems.map((item) => (
                             <SelectItem key={item.value} value={item.value}>
                               {item.label}
                             </SelectItem>
@@ -1036,7 +1049,11 @@ export function CohortsPage() {
               {reopenPastLastDay
                 ? <>Its last day, {reopenSavedLastDay && formatDayKey(reopenSavedLastDay)}, has passed too, so reopening alone leaves members on "Your cohort has ended". Set a later last day to let them back in.</>
                 : <>Its members go back into the app straight away and can train, check in and chat again{reopenSavedLastDay ? <>, until the end of {formatDayKey(reopenSavedLastDay)}</> : null}.</>}
-              {reopenTarget && !reopenTarget.programId && <> It has no program, so it reopens as a draft.</>}
+              {reopenTarget && !reopenTarget.programId
+                ? <> It has no program, so it reopens as a draft.</>
+                : running && !reopenStillOver
+                  ? <> {running.name} is running, so it reopens as a draft, to be activated once {running.name} has ended.</>
+                  : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {reopenPastLastDay && (

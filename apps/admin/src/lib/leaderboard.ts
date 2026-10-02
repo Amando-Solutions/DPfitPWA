@@ -1,5 +1,6 @@
 import { collection, getDocs, query, where } from "firebase/firestore"
 import { firebaseDb } from "@/lib/firebase"
+import { logInCohort, type MemberRecord } from "@/lib/members"
 
 export type MemberGamification = { streakWeeks: number; badgesEarned: number }
 
@@ -32,16 +33,23 @@ export function streakWeeks(qualifyingWeeks: Set<number>, currentWeek: number) {
  * member (their qualifying sessions and their badges), so it costs one read per
  * qualifying session and per badge, and only for the cohort being viewed.
  */
-export async function fetchCohortGamification(memberIds: string[], currentWeek: number): Promise<Map<string, MemberGamification>> {
+export async function fetchCohortGamification(
+  cohortId: string,
+  members: Pick<MemberRecord, "id" | "activeCohortId">[],
+  currentWeek: number,
+): Promise<Map<string, MemberGamification>> {
   if (!firebaseDb) throw new Error("The leaderboard is not configured.")
   const database = firebaseDb
-  const entries = await Promise.all(memberIds.map(async (memberId) => {
-    const [sessions, badges] = await Promise.all([
+  const entries = await Promise.all(members.map(async ({ id: memberId, activeCohortId }) => {
+    const [allSessions, allBadges] = await Promise.all([
       getDocs(query(collection(database, "members", memberId, "sessions"), where("qualifies", "==", true))),
       getDocs(collection(database, "members", memberId, "badges")),
     ])
-    const weeks = new Set(sessions.docs.map((item) => Number(item.data().weekNumber ?? 0)).filter((week) => week > 0))
-    return [memberId, { streakWeeks: streakWeeks(weeks, currentWeek), badgesEarned: badges.size }] as const
+    // This cohort's only; a member who has been in another keeps its logs too.
+    const sessions = allSessions.docs.filter((item) => logInCohort(item.data(), cohortId, activeCohortId))
+    const badges = allBadges.docs.filter((item) => logInCohort(item.data(), cohortId, activeCohortId))
+    const weeks = new Set(sessions.map((item) => Number(item.data().weekNumber ?? 0)).filter((week) => week > 0))
+    return [memberId, { streakWeeks: streakWeeks(weeks, currentWeek), badgesEarned: badges.length }] as const
   }))
   return new Map(entries)
 }

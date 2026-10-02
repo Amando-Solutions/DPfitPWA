@@ -709,7 +709,7 @@ export class LocalDataSource implements DataSource {
    * Hand every listener on this thread the thread as it now stands.
    *
    * Called after each write rather than from inside `storage`, because the
-   * only writes that reach a chat thread are the two below.
+   * only writes that reach a chat thread are the ones below.
    */
   private async publishThread(threadId: ThreadId): Promise<void> {
     const listeners = this.threadWatchers.get(threadId)
@@ -748,6 +748,12 @@ export class LocalDataSource implements DataSource {
     return this.watchMessages(threadId, (messages) => {
       onMessage(messages.at(-1) ?? null)
     })
+  }
+
+  /** Off the end of the thread in memory, for the reason `watchLatestMessage` gives. */
+  async getLatestCoachMessage(threadId: ThreadId): Promise<ChatMessageView | null> {
+    const messages = await this.listMessages(threadId)
+    return [...messages].reverse().find((m) => m.isCoach) ?? null
   }
 
   async sendMessage(
@@ -866,6 +872,32 @@ export class LocalDataSource implements DataSource {
 
     const reactions = storage.read<Record<string, string[]>>(KEY.reactions, {})
     return withViewer(edited, viewer, reactions[`${threadId}:${messageId}`] ?? [])
+  }
+
+  /**
+   * Drop a sent message, and the member's reaction to it.
+   *
+   * Only what this device sent can go, for the reason `editMessage` gives: the
+   * seeded half of the thread is a constant in the bundle.
+   */
+  async deleteMessage(threadId: ThreadId, messageId: string): Promise<void> {
+    const viewer = (await this.getAuthUser())?.uid ?? 'me'
+    const all = storage.read<Record<string, Message[]>>(KEY.messages, {})
+    const thread = all[threadId] ?? []
+    const target = thread.find((m) => m.id === messageId)
+
+    if (!target || target.authorUid !== viewer) {
+      throw new DataSourceError('You can only delete your own messages.', 'not-author')
+    }
+
+    storage.write(KEY.messages, {
+      ...all,
+      [threadId]: thread.filter((m) => m.id !== messageId),
+    })
+    const reactions = { ...storage.read<Record<string, string[]>>(KEY.reactions, {}) }
+    delete reactions[`${threadId}:${messageId}`]
+    storage.write(KEY.reactions, reactions)
+    await this.publishThread(threadId)
   }
 
   async toggleReaction(
