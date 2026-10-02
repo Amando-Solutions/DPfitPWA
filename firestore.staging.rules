@@ -1,9 +1,5 @@
 rules_version = '2';
 
-// LOCAL MERGED CANDIDATE — NOT DEPLOYED.
-// Built from staging ruleset 96307f9a-438a-4b22-87c9-98acb6499ebd.
-// Review docs/firestore-rules-merged-candidate.md before any deployment.
-
 // =============================================================================
 // DP Fitness — Firestore security rules
 //
@@ -14,9 +10,11 @@ rules_version = '2';
 // Two principles run through the whole file:
 //
 //   1. A member reads their own documents and writes their own documents.
-//      Everything under `members/{uid}` is gated on `uid == request.auth.uid`,
-//      with no exceptions, including for the coach — coach tooling belongs on
-//      the Admin SDK, which bypasses rules entirely.
+//      Everything under `members/{uid}` is gated on `uid == request.auth.uid`.
+//      The one other caller is an operator (`isOperator()`: the console's
+//      `dpfitAdmin` claim, or the legacy `coach` one), who may read a member
+//      for support and make a few audited writes — pause, resume, review —
+//      but never edit a profile. No other member ever reads one.
 //
 //   2. Anything shared with the cohort is a projection, never the source.
 //      The leaderboard reads `cohorts/{id}/leaderboard`, which holds a name, an
