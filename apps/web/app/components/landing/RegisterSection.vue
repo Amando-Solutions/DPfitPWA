@@ -444,9 +444,9 @@ const inputClass = (name: FieldName) => [
                   >marketing use of my photos and results</a>
                   (optional).
                 </label>
-                <span id="register-marketing-hint" class="text-[12px] text-lp-soft">
+                <!-- <span id="register-marketing-hint" class="text-[12px] text-lp-soft">
                   Always with your face blurred. Saying no doesn't affect your place in the challenge.
-                </span>
+                </span> -->
               </div>
             </div>
           </div>
