@@ -48,10 +48,43 @@ export default defineNuxtConfig({
       ssr: false,
       prerender: false,
       // Nothing to index, and a payment confirmation in a search result is a
-      // confusing thing to land on. `robots: false` would need the robots
-      // module; the header is understood without it.
-      headers: { 'X-Robots-Tag': 'noindex, nofollow' },
+      // confusing thing to land on. The robots module turns this into an
+      // `X-Robots-Tag: noindex, nofollow` header and keeps the page out of the
+      // sitemap. It is deliberately not a `Disallow` in robots.txt: a crawler
+      // barred from fetching the page never reads the header.
+      robots: false,
     },
+  },
+
+  /**
+   * robots.txt and sitemap.xml, both generated at build time.
+   *
+   * On the `firebase` preset the robots module prerenders `/robots.txt`, and
+   * `zeroRuntime` does the same for `/sitemap.xml`, so both are static files
+   * on the Hosting CDN: a crawler asking for them never wakes the server
+   * function, and neither module ships runtime code for it.
+   *
+   * Whether the site may be indexed comes from `site.env`, which defaults to
+   * NODE_ENV — `production` for every build, staging included. A staging build
+   * has to set NUXT_SITE_ENV=staging, which turns robots.txt into
+   * `Disallow: /` and adds a noindex header to every page. See .env.example.
+   */
+  modules: ['@nuxtjs/robots', '@nuxtjs/sitemap'],
+
+  site: {
+    name: 'DP Fitness',
+    // The modules read NUXT_PUBLIC_SITE_URL on their own; this only matters
+    // when `siteUrl` came from the Vercel fallback above.
+    ...(siteUrl ? { url: siteUrl } : {}),
+  },
+
+  robots: {
+    // Detection is for pages that act on who is asking. None here do.
+    botDetection: false,
+  },
+
+  sitemap: {
+    zeroRuntime: true,
   },
 
   // A server runtime is required for current Firestore content and checkout.
