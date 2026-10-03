@@ -57,12 +57,13 @@ export default defineNuxtConfig({
   },
 
   /**
-   * robots.txt and sitemap.xml, both generated at build time.
+   * robots.txt and sitemap.xml.
    *
-   * On the `firebase` preset the robots module prerenders `/robots.txt`, and
-   * `zeroRuntime` does the same for `/sitemap.xml`, so both are static files
-   * on the Hosting CDN: a crawler asking for them never wakes the server
-   * function, and neither module ships runtime code for it.
+   * `zeroRuntime` prerenders `/sitemap.xml` into a static file, because the
+   * pages are fixed and there is nothing to work out per request. On App
+   * Hosting the robots module serves `/robots.txt` from the server, with a
+   * four-hour Cache-Control. (It prerenders robots.txt only for the classic
+   * `firebase` preset, which this site no longer uses.)
    *
    * Whether the site may be indexed comes from `site.env`, which defaults to
    * NODE_ENV — `production` for every build, staging included. A staging build
