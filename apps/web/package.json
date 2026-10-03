@@ -16,6 +16,8 @@
   },
   "dependencies": {
     "@dpfit/theme": "*",
+    "@nuxtjs/robots": "^6.2.4",
+    "@nuxtjs/sitemap": "^8.6.1",
     "@vvo/tzdb": "^6.198.0",
     "firebase-admin": "^14.3.0",
     "google-auth-library": "^10.6.2",
