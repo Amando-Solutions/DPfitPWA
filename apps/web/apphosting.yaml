@@ -1,0 +1,14 @@
+# App Hosting backend `web` (dayopius.com).
+#
+# `maxInstances` is set because the default (100) no longer deploys. Cloud Run
+# caps the project at 20 vCPU and 40 GiB in us-east4, and App Hosting asks for
+# maxInstances × cpu, so 100 × 1 vCPU failed the rollout with
+# "Max instances must be set to 20 or fewer".
+#
+# The 20 vCPU covers all three backends in the region together, so the caps
+# add up to 20: web 10, pwa 8, admin 2. Raise one only by lowering another,
+# or after the quota is raised (IAM & Admin > Quotas, run.googleapis.com/cpu_allocation).
+runConfig:
+  cpu: 1
+  memoryMiB: 512
+  maxInstances: 10

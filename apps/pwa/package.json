@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@dpfit/theme": "*",
+    "@vite-pwa/nuxt": "^1.1.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "firebase": "^12.18.0",
@@ -31,7 +32,6 @@
   },
   "devDependencies": {
     "@types/node": "^22",
-    "@vite-pwa/nuxt": "^1.1.1",
     "firebase-admin": "^14.3.0",
     "playwright-core": "1.62.1",
     "typescript": "^5.9.0",
