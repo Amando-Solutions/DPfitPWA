@@ -1,0 +1,9 @@
+# App Hosting backend `admin`.
+#
+# `maxInstances` is set because the default (100) no longer deploys: Cloud Run
+# caps the project at 20 vCPU in us-east4, shared by all three backends. The
+# caps add up to 20 (web 10, pwa 8, admin 2); see apps/web/apphosting.yaml.
+runConfig:
+  cpu: 1
+  memoryMiB: 512
+  maxInstances: 2
