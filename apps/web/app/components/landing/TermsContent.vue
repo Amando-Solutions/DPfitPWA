@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { TERMS_CLAUSE, TERMS_POINTS } from '~/data/terms'
+import { TERMS_SECTIONS } from '~/data/terms'
 
 /**
  * The terms themselves, below whatever title the caller gives them: the
@@ -8,7 +8,7 @@ import { TERMS_CLAUSE, TERMS_POINTS } from '~/data/terms'
  */
 const props = withDefaults(
   defineProps<{
-    /** The level of the clause card's heading, one below the caller's title. */
+    /** The level of the section headings, one below the caller's title. */
     level?: 2 | 3
   }>(),
   { level: 2 },
@@ -18,27 +18,32 @@ const heading = computed(() => `h${props.level}`)
 </script>
 
 <template>
-  <div class="flex flex-col gap-10">
-    <ul class="m-0 flex list-disc flex-col gap-2.5 pl-5 text-[15.5px] leading-[1.7] text-lp-soft marker:text-lp-accent">
-      <li v-for="point in TERMS_POINTS" :key="point.title">
-        <b class="font-semibold text-lp-ink">{{ point.title }}</b> {{ point.text }}
-      </li>
-    </ul>
-
-    <!-- What the box on the booking form commits somebody to, carded so it
-         reads apart from the points above. -->
+  <div class="flex flex-col gap-8">
     <section
-      :id="TERMS_CLAUSE.id"
-      class="flex scroll-mt-4 flex-col gap-3 rounded-[20px] border border-lp-edge bg-lp-lilac-50 p-5 sm:p-6"
+      v-for="(section, i) in TERMS_SECTIONS"
+      :key="section.title"
+      class="flex flex-col gap-3 border-t border-lp-rule pt-6 first:border-t-0 first:pt-0"
     >
-      <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <component :is="heading" class="m-0 text-[16.5px] leading-snug font-semibold">{{ TERMS_CLAUSE.title }}</component>
-        <span class="lp-chip bg-white px-2.5 py-1 text-lp-accent">required</span>
-      </div>
-      <p class="m-0 text-[15px] leading-[1.7] text-lp-soft">{{ TERMS_CLAUSE.lead }}</p>
-      <ul class="m-0 flex list-disc flex-col gap-1.5 pl-5 text-[15px] leading-[1.7] text-lp-ink marker:text-lp-accent">
-        <li v-for="point in TERMS_CLAUSE.points" :key="point">{{ point }}</li>
-      </ul>
+      <component :is="heading" class="m-0 text-[18px] font-semibold">
+        <span class="mr-2 text-lp-accent tabular-nums">{{ i + 1 }}</span>{{ section.title }}
+      </component>
+      <template v-for="(block, j) in section.blocks" :key="j">
+        <ul
+          v-if="'items' in block"
+          class="m-0 flex list-disc flex-col gap-1.5 pl-5 text-[15.5px] leading-[1.7] text-lp-soft marker:text-lp-accent"
+        >
+          <li v-for="item in block.items" :key="item.text">
+            <b v-if="item.lead" class="font-semibold text-lp-ink">{{ item.lead }}</b> {{ item.text }}
+          </li>
+        </ul>
+        <p
+          v-else
+          class="m-0 text-[15.5px] leading-[1.7]"
+          :class="block.strong ? 'font-semibold text-lp-ink' : 'text-lp-soft'"
+        >
+          <b v-if="block.lead" class="font-semibold text-lp-ink">{{ block.lead }}</b> {{ block.text }}
+        </p>
+      </template>
     </section>
   </div>
 </template>
